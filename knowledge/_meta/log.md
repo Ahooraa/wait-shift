@@ -464,3 +464,6 @@ author: llm
 
 ## [2026-10-25] meta | working principle: diagnose, map related work, then look for novelty
 - User instruction recorded in memory. New page [[novelty-register]]: seven diagnosed problems (fracturing, slack-blind queues, transfer-blind moves, placement churn, tail that routing cannot repair, low-load floor, overload) with evidence, nearest work, remaining gap, status.
+
+## [2026-10-25] query | documented literature search on the open questions of the novelty register
+- [[literature-search-2026-10-25]]: 14 new queries (26 in all over two sessions), web search only, snippet level; answers to the four open questions; reading list (CLASP, TensorCast, Zhao and Sakellariou, Bittencourt and Madeira, Chen et al. 2015, Janus, Pheromone, Metronome, ContinuumBench, Databelt). Findings: no serverless paper re-binds dependents after a move (grid-workflow lineage and ClusterFlow, Pheromone, Janus are the precedents); no 2025-2026 paper found measuring tail scaling with state size against off-the-shelf rules; adjacent queued-request migration work is larger than listed before (CLASP, TensorCast). ClusterFlow citation corroborated by one independent reference list; publisher page not retrievable; DesFaaS found by no source except ClusterFlow itself.

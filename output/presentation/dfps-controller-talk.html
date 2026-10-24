@@ -550,7 +550,7 @@ td.r, th.r { text-align: right; }
       <tr><th class="rh">Effect of the re-layout</th><td class="ef">×3.6</td><td class="ef">×13.3</td><td></td></tr>
     </tbody>
   </table></div>
-  <div class="why"><p>Request moves are worth ×2.2 on a fixed layout but <b>×7.9 once the layout adapts</b>. The effects multiply and reinforce each other (interaction −1.30 on the log scale, interval −1.52 to −1.07).</p></div>
+  <div class="why"><p>Request moves are worth ×2.2 on a fixed layout but <b>×7.9 once the layout adapts</b>. The effects do more than multiply: the combined reduction (×29) is 3.7 times the product of the separate effects (×3.6 × ×2.2 = ×7.9). Interaction on the log scale of P99: −1.30 (interval −1.52 to −1.07); negative means more reduction than the product.</p></div>
   <p class="metric"><b>Metric:</b> P99 completion latency in seconds, geometric mean over 18 development cases (Azure and Huawei, 50/70/85% load, seeds 1–3). B* annealing off in all four cells; same scenario, start layout and seed in each. For reference, B* alone: 507 s.</p>
   <div class="say">This is the core experiment. A 2-by-2 of the two loops, with raw seconds so nobody has to trust a ratio. Doing only one gives 1,000 to 1,700 seconds; doing both gives 130. The loops are not additive, they depend on each other.</div>
 </section>

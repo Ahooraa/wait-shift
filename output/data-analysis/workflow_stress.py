@@ -8,8 +8,11 @@ function toward its partners' nodes) should matter more. This study measures tha
 Scenarios (all from the development set, seeds 1-2):
   mix     the standard 15-workflow mix (6 SeBS-Flow + DFPS Fig. 1 + 8 Alibaba DAGs), F1/F2 x 70/85% load
   chain12 / layered12 / wide16   every workflow of one large shape (pattern study), F1/F2 x 85% load, seed 1
-Data intensity k: every state size and every request input size is multiplied by k (1, 4, 10). Storage and bandwidth stay as they
-are, so large states also pressure node storage, as they would on real edge nodes. Arrival rates are unchanged.
+Data intensity k: every state size and every request input size is multiplied by k (1, 4, 10), and node storage is multiplied by k
+too, so storage pressure stays what it is at k = 1 and the experiment isolates the cost of moving more data. (First design: storage
+unchanged. Smoke test 24 Oct: at k = 10 the requests in flight would need 2-7 times the whole cluster's storage by Little's law, so
+every controller stalls in storage waits and the run does not finish; k = 4 needs 0.8-3 times. Storage is therefore scaled.)
+Bandwidth and arrival rates are unchanged.
 
 Controllers:
   ours    FROZEN-2 (sizing from load and backlog, incremental soft-routing placement, finish-time moves, no cap)
@@ -64,6 +67,7 @@ def scale(sc, k):
     for w in sc.workflows:
         w.ss = {e: v * k for e, v in w.ss.items()}
         w.input_size = w.input_size * k
+    sc.esc = sc.esc * k
     sc.meta["data_scale"] = k
     return sc
 

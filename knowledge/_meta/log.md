@@ -444,3 +444,9 @@ author: llm
 ## [2026-10-24] experiment | FaaSPR mechanisms in our controller, 18 dev cases (faaspr_sweep.py)
 - Bug fixed in faaspr_placement: functions used by no workflow (one in each seed-3 scenario) were never placed, leaving slots empty; they now go where a live instance can be reused, else to the server with the most free slots. The 6 crashed runs were re-run.
 - fp_place: ours better by +1.6% (-0 to +3), 14/18; cold starts 6,927 per run vs ours (see below); parked 14.8. fp_route (300 paths, repair on storage): ours better by +2.2% (+1 to +3), 16/18; cold starts 1,410. No-moves pair (ours_nm, fp_route_nm) running.
+
+## [2026-10-24] experiment | no-moves pair finished (ours_nm vs fp_route_nm, 18 dev cases) and the stress-pilot design fix
+- P99 geometric mean: ours with moves 124 s, ours no moves 981 s (x7.9), FaaSPR routing no moves 976 s. Median per-case ratio fp_route_nm / ours_nm 1.031 (3% slower), geometric-mean ratio 0.996; fp_route_nm lower in 6/18. The earlier table row ("-7.0% (-29 to +11), 12/18") used the asymmetric per-case formula (x - ref) / x, driven by three F2 seed-3 cases where routing is 0.42-0.66 of ours_nm; use log ratios or medians for noisy comparisons. Mean latency 162.6 vs 210.5 s (23% lower with routing); storage-wait retries 86 vs 307; cold starts 1,300 vs 1,271 (ours with moves: 1,402, +10% for x7.9 on P99).
+- Interaction in the 2x2 is -1.30 on the log scale of P99: the combined reduction is e^1.30 = 3.7 times the product of the separate effects. Deck slide 20 caption states the sign.
+- workflow_stress.py: first design (storage unchanged) cannot finish at k = 10 (Little's law: requests in flight need 2-7 times the cluster storage); storage now scales with k.
+- Moves per request in short smoke runs (30-37) vs full runs (2.4-3.5): short windows are dominated by the start-up transient (moves in the first minutes divided by few completed requests); not comparable across run lengths.

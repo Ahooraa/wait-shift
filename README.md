@@ -1,3 +1,11 @@
+# wait-shift
+
+Simulation study of a re-layout and request-move controller for serverless workflows on edge servers, built on a corrected re-implementation (B*) of DFPS (Zolfaghari et al., IEEE TSC 2025). Controller code: `dfps/`; experiments: `output/data-analysis/`; wiki: `knowledge/`; decks: `output/presentation/`. Per-run results and raw traces are not in the repository (see `.gitignore`).
+
+The rest of this file is the research-project template this repository was started from.
+
+---
+
 # Research Project Template
 
 An LLM-supported research wiki following the **Input → Knowledge → Output**

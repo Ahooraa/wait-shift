@@ -50,3 +50,26 @@ bibliography: ../../output/bibtex/references.bib
 - P3 (transfer-blind moves, scaling with data size): the most promising empirical gap; needs the pilot and a systematic search.
 - P5 (queued requests): add CLASP and TensorCast to the adjacent set.
 - New items to read in full before any novelty sentence: CLASP, TensorCast, Zhao and Sakellariou, Bittencourt and Madeira, Chen et al. 2015, Janus, Pheromone, Metronome, ContinuumBench, Databelt.
+
+## Addendum: synonym sweep and cross-check against an independent search report (25 Oct)
+
+A second search report (supplied by the user, run by another assistant on a web index, with its own query log) reached the same headline: nothing re-plans only the unstarted descendants of a moved task, ClusterFlow is the nearest work for fracturing, and no academic paper treats already-queued requests as the object of a periodic control step. Its recommended synonym queries were run here (web index, snippet level):
+
+| # | Query | Result |
+|---|---|---|
+| 15 | "epoch-based" rescheduling serverless workflow | nothing relevant (sAirflow, event-scheduler posts) |
+| 16 | "receding horizon" migration serverless | nothing (serverless-migration case studies; the term is control vocabulary) |
+| 17 | "queue draining" / "drain the queue" serverless workflow scale-out | only operational guidance (AWS Builders' Library on backlogs, KEDA queue-depth scaling) |
+| 18 | "pending invocations" migration serverless rebalancing | CLASP again (queued requests migrate with state after a scaling decision); a patent on routing NEW invocations away from outlier execution environments |
+| 19 | "backlog" migration serverless DAG redistribute waiting tasks | nothing (Tez container release, Airflow backlogs, Wukong) |
+| 20 | "re-binding" "unstarted" tasks workflow late binding | nothing academic (project-management tools) |
+| 21 | Tremulant tail latency beyond P99 | not found; the report's claim about it could not be checked |
+| 22 | Styx / iRoute tail latency 2026 | Styx found (a transactional dataflow runtime for stateful functions, not a workflow scheduler); iRoute not found |
+
+**Where the two searches differ.**
+- The report's statement "no academic precedent for moving queued requests" is weaker than ours: it did not surface CLASP, TensorCast, Llumnix or the grid rescheduling papers (Bittencourt and Madeira 2007 reschedules queued tasks), all of which are adjacent. The sentence to use is the qualified one in the register, not "no prior work".
+- The report says the 2008 grid-workflow precedent was not found; the grid lineage (Zhao and Sakellariou, Chtepen et al. 2009, Bittencourt and Madeira 2007, Chen et al. 2015) was found here, though not the exact "migration triggers rescheduling of dependents" statement.
+- The report names Tremulant and iRoute, which this search could not find; treat both as unverified and do not cite them until located. METIS, C-PCP, AARC, WOW and FasFlows are named there and not yet checked beyond the report.
+- It reads ClusterFlow's mechanism correctly (Workflow Pods, DDAP, group checkpointing, eBPF), consistent with the PDF.
+
+**Still open.** DBLP and Scopus re-runs of the query strings (free for DBLP); a search with the synonyms "pending invocation", "buffered event", "request re-routing after placement change", "work stealing at the queue level" on a scholarly index; and the full-text reading list above.

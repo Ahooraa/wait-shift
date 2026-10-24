@@ -456,3 +456,8 @@ author: llm
 - Smoke test, state sizes x1 -> x10 with storage scaled (F1 85%, seed 1, short window): ours 150.7 -> 286.4 s P99, stack (HPA + JSQ) 162.7 -> 503.7 s; ours' P99 advantage over the stack 8% -> 43%.
 - First breakdown (ours, F1 70% seed 1, 130 s window): sojourn 53.5 s = exec 21.9 + wait 10.8 (unmoved) + 17.2 (moved) + transfer 3.6; local edges 38.6% planned -> 17.7% final; 66% of edges fractured; 41% of the wait is on tasks off the critical path. Tail (19 requests): 139.4 s.
 - workflow_stress.py run 10 started (144 runs, trace recorded in every run); results/wfstress.txt on completion.
+
+## [2026-10-25] query | decision rules for workflow-aware improvements, written before the pilot results; novelty of slack-aware ordering
+- [[workflow-aware-decision-rules]] fixes thresholds for R1 (re-binding), R2 (slack-aware ordering), R3 (critical-path-weighted placement) and the success criterion for anything built, with 0 of 144 pilot runs finished.
+- Web search: slack-aware / critical-path ordering is published (Archipelago, GrandSLAm, Fifer, Llama, Sledge EDF vs SRSF, METIS); added to [[baseline-matrix]]. R2 is not a new idea.
+- Median re-check of the FaaSPR rows (18 dev cases, log ratio variant / ours): fp_route median 1.022 (95% bootstrap 1.008 to 1.036), slower in 16/18; fp_place median 1.021 (1.006 to 1.040), slower in 14/18. Both are about 2% slower than ours, small but detectable; the earlier "+1.6% (-0 to +3), no detectable difference" wording for fp_place came from the mean of (x - ref)/x and is replaced.

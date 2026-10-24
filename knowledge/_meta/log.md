@@ -432,3 +432,11 @@ author: llm
 ## [2026-10-24] experiment | admission round 2 finished (final controller, 120 runs, 20 overload windows)
 - theta 1.0: goodput 11.08 -> 26.08 (x2.4), rejected 27%, P99 of admitted 738 -> 127 s, parked 25,683 -> 0. Threshold sweep (10 windows): none 14.92, 0.5 20.66 (51% rejected), 1.0 29.10 (25%), 2.0 24.37 (12%). Move cap with admission (20): 100 20.69, 300 25.99, none 26.08; without admission (10): 4.89 / 12.39 / 14.92. SLO factor 2/3/5/10: x3.6 / x2.4 / x1.5 / x1.1 (B* x3.6 / x3.2 / x2.4 / x1.3; ours+adm over B*+adm x4.3 / x3.3 / x2.3 / x1.9).
 - Talk deck: slides 26-29 (admission effect, tuning, question for the professor, elastic capacity). Decision on whether admission belongs in the contribution is left to the professor.
+
+## [2026-10-24] query | ClusterFlow read; workflow-awareness study started
+- ClusterFlow (Computer Networks 287, 2026, 112562) read from the supplied PDF and added to [[baseline-matrix]] as cite-and-contrast (workflow fracturing, DDAP greedy grouping, atomic subgraph migration; closest to our mechanism 2; not runnable in our simulator, which has no live container migration).
+- output/data-analysis/workflow_stress.py: ours vs stack (HPA + JSQ, our placement) vs kstack (HPA + JSQ + random placement) vs B*, at data scale k = 1/4/10 on the standard mix (F1/F2, 70/85%, seeds 1-2) and on chain12/layered12/wide16 (k = 1/10). dfps/o3s.py: baseline_layout accepts rng for data-oblivious placement. Smoke test running.
+
+## [2026-10-24] experiment | ablations re-run on the final controller (final_ablation.py, 108 runs, 18 dev cases each)
+- FROZEN-2 better than: textbook stack (HPA + JSQ) +14.2% (12 to 17), 18/18 (50/70/85%: +15.7/+14.1/+12.7%); JSQ moves +11.3% (9 to 13), 18/18; work stealing +35.2% (27 to 44), 18/18; HPA sizing +2.3% (1 to 4), 12/18; Kraken sizing +6.2% (2 to 11), 13/18; Fifer sizing +32.1% (18 to 47), 16/18, 5,648 cold starts vs about 1,280.
+- Gain over best existing: ours +60.0%; stack +52.9% (88% of ours); JSQ +54.2%; HPA +59.0%. Talk deck slides 16 and 21 updated (version 4); the "earlier controller" caveat removed for these rows.

@@ -1,0 +1,9 @@
+Variant of FROZEN-2 with one part replaced, 18 development cases. 'worse' = P99 higher than FROZEN-2 (positive = FROZEN-2 better)
+
+variant    n | FROZEN-2 better by         |  wins | gain over best existing |   ours |     cold   mv/req
+stack     18 |  +14.2% (+12 to +17)       | 18/18 |  +52.9% (ref  +60.0%)   |    129 |     1282     2.43
+jsq       18 |  +11.3% (+9 to +13)        | 18/18 |  +54.2% (ref  +60.0%)   |    129 |     1398     2.42
+steal     18 |  +35.2% (+27 to +44)       | 18/18 |  +40.6% (ref  +60.0%)   |    129 |     1384     1.58
+hpa       18 |   +2.3% (+1 to +4)         | 12/18 |  +59.0% (ref  +60.0%)   |    129 |     1282     3.17
+fifer     18 |  +32.1% (+18 to +47)       | 16/18 |  +32.2% (ref  +60.0%)   |    129 |     5648     4.24
+kraken    18 |   +6.2% (+2 to +11)        | 13/18 |  +58.0% (ref  +60.0%)   |    129 |     1265     3.19

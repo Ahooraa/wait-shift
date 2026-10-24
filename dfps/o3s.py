@@ -179,7 +179,7 @@ def _dag_weights(sc):
     return conn / np.maximum(occ, 1), comm
 
 
-def baseline_layout(sim, lam_f, wf_rate, kind, clear_s=120.0, util_cap=0.8, kraken_cap=0.25, elastic=False, place=None):
+def baseline_layout(sim, lam_f, wf_rate, kind, clear_s=120.0, util_cap=0.8, kraken_cap=0.25, elastic=False, place=None, rng=None):
     """Published container-sizing rules as whole-layout rules on our fixed slot budget (2026-10-22). All take the same observed
     load (last 2 min) as busiest-first and are placed by the same data-affinity routine, so only the sizing rule differs.
       hpa     Kubernetes HPA / Knative target utilisation: containers = ceil(load / 0.8), no backlog term.
@@ -215,6 +215,8 @@ def baseline_layout(sim, lam_f, wf_rate, kind, clear_s=120.0, util_cap=0.8, krak
         n_f = proportional_counts(np.maximum(demand, 1e-9), S) if need.sum() > S else need
         return kmedian_placement(sc, rates=np.maximum(wf_rate, 1e-9), counts=n_f, cur=sim.cnt.T, origin_weight=0.0)
     n_f = _fit_counts(need, np.maximum(demand, 1e-9), S)
+    if rng is not None:                                                  # data-oblivious placement (off-the-shelf stack)
+        return random_placement(sc, n_f, rng)
     if place and place.get("faaspr"):
         place = dict(place)
         place.pop("faaspr")
@@ -364,7 +366,8 @@ class O3SimAdjuster:
             return ["keep"] + [f"local{j + 1}" for j in range(len(loc))], [cur] + loc, lam_f, 0
         if self.cand_mode in ("hpa", "fifer", "kraken"):
             return ["keep", self.cand_mode], [cur, baseline_layout(sim, lam_f, wf_rate, self.cand_mode,
-                                                                   elastic=bool(self.churn.get("elastic")), place=self.place_kwargs(sim))], lam_f, 0
+                                                                   elastic=bool(self.churn.get("elastic")), place=self.place_kwargs(sim),
+                                                                   rng=self.rng if self.churn.get("placement") == "random" else None)], lam_f, 0
         if self.cand_mode in ("nosim", "keep_bottleneck"):
             return ["keep", "bottleneck"], [cur, bot], lam_f, 0
         names, cands = ["keep", "affinity", "bottleneck", "half_affinity", "half_bottleneck"], [cur, aff, bot, half_way(cur, aff), half_way(cur, bot)]

@@ -468,11 +468,11 @@ td.r, th.r { text-align: right; }
     <tbody>
       <tr><td>Use the exact future arrival rate, or score layouts by simulating the next 2 minutes</td><td>No extra gain: our plain rule reached 97–121% of their result</td></tr>
       <tr><td>Utilisation target 0.7 or 0.9 instead of 0.8; horizon 60 s or 240 s instead of 120 s</td><td>Changes of 1.6% or less</td></tr>
-      <tr><td>Published autoscaling rules instead of ours. <b>HPA-style</b> (Kubernetes autoscaler): containers = load ÷ 0.8, no backlog term. <b>Fifer-style</b>: adds containers for the backlog only when its drain time exceeds a cold start. <b>Kraken-style</b>: adds weights from the workflow graph</td><td class="worse">3.6%, 5.4% and 70.9% worse</td></tr>
+      <tr><td>Published autoscaling rules instead of ours. <b>HPA-style</b> (Kubernetes autoscaler): containers = load ÷ 0.8, no backlog term. <b>Fifer-style</b>: adds containers for the backlog only when its drain time exceeds a cold start. <b>Kraken-style</b>: adds weights from the workflow graph</td><td>HPA-style 2.3% worse (ours better in 12/18); Kraken-style 6.2%; <span class="worse">Fifer-style 32.1%</span>, with 4× the cold starts</td></tr>
     </tbody>
   </table></div>
   <div class="callout"><p>Sizing from queue and load is a known idea (HPA, Fifer, Kraken), and adapted versions get close. <b>Sizing alone is not our contribution.</b> What matters is what we pair it with.</p></div>
-  <p class="metric"><b>Metric:</b> P99 completion latency, 18 development cases (Azure and Huawei, 50/70/85% load, seeds 1–3), B* switched off. "Worse" = higher P99 than our rule. These tests ran on the earlier version of the controller (affinity placement, moves capped at 300 per round); only the rule under test differed.</p>
+  <p class="metric"><b>Metric:</b> P99 completion latency, 18 development cases (Azure and Huawei, 50/70/85% load, seeds 1–3), B* switched off. "Worse" = higher P99 than our rule. Row 3 runs on the final controller with only the sizing rule replaced; rows 1–2 come from earlier controller versions.</p>
   <div class="say">Be upfront here: this mechanism is close to published autoscalers. The point of the slide is that we tried foresight and extra tuning and neither helped, so we kept the rule simple. The next two mechanisms are where the value is.</div>
 </section>
 
@@ -565,12 +565,12 @@ td.r, th.r { text-align: right; }
       <div class="tbl"><table>
         <thead><tr><th>Replacement</th><th class="r">P99 vs ours</th></tr></thead>
         <tbody>
-          <tr><td>Join-shortest-queue moves</td><td class="r worse">9.0% worse</td></tr>
-          <tr><td>Work stealing</td><td class="r worse">28.6% worse</td></tr>
-          <tr><td>Whole textbook stack: HPA-style sizing (containers = load ÷ 0.8) + shortest-queue moves</td><td class="r worse">15.1% worse</td></tr>
+          <tr><td>Join-shortest-queue moves</td><td class="r worse">11.3% worse</td></tr>
+          <tr><td>Work stealing</td><td class="r worse">35.2% worse</td></tr>
+          <tr><td>Whole textbook stack: HPA-style sizing (containers = load ÷ 0.8) + shortest-queue moves</td><td class="r worse">14.2% worse</td></tr>
         </tbody>
       </table></div>
-      <p class="note">The textbook stack still reaches about 88% of our gain over the best existing method (+46.6% vs +53.1%).</p>
+      <p class="note">Ours is better in all 18 cases for each row. The textbook stack still reaches about 88% of our gain over the best existing method (+52.9% vs +60.0%).</p>
     </div>
     <div>
       <h3>Capping the number of moves</h3>
@@ -586,7 +586,7 @@ td.r, th.r { text-align: right; }
       <p class="note">85% load, 6 cases. Stays true when moving a request is priced at 5× its transfer cost.</p>
     </div>
   </div>
-  <p class="metric"><b>Metric:</b> P99 completion latency; "worse" = higher than our controller. Left: 18 development cases, run on the earlier controller version (affinity placement, moves capped at 300 per round) with only the rule under test changed. Right: gain = reduction against B*.</p>
+  <p class="metric"><b>Metric:</b> P99 completion latency; "worse" = higher than our controller. Left: 18 development cases on the final controller, only the rule under test changed. Right: gain = reduction against B*.</p>
   <div class="say">Two checks on mechanism 3. First, a generic balancer is worse than the finish-time estimate, so the estimate does real work. Second, any cap on moves loses performance, so we keep it uncapped. Part of the gain is from simply having a decent stack, which we state honestly.</div>
 </section>
 

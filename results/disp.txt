@@ -1,0 +1,13 @@
+P99 (seconds, mean over the cases both controllers have) and the gain of FROZEN-2 over B* with the SAME dispatcher
+
+dispatcher               n |    B* P99   FZ2 P99 | gain of FROZEN-2 over B*     |  wins | FROZEN-2 vs its DFPS-dispatcher run |  mv/req plan ms
+dfps (graph matching)   12 |       642       133 |  +75.1% (+68 to +81)         | 12/12 |   +0.0% (+0 to +0)             |    3.54   20.54
+greedy_eft              12 |       635       130 |  +74.0% (+64 to +82)         | 12/12 |   +1.5% (+0 to +3)             |    3.43    2.15
+locality                12 |       660       130 |  +76.3% (+69 to +83)         | 12/12 |   +2.0% (+1 to +3)             |    3.31    2.02
+jsq                     12 |       692       139 |  +78.1% (+73 to +83)         | 12/12 |   -4.3% (-6 to -2)             |    3.50    3.12
+random                  12 |       435       138 |  +61.0% (+50 to +71)         | 12/12 |   -3.6% (-5 to -2)             |    2.93    2.37
+
+by load, gain of FROZEN-2 over B* with the same dispatcher:
+  50%:  dfps +65%  greedy_eft +61%  locality +66%  jsq +72%  random +41%
+  70%:  dfps +78%  greedy_eft +82%  locality +80%  jsq +80%  random +66%
+  85%:  dfps +82%  greedy_eft +80%  locality +83%  jsq +82%  random +76%

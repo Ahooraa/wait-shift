@@ -36,3 +36,9 @@ Working rule (user, 2026-10-25): diagnose first, map the latest related work on 
 
 ## How an entry moves
 diagnosed (trace or ablation) -> nearest work read -> gap stated in one sentence -> decision rule written before the result -> built only if the rule fires -> success criterion on development seeds -> confirmation on fresh seeds.
+
+## Candidate checks (25 Oct), against an externally proposed list
+- **Fracture-aware move gating**: already inside our move rule. `Sol.aet` (dfps/solution.py:109-117) = input transfer + queue wait + `sum(stt(state, candidate node, planned node of each child))`, and a request moves only if that total improves, so the downstream transfer penalty of a move is priced today. What remains is an optional margin or hysteresis (move only if the gain exceeds m seconds), which is a churn control, and ClusterFlow's threshold delta is its precedent. ClusterFlow also prices severed heavy edges in its objective J and defers single-function migration (Sec. 3.2 and 5.5), so "ClusterFlow only changes the unit" is too strong.
+- **Locality-aware queue pop**: no effect in this model. A request is enqueued at a node only after all its input states are stored there (`Sim._ev_state`), and a relocation moves the states with it, so every queued request is already local to the node whose slot frees.
+- **Join-anchored (minimax) placement**: partly explored: the DFPS dispatcher has the critical-path matching objective (erratum E5 variant, `match_objective="critical"`), used in the D2 oracle; not evaluated inside our controller.
+- **Successor-aware placement, state propagation, delayed moves, slack weighting**: precedents or unverified; "AnchorDL" and "AeroFlow" could not be found by search and must not be cited.

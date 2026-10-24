@@ -470,3 +470,6 @@ author: llm
 
 ## [2026-10-25] query | synonym sweep and cross-check against an independent search report
 - Eight more queries (epoch-based, receding horizon, queue draining, pending invocations, backlog, re-binding unstarted, Tremulant, Styx/iRoute): nothing new academically except CLASP again. Independent report agrees on the headline but misses the adjacent precedents (CLASP, TensorCast, Llumnix, grid lineage) and names two papers (Tremulant, iRoute) that could not be found. Addendum in [[literature-search-2026-10-25]].
+
+## [2026-10-25] query | external method suggestions checked against the code and the literature
+- FAMG already in Sol.aet; LAQP vacuous by construction (inputs stored at the node before enqueue); AnchorDL and AeroFlow not found; ClusterFlow does price severed edges. Recorded in [[novelty-register]].

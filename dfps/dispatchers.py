@@ -90,8 +90,8 @@ class FaaSPRRouter:
     the same reason); (2) functions are shared between workflows here, so the capacity constraints couple all workflows in ONE LP,
     where the paper solves one LP per workflow; (3) the threshold is relative to each workflow's best path (theta x minimum latency);
     (4) the request's origin node is not used (as in the paper); (5) if the LP cannot cover the rate, the uncovered part is a slack
-    (penalised) and requests still draw from the frequencies found; (6) a path that no longer fits (storage, or the layout changed)
-    falls back to the per-task earliest-finish dispatcher."""
+    (penalised) and requests still draw from the frequencies found; (6) a task whose drawn node lacks free storage (the paper has no per-node storage limit) is re-assigned alone to the
+    cheapest hosting node with free storage; the share of requests routed exactly by the LP path is reported (n_pure)."""
 
     THETAS = (1.0, 1.15, 1.3, 1.6, 2.0, 3.0, 6.0, np.inf)
 
@@ -102,6 +102,8 @@ class FaaSPRRouter:
         self.arr = []                                   # (time, workflow index)
         self.paths, self.prob, self.widx = {}, {}, None
         self.n_solves, self.n_fallback, self.n_slack, self.theta_used, self.solve_ms = 0, 0, 0, [], []
+        self.n_pure, self.n_repaired_req, self.n_repaired_tasks, self.n_unplanned = 0, 0, 0, 0   # requests routed exactly by the LP path / repaired / not plannable
+        self.slack_frac = []                                                                      # uncovered share of the rate per solve
 
     # ---------------------------------------------------------------- path generation
     def _latency(self, sim, wf, nodes):
@@ -204,6 +206,7 @@ class FaaSPRRouter:
             self.prob[w] = p
         self.n_solves += 1
         self.n_slack += int(res.x[n:].sum() > 1e-6)
+        self.slack_frac.append(float(res.x[n:].sum() / max(rates.sum(), 1e-12)))
         self.theta_used.append(float(theta) if np.isfinite(theta) else 99.0)
         self.solve_ms.append((_t.perf_counter() - t0) * 1e3)
 
@@ -230,17 +233,31 @@ class FaaSPRRouter:
         if sim.n_placements_applied != self.ver or sim.now - self.t_last >= self.refresh or not self.paths:
             self._solve(sim, self._rates(sim))
             self.ver, self.t_last = sim.n_placements_applied, sim.now
-        for _ in range(4):
-            k = int(self.rng.choice(len(self.paths[w]), p=self.prob[w]))
-            nodes = self.paths[w][k]
-            free = sim.esc - sim.storage_used
-            ok = True
-            for t in range(wf.n):
-                if sim.cnt[wf.ft[t], nodes[t]] <= 0 or free[nodes[t]] < wf.input_total(t) - 1e-9:
-                    ok = False
-                    break
-                free[nodes[t]] -= wf.input_total(t)
-            if ok:
-                return {t: int(nodes[t]) for t in range(wf.n)}
-        self.n_fallback += 1
-        return greedy_eft(sim, r)
+        k = int(self.rng.choice(len(self.paths[w]), p=self.prob[w]))
+        nodes = self.paths[w][k]
+        free = sim.esc - sim.storage_used
+        plan, repaired = {}, 0
+        net = sim.net
+        for t in range(wf.n):
+            f, need = wf.ft[t], wf.input_total(t) - 1e-9
+            j = int(nodes[t])
+            if sim.cnt[f, j] <= 0 or free[j] < need:
+                # repair this task only: the hosting node with free storage that is cheapest to reach from where its inputs are
+                ks = np.flatnonzero((sim.cnt[f] > 0) & (free >= need))
+                if ks.size == 0:
+                    self.n_unplanned += 1
+                    return None                                    # no feasible node: the request waits, as with any dispatcher
+                if wf.parents[t]:
+                    c = sum(net.h[plan[p], ks] * (net.epd + wf.ss[(p, t)] / net.bw) for p in wf.parents[t])
+                else:
+                    c = net.h[r.origin, ks] * (net.epd + wf.input_size / net.bw)
+                j = int(ks[int(np.argmin(c))])
+                repaired += 1
+            plan[t] = j
+            free[j] -= wf.input_total(t)
+        if repaired:
+            self.n_repaired_req += 1
+            self.n_repaired_tasks += repaired
+        else:
+            self.n_pure += 1
+        return plan

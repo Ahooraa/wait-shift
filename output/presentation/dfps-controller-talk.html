@@ -675,43 +675,134 @@ td.r, th.r { text-align: right; }
   <div class="cards">
     <div class="card"><span class="tag">Low load</span><b>50% load: small gains</b><span>Task times are random, so a request's P99 is about 88 s even with no queueing at all. Ours is 121 s (33 s above that floor), RL 144 s (57 s above). RL is still ahead in 4 of 20 cases, all on bursty Huawei traffic.</span></div>
     <div class="card"><span class="tag">Cost of moving</span><b>Relocation 5× dearer</b><span>RL pays nothing to relocate, so at 50% load it overtakes us when moving a request costs five times its transfer time.</span></div>
-    <div class="card"><span class="tag">Overload</span><b>No way to say no</b><span>Like DFPS, the controller accepts everything. Above capacity it needs an admission rule (next slide).</span></div>
+    <div class="card"><span class="tag">Overload</span><b>No way to say no</b><span>Like DFPS, the controller accepts everything. Above capacity it needs an admission rule (next slides).</span></div>
     <div class="card"><span class="tag">Evidence</span><b>Simulation only</b><span>No link contention, exponential task durations, no real deployment yet. Gains at high load are the main claim.</span></div>
   </div>
   <p class="note">The 88 s floor and the other 50%-load numbers are means over 20 scenarios (seeds 1–10, Azure and Huawei); all are P99 completion latency.</p>
   <div class="say">Say this plainly. At low load there is little to gain, because most of a request's latency is just its own execution. And everything is simulated, so the next step for a journal paper is a real deployment or a third workload.</div>
 </section>
 
-<!-- 26 · extensions -->
+<!-- 26 · admission: what and effect -->
 <section class="slide">
-  <div class="bar"><span>5 · Results</span><span>extensions (preliminary)</span></div>
-  <h2>Two extensions point beyond the core result</h2>
+  <div class="bar"><span>5 · Results</span><span>admission control (1)</span></div>
+  <h2>Under overload, rejecting part of the traffic multiplies goodput by 2.4</h2>
+  <p><b>Rule.</b> Admit a request only if the number of requests in the system is at most θ × the number of container slots. We use θ = 1.0 and the same rule for both controllers. Without it every request is accepted, as in DFPS.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Overload windows (goodput at a 3× deadline)</th><th class="r">Admit all</th><th class="r">With admission</th><th class="r">Gain</th></tr></thead>
+    <tbody>
+      <tr><td>B* (10 windows)</td><td class="r">2.73</td><td class="r">8.85</td><td class="r">×3.2</td></tr>
+      <tr><td><b>Ours (20 windows)</b></td><td class="r">11.08</td><td class="r best">26.09</td><td class="r">×2.4</td></tr>
+      <tr><td>Ours over B*, both with admission</td><td class="r"></td><td class="r best">×3.3</td><td class="r"></td></tr>
+    </tbody>
+  </table></div>
+  <div class="cols">
+    <ul style="font-size:16px">
+      <li><b>Rejected:</b> 27% of requests, counted as failures.</li>
+      <li><b>P99 of admitted requests:</b> 738 s → 127 s.</li>
+      <li><b>Parked requests</b> per run: 25,683 → 0.</li>
+    </ul>
+    <div class="callout"><p>Admission does not replace the two loops. It protects them: without it the queue grows without limit and the request moves have nothing useful to move.</p></div>
+  </div>
+  <p class="metric"><b>Metric:</b> goodput = workflows finishing within 3× their unloaded critical path, per second; rejected requests count as failures. 20 overload windows (Azure and Huawei, seeds 1–10), final controller.</p>
+  <div class="say">The first admission result. Goodput counts only the workflows that finish within three times their unloaded critical path, so rejecting is not free: rejected requests count as failures. Admission still multiplies goodput for both controllers. Ours with admission is 3.3 times ahead of B* with admission.</div>
+</section>
+
+<!-- 27 · admission: tuning -->
+<section class="slide">
+  <div class="bar"><span>5 · Results</span><span>admission control (2)</span></div>
+  <h2>The result depends on the threshold, the deadline and the move cap</h2>
   <div class="cols">
     <div>
-      <h3>Overload: admission control</h3>
+      <h3>Threshold θ (10 windows)</h3>
       <div class="tbl"><table>
-        <thead><tr><th>Goodput (workflows/s)</th><th class="r">Admit all</th><th class="r">With admission</th></tr></thead>
+        <thead><tr><th>Admit up to</th><th class="r">Goodput</th><th class="r">Rejected</th><th class="r">P99 admitted</th></tr></thead>
         <tbody>
-          <tr><td>B*</td><td class="r">2.32</td><td class="r">7.67</td></tr>
-          <tr><td><b>Ours</b></td><td class="r">10.30</td><td class="r best">23.29</td></tr>
+          <tr><td>no limit</td><td class="r">14.92</td><td class="r">0%</td><td class="r">578 s</td></tr>
+          <tr><td>0.5 × slots</td><td class="r">20.66</td><td class="r">51%</td><td class="r">94 s</td></tr>
+          <tr><td><b>1.0 × slots</b></td><td class="r best">29.10</td><td class="r">25%</td><td class="r">117 s</td></tr>
+          <tr><td>2.0 × slots</td><td class="r">24.37</td><td class="r">12%</td><td class="r">150 s</td></tr>
         </tbody>
       </table></div>
-      <p class="note">Admit a request only if the requests in the system are at most 1.0 × the container slots. 20 overload windows; ours wins all 20. Goodput = workflows finishing within 3× their unloaded critical path, per second.</p>
+      <h3 style="margin-top:6px">Deadline factor (20 windows, ours)</h3>
+      <div class="tbl"><table>
+        <thead><tr><th>Deadline</th><th class="r">Admit all → admit</th><th class="r">Gain</th></tr></thead>
+        <tbody>
+          <tr><td>2×</td><td class="r">5.25 → 18.71</td><td class="r">×3.6</td></tr>
+          <tr><td>3×</td><td class="r">11.08 → 26.09</td><td class="r">×2.4</td></tr>
+          <tr><td>5×</td><td class="r">19.16 → 28.80</td><td class="r">×1.5</td></tr>
+          <tr><td>10×</td><td class="r">26.75 → 29.13</td><td class="r">×1.1</td></tr>
+        </tbody>
+      </table></div>
     </div>
     <div>
-      <h3>Elastic capacity: leave slots empty</h3>
+      <h3>Move cap, with and without admission</h3>
       <div class="tbl"><table>
-        <thead><tr><th>Utilisation target</th><th class="r">Containers used</th><th class="r">P99 cost</th></tr></thead>
+        <thead><tr><th>Moves per round</th><th class="r">Goodput with admission (20)</th><th class="r">Goodput without (10)</th></tr></thead>
         <tbody>
-          <tr><td>0.65</td><td class="r">94% of slots</td><td class="r">+3.0%</td></tr>
-          <tr><td>0.8</td><td class="r">87% of slots</td><td class="r">+10.8%</td></tr>
+          <tr><td>at most 100</td><td class="r">20.69</td><td class="r">4.89</td></tr>
+          <tr><td>at most 300</td><td class="r">25.99</td><td class="r">12.39</td></tr>
+          <tr><td>no cap</td><td class="r best">26.08</td><td class="r">14.92</td></tr>
         </tbody>
       </table></div>
-      <p class="note">The saving exists only at low load (at 50% load, 80% of slots for +10.7% P99 at target 0.65). Even at 68% of containers it stays ahead of B*.</p>
+      <ul style="font-size:15px;margin-top:8px">
+        <li>A stricter limit rejects too much; a looser one lets queues build. θ = 1.0 is best here.</li>
+        <li>With a tight deadline the gain is large; with a 10× deadline there is almost nothing to gain.</li>
+        <li>With admission, a cap of 300 is almost as good as no cap. Without it, the cap costs a lot.</li>
+      </ul>
     </div>
   </div>
-  <div class="callout"><p>Still running: a second admission round (thresholds, move caps, SLO factors) and a test of other request dispatchers in place of graph pattern matching.</p></div>
-  <div class="say">These are preliminary. Admission nearly doubles goodput for ours and triples it for B*, and the controller stays ahead. Elastic capacity gives a trade-off between containers used and tail latency. The dispatcher test checks that we do not depend on DFPS's matcher.</div>
+  <p class="metric"><b>Metric:</b> goodput (workflows per second within the deadline); P99 of admitted requests in seconds. Same overload windows within each row.</p>
+  <div class="say">These are the tuning curves. The threshold was swept on 10 windows, so the best value of 1.0 is slightly optimistic. The deadline factor shows where admission matters: the tighter the deadline, the more it helps. The cap result says our no-cap choice matters most when the system is overloaded and nobody is turning requests away.</div>
+</section>
+
+<!-- 28 · admission: question -->
+<section class="slide">
+  <div class="bar"><span>5 · Results</span><span>question for discussion</span></div>
+  <h2>Should admission control be part of the contribution?</h2>
+  <div class="cols">
+    <div class="why">
+      <h3>For including it</h3>
+      <ul style="font-size:16px;margin-top:6px">
+        <li>It multiplies goodput by 2.4 (B* by 3.2) and removes all parked requests.</li>
+        <li>DFPS has no way to say no, so this fills a gap the paper leaves open.</li>
+        <li>It makes the no-cap result safe, because the queue can no longer grow without limit.</li>
+        <li>It is one parameter, and θ = 1.0 was the best of the values tried.</li>
+      </ul>
+    </div>
+    <div class="callout">
+      <h3>For leaving it out</h3>
+      <ul style="font-size:16px;margin-top:6px">
+        <li>Admission control is a known technique, so the novelty is small on its own.</li>
+        <li>It changes the metric: goodput counts rejected requests as failures, while the rest of the work uses P99.</li>
+        <li>It adds a policy choice (threshold, deadline factor) that depends on the operator.</li>
+        <li>The evidence is limited: 20 overload windows, with the threshold swept on 10 of them.</li>
+      </ul>
+    </div>
+  </div>
+  <p><b>Options.</b> (A) a section of the main paper; (B) a short extension or appendix; (C) future work only.</p>
+  <p class="note">Round 1 of this study used the earlier controller version (goodput 10.30 → 23.29). The numbers on the last two slides are for the final controller.</p>
+  <div class="say">Ask the professor directly. The technique itself is not new, so the contribution would be the finding that admission and request moves work together and make the no-cap rule safe. Whether that is worth a section depends on the venue and on how much the paper should be about overload.</div>
+</section>
+
+<!-- 29 · elastic -->
+<section class="slide">
+  <div class="bar"><span>5 · Results</span><span>elastic capacity (preliminary)</span></div>
+  <h2>Elastic capacity trades containers for tail latency, at low load only</h2>
+  <p>DFPS fills every slot. With elastic capacity we use the sizing rule's own container count and leave the other slots empty. The utilisation target decides how much slack is kept.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Utilisation target</th><th class="r">Containers used</th><th class="r">P99 cost vs all slots</th></tr></thead>
+    <tbody>
+      <tr><td>0.65</td><td class="r">94% of slots</td><td class="r">+3.0%</td></tr>
+      <tr><td>0.8</td><td class="r">87% of slots</td><td class="r">+10.8%</td></tr>
+    </tbody>
+  </table></div>
+  <ul style="font-size:16px">
+    <li>The saving exists only at low load. At 50% load a target of 0.65 uses 80% of the slots for +10.7% P99.</li>
+    <li>Even at 68% of the containers the controller stays ahead of B*.</li>
+    <li>Not yet done: choosing the target as "fewest containers with P99 under an SLO".</li>
+  </ul>
+  <p class="metric"><b>Metric:</b> P99 completion latency, 18 development cases, compared with the same controller using every slot.</p>
+  <div class="say">A smaller preliminary result. It matters only if the operator wants to save containers at low load. We have not yet reframed it as an SLO-constrained choice, so we would present it as exploratory.</div>
 </section>
 
 <!-- 27 · conclusion -->
@@ -731,7 +822,7 @@ td.r, th.r { text-align: right; }
       <h3>Next steps</h3>
       <ul>
         <li>Confirm the final configuration on fresh seeds (11 and up).</li>
-        <li>Finish admission round 2 and the other-dispatcher test.</li>
+        <li>Decide with your professor whether admission control belongs in the contribution; finish the other-dispatcher test and the FaaSPR comparison.</li>
         <li>Heavy-tailed task durations; measure request ping-pong.</li>
         <li>A real deployment or a third workload.</li>
         <li>Systematic related-work search on queued-request migration in serverless platforms.</li>
@@ -745,7 +836,7 @@ td.r, th.r { text-align: right; }
 </main>
 <nav class="nav" aria-label="Slide navigation">
   <button id="prev" type="button">← Previous</button>
-  <span><span id="count" class="num">1 / 27</span> · <button id="menuBtn" type="button" title="Slide menu (M)">☰ Menu</button> · <button id="notesBtn" type="button" title="Speaker notes (N)">Notes</button> · <button id="fs" type="button" title="Full screen (F)">Full screen</button></span>
+  <span><span id="count" class="num">1 / 30</span> · <button id="menuBtn" type="button" title="Slide menu (M)">☰ Menu</button> · <button id="notesBtn" type="button" title="Speaker notes (N)">Notes</button> · <button id="fs" type="button" title="Full screen (F)">Full screen</button></span>
   <button id="next" type="button">Next →</button>
 </nav>
 

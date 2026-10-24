@@ -10,6 +10,7 @@ Files <case>.O3S_h120_blind_nosim_nl_<variant>.json
   python faaspr_sweep.py smoke | run <variant,...> [workers] | analyze
 """
 import json
+import os
 import pickle
 import sys
 import time
@@ -39,7 +40,11 @@ VARIANTS = {   # name -> (sizing cand mode, churn changes, FaaSPR routing?)
     "fp_route": ("nosim", {}, True),
     "fp_both": ("nosim", dict(placement="faaspr"), True),
     "fp_pub": ("hpa", dict(placement="faaspr", rebal=False), True),
+    # Can routing replace request moves? Both without our request moves; fp_route_nm is compared with ours_nm (same controller, DFPS dispatcher).
+    "ours_nm": ("nosim", dict(rebal=False), False),
+    "fp_route_nm": ("nosim", dict(rebal=False), True),
 }
+REFERENCE = {"fp_route_nm": "ours_nm"}                  # variant -> the run it is compared with (default: nl_fz2_60)
 
 
 def path(v, c):
@@ -59,7 +64,7 @@ def one(args, duration=None, out=None):
         P = pickle.load(open(d.D1 / f"{tg}.prep.pkl", "rb"))
         kw = sim_kwargs("B_STAR", ASSUME)
         kw.update(warmup=d.WARMUP, duration=d.DURATION if duration is None else duration, retry_min_interval=1.0, retry_max_attempts=10)
-        router = FaaSPRRouter(seed=seed + 900) if routing else None
+        router = FaaSPRRouter(seed=seed + 900, n_paths=int(os.environ.get("FP_PATHS", 300))) if routing else None
         if router is not None:
             kw["dispatcher"] = router
         adj = O3SimAdjuster(make_adjuster("B_STAR", ASSUME, seed=seed + 300), MOVE_PERIOD_S[c[0]], epoch=60.0, horizon=120.0, K=5,
@@ -71,8 +76,8 @@ def one(args, duration=None, out=None):
         sim.check_invariants()
         r["wall_s"] = time.time() - t
         if router is not None:
-            r["router"] = dict(solves=router.n_solves, fallback=router.n_fallback, slack_solves=router.n_slack,
-                               theta=router.theta_used, solve_ms_mean=float(np.mean(router.solve_ms)) if router.solve_ms else 0.0)
+            r["router"] = dict(solves=router.n_solves, pure=router.n_pure, repaired_req=router.n_repaired_req, repaired_tasks=router.n_repaired_tasks, unplanned=router.n_unplanned, slack_solves=router.n_slack,
+                               theta=router.theta_used, slack_frac=router.slack_frac, solve_ms_mean=float(np.mean(router.solve_ms)) if router.solve_ms else 0.0)
         out.write_text(json.dumps(dict(variant=v, case=list(c), family=c[0], rho=c[1], seed=c[2], result=r)))
         return str(out)
     except Exception:
@@ -90,9 +95,9 @@ def smoke():
     sp = Path(sys.argv[2]) if len(sys.argv) > 2 else Path(".")
     T = tstar()
     c = ("F1", 0.7, 1)
-    for v in VARIANTS:
+    for v in (sys.argv[3].split(",") if len(sys.argv) > 3 else VARIANTS):
         t = time.time()
-        o = sp / f"smoke_{v}.json"
+        o = sp / f"smoke_{v}_{os.environ.get('FP_PATHS', 60)}.json"
         res = one((v, c, T[c[0]]), duration=140.0, out=o)
         if res.endswith("FAILED"):
             print(v, "FAILED", o.with_suffix(".err").read_text()[-1500:], flush=True)
@@ -105,7 +110,9 @@ def smoke():
 
 def run(names, workers):
     T = tstar()
-    jobs = [(v, c, T[c[0]]) for v in names for c in sorted(CASES, key=lambda c: -c[1]) if not path(v, c).exists()]
+    only = os.environ.get("FP_ONLY")                      # e.g. F1_r0.7_s1: run a single case
+    jobs = [(v, c, T[c[0]]) for v in names for c in sorted(CASES, key=lambda c: -c[1]) if not path(v, c).exists()
+            and (only is None or d.tag(*c) == only)]
     print(f"{len(jobs)} runs", flush=True)
     with ProcessPoolExecutor(workers) as ex:
         for done in ex.map(one, jobs):
@@ -128,12 +135,15 @@ def analyze():
             if x["seed"] <= 3:
                 o[(x["family"], x["rho"], x["seed"])] = x["result"]
         return o
-    ref = load("nl_fz2_60")
+    ref0 = load("nl_fz2_60")
     p = lambda b: f"{b['mean'] * 100:+6.1f}% ({b['lo'] * 100:+.0f} to {b['hi'] * 100:+.0f})"  # noqa: E731
     print("FaaSPR mechanisms in our controller, 18 development cases; positive = FROZEN-2 better (P99 lower)\n")
     print("%-9s %3s | %-26s | %5s | %-24s | %8s %8s %8s" % ("variant", "n", "FROZEN-2 better by", "wins", "gain over best existing", "cold=adds", "mv/req", "parked"))
     for v in VARIANTS:
         x = load(f"nl_{v}")
+        ref = load(f"nl_{REFERENCE[v]}") if v in REFERENCE else ref0
+        if v == "ours_nm":
+            ref = ref0                                    # shown against FROZEN-2 to see what the moves are worth
         ks = [k for k in ref if k in x]
         if not ks:
             continue

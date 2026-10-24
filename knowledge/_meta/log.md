@@ -461,3 +461,6 @@ author: llm
 - [[workflow-aware-decision-rules]] fixes thresholds for R1 (re-binding), R2 (slack-aware ordering), R3 (critical-path-weighted placement) and the success criterion for anything built, with 0 of 144 pilot runs finished.
 - Web search: slack-aware / critical-path ordering is published (Archipelago, GrandSLAm, Fifer, Llama, Sledge EDF vs SRSF, METIS); added to [[baseline-matrix]]. R2 is not a new idea.
 - Median re-check of the FaaSPR rows (18 dev cases, log ratio variant / ours): fp_route median 1.022 (95% bootstrap 1.008 to 1.036), slower in 16/18; fp_place median 1.021 (1.006 to 1.040), slower in 14/18. Both are about 2% slower than ours, small but detectable; the earlier "+1.6% (-0 to +3), no detectable difference" wording for fp_place came from the mean of (x - ref)/x and is replaced.
+
+## [2026-10-25] meta | working principle: diagnose, map related work, then look for novelty
+- User instruction recorded in memory. New page [[novelty-register]]: seven diagnosed problems (fracturing, slack-blind queues, transfer-blind moves, placement churn, tail that routing cannot repair, low-load floor, overload) with evidence, nearest work, remaining gap, status.

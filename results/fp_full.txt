@@ -1,0 +1,7 @@
+FaaSPR mechanisms in our controller, 18 development cases; positive = FROZEN-2 better (P99 lower)
+
+variant     n | FROZEN-2 better by         |  wins | gain over best existing  | cold=adds   mv/req   parked
+fp_place   18 |   +1.6% (-0 to +3)         | 14/18 |  +59.3% (ref  +60.0%)    |     6927     2.84     14.8
+fp_route   18 |   +2.2% (+1 to +3)         | 16/18 |  +59.0% (ref  +60.0%)    |     1410     2.89      0.1
+ours_nm     1 |  +85.3% (+nan to +nan)     |  1/ 1 |  -82.6% (ref  +73.2%)    |     1466     0.19      0.0
+fp_route_nm   1 |   +2.0% (+nan to +nan)     |  1/ 1 |  -86.3% (ref  -82.6%)    |     1481     0.20      0.0

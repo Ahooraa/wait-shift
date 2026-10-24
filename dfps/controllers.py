@@ -813,5 +813,13 @@ def faaspr_placement(sc, rates=None, counts=None, cur=None, hg_limit=4, aggre=1e
             P = place_wf(groups(), nw_w, edge_w, False)
         placed += P
         free -= P.sum(axis=0)
+    # functions that no workflow uses still get at least one container from our sizing (FaaSPR would deploy none): place them
+    # where a live instance can be reused, else on the server with the most free slots
+    for f in range(F):
+        for _ in range(int(n_f[f] - placed[f].sum())):
+            cand = np.flatnonzero((free > 0) & (cur[f] - placed[f] > 0))
+            j = int(cand[np.argmax(free[cand])]) if cand.size else int(np.argmax(free))
+            placed[f, j] += 1
+            free[j] -= 1
     assert (free == 0).all() and (placed.sum(axis=1) == n_f).all()
     return placed.T.copy()

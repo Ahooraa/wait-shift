@@ -440,3 +440,7 @@ author: llm
 ## [2026-10-24] experiment | ablations re-run on the final controller (final_ablation.py, 108 runs, 18 dev cases each)
 - FROZEN-2 better than: textbook stack (HPA + JSQ) +14.2% (12 to 17), 18/18 (50/70/85%: +15.7/+14.1/+12.7%); JSQ moves +11.3% (9 to 13), 18/18; work stealing +35.2% (27 to 44), 18/18; HPA sizing +2.3% (1 to 4), 12/18; Kraken sizing +6.2% (2 to 11), 13/18; Fifer sizing +32.1% (18 to 47), 16/18, 5,648 cold starts vs about 1,280.
 - Gain over best existing: ours +60.0%; stack +52.9% (88% of ours); JSQ +54.2%; HPA +59.0%. Talk deck slides 16 and 21 updated (version 4); the "earlier controller" caveat removed for these rows.
+
+## [2026-10-24] experiment | FaaSPR mechanisms in our controller, 18 dev cases (faaspr_sweep.py)
+- Bug fixed in faaspr_placement: functions used by no workflow (one in each seed-3 scenario) were never placed, leaving slots empty; they now go where a live instance can be reused, else to the server with the most free slots. The 6 crashed runs were re-run.
+- fp_place: ours better by +1.6% (-0 to +3), 14/18; cold starts 6,927 per run vs ours (see below); parked 14.8. fp_route (300 paths, repair on storage): ours better by +2.2% (+1 to +3), 16/18; cold starts 1,410. No-moves pair (ours_nm, fp_route_nm) running.

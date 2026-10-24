@@ -132,11 +132,17 @@ def one(args, duration=None, out=None):
                                 seed=seed + 800, warmup=d.WARMUP, blind=True, cand_mode=cand, churn=churn)
             kw["interval"] = adj.next_interval
         t = time.time()
-        sim = Sim(sc, X0, adjuster=adj, seed=seed + 400, **kw)
+        sim = Sim(sc, X0, adjuster=adj, seed=seed + 400, trace=True, **kw)
         r = sim.run()
         sim.check_invariants()
         r["wall_s"] = time.time() - t
-        out.write_text(json.dumps(dict(scenario=list(scen), k=k, ctrl=ctrl, transfer_share=transfer_share(sc), result=r)))
+        from dfps.diagnostics import summarize
+        try:
+            diag = summarize(sim)
+        except Exception:                                   # a diagnostics bug must not lose the run
+            import traceback
+            diag = {"error": traceback.format_exc()[-600:]}
+        out.write_text(json.dumps(dict(scenario=list(scen), k=k, ctrl=ctrl, transfer_share=transfer_share(sc), result=r, diag=diag)))
         return str(out)
     except Exception:
         import traceback

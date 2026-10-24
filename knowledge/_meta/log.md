@@ -450,3 +450,9 @@ author: llm
 - Interaction in the 2x2 is -1.30 on the log scale of P99: the combined reduction is e^1.30 = 3.7 times the product of the separate effects. Deck slide 20 caption states the sign.
 - workflow_stress.py: first design (storage unchanged) cannot finish at k = 10 (Little's law: requests in flight need 2-7 times the cluster storage); storage now scales with k.
 - Moves per request in short smoke runs (30-37) vs full runs (2.4-3.5): short windows are dominated by the start-up transient (moves in the first minutes divided by few completed requests); not comparable across run lengths.
+
+## [2026-10-25] experiment | workflow-structure diagnostic built; stress pilot started
+- dfps/sim.py: optional per-task trace (Sim(trace=True)); dfps/diagnostics.py: realised critical path decomposition (execution / wait of unmoved and moved tasks / transfer, exact sums), fracturing (edges whose parent ran away from its plan or whose child was relocated; local edges planned vs final), wait on and off the critical path, join gap.
+- Smoke test, state sizes x1 -> x10 with storage scaled (F1 85%, seed 1, short window): ours 150.7 -> 286.4 s P99, stack (HPA + JSQ) 162.7 -> 503.7 s; ours' P99 advantage over the stack 8% -> 43%.
+- First breakdown (ours, F1 70% seed 1, 130 s window): sojourn 53.5 s = exec 21.9 + wait 10.8 (unmoved) + 17.2 (moved) + transfer 3.6; local edges 38.6% planned -> 17.7% final; 66% of edges fractured; 41% of the wait is on tasks off the critical path. Tail (19 requests): 139.4 s.
+- workflow_stress.py run 10 started (144 runs, trace recorded in every run); results/wfstress.txt on completion.

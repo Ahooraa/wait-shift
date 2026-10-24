@@ -35,7 +35,7 @@ class Req:
 
 class Run:
     """A request for function FT(t) on node `node` (an element of FRQ_lk)."""
-    __slots__ = ("req", "task", "f", "node", "sizes", "total", "t_enq")
+    __slots__ = ("req", "task", "f", "node", "sizes", "total", "t_enq", "t_first", "t_start", "n_moves")
 
     def __init__(self, req, task, node):
         wf = req.wf
@@ -43,13 +43,14 @@ class Run:
         self.sizes = [wf.input_size] if not wf.parents[task] else [wf.ss[(u, task)] for u in wf.parents[task]]
         self.total = float(sum(self.sizes))
         self.t_enq = 0.0
+        self.t_first, self.t_start, self.n_moves = None, 0.0, 0
 
 
 class Sim:
     def __init__(self, sc, X, adjuster=None, interval=None, seed=0, fst_variant="prose", k_best=10, n_trees=5,
                  lam_window=5, lam_update=1.0, duration=None, warmup=30.0, drain_factor=20.0, use_source=True, debug=False,
                  allow_empty=False, admission=None, exec_sampler=None, slo_factor=3.0, match_objective="sum", retry_min_interval=0.0, retry_max_attempts=None, lam_source=None, record_requests=False,
-                 move_cost=1.0, elastic=False, dispatcher=None):
+                 move_cost=1.0, elastic=False, dispatcher=None, trace=False):
         from .constants import PAPER
         self.sc, self.net = sc, sc.network
         self.N, self.F = self.net.ne, len(sc.functions)
@@ -68,6 +69,7 @@ class Sim:
         self.elastic = bool(elastic)
         # dispatcher: callable(sim, request) -> {task: node} or None; None = DFPS's graph pattern matching (see dfps/dispatchers.py)
         self.dispatcher = dispatcher
+        self.trace = {"tasks": [], "reqs": []} if trace else None      # per-task trace of in-window requests (dfps/diagnostics.py)
         # --- Task 7 extensions (all default to the DFPS behaviour; see output/data-analysis/sim/DECISION.md)
         # waiting-list retries: 0.0 = after every task completion (original behaviour, A-24); > 0 = at most once per that many
         # simulated seconds (a request still gets placed as soon as room appears, delayed by at most the interval)
@@ -272,6 +274,8 @@ class Sim:
             self._reroute(run)
             return
         run.node, run.t_enq = k, self.now
+        if run.t_first is None:
+            run.t_first = self.now
         self.queue[k][f].append(run)
         self.buckets[0, f, k] += 1
         self.req_count[f, k] += 1
@@ -308,6 +312,7 @@ class Sim:
         self.storage_used[k_old] -= run.total
         self.storage_used[k_new] += run.total
         run.node = k_new
+        run.n_moves += 1
         self.n_moved += 1
         self._at(self.now + delay, "enqueue", run, k_new)
 
@@ -328,6 +333,7 @@ class Sim:
         mu = self.exec_time[run.f]
         s = float(self.rng.exponential(mu)) if self.exec_sampler is None else float(self.exec_sampler(run.f, self.rng))
         ins.state, ins.run, ins.busy_until = BUSY, run, self.now + s
+        run.t_start = self.now
         lo, hi = max(self.now, self.warmup), min(self.now + s, self.duration)
         if hi > lo:
             self.busy_time += hi - lo
@@ -340,9 +346,13 @@ class Sim:
         self.storage_used[k] -= run.total                          # consumed input states are removed (p.5)
         for ch in wf.children[t]:
             self._at(self.now + self.net.stt(wf.ss[(t, ch)], k, r.plan[ch]), "state", r, ch)
+        if self.trace is not None and self.in_window(r.t_arr):
+            self.trace["tasks"].append((r.id, wf.id, t, r.plan[t], k, run.t_first, run.t_start, self.now, run.n_moves))
         r.left -= 1
         if r.left == 0:
             r.t_done = self.now
+            if self.trace is not None and self.in_window(r.t_arr):
+                self.trace["reqs"].append((r.id, wf.id, r.t_arr, self.now))
             self.active -= 1
             if self.in_window(r.t_arr):
                 self.makespans.append(self.now - r.t_arr)

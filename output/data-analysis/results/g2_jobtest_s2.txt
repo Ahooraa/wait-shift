@@ -1,0 +1,3 @@
+  method run wall 102 s completed 18958 unfinished 0 retry_rounds 255 sim_now 2484
+  method run wall 90 s completed 18958 unfinished 0 retry_rounds 291 sim_now 2128
+  method run wall 158 s completed 18958 unfinished 0 retry_rounds 0 sim_now 642

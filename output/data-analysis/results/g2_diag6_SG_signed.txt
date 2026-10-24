@@ -1,0 +1,4 @@
+SG_signed t=   60 wall=    18s waiting=0 active=3118 events=17761 adjusts=0 last_adjust_ms=0
+SG_signed t=  120 wall=    37s waiting=0 active=5773 events=13613 adjusts=0 last_adjust_ms=0
+SG_signed t=  180 wall=    55s waiting=0 active=8467 events=9374 adjusts=0 last_adjust_ms=0
+SG_signed t=  240 wall=    75s waiting=140 active=10948 events=5252 adjusts=0 last_adjust_ms=0

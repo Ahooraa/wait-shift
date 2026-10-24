@@ -1,0 +1,17 @@
+{
+  "date": "2026-10-20",
+  "skill": "literature-review (update of the G0 guide)",
+  "scope": "predictive / receding-horizon / simulation-lookahead container placement and scaling for serverless workflows at the edge; pre-warming; break-even rules; RL per-request baselines; clairvoyant bounds",
+  "library_first": "bib-search over 29 indexed documents with alias queries (MPC/receding horizon; prewarm/keep-alive; proactive; forecast; ski rental/break-even; hysteresis; RL; oracle/clairvoyant): no new local gaps",
+  "external": {
+    "web_search_standard": 9,
+    "openalex_search_works": "6 queries failed (HTTP 429)",
+    "verify_reference": {
+      "verified": ["Nguyen 2025 (arXiv 2508.07640)", "Gupta 2025 (arXiv 2512.14290)", "FaasCache (DOI 10.1145/3445814.3446757, via lookup)"],
+      "unchecked": ["ORION (timeout)", "IceBreaker", "Xanadu", "Ray 2020", "Deng 2022", "Bertsekas rollout"]
+    }
+  },
+  "added_to_bib": ["fuerst-2021-faascache", "gupta-2025-hybrid-reactive-proactive"],
+  "not_added_to_bib": "unverified entries are listed in literaturguide.md only, to avoid unverifiable BibTeX",
+  "limits": "abstract/secondary-summary level, no full texts; US-only web index weak for 2025-26"
+}

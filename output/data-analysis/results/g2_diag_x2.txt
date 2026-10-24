@@ -1,0 +1,30 @@
+sim t=    30s wall=   22.0s plan=1804 fail=0 retryAttempts=0 waiting=0 active=1549 events=17237 storage_free_min=3388MB
+sim t=    60s wall=   45.2s plan=3683 fail=0 retryAttempts=0 waiting=0 active=2933 events=15461 storage_free_min=5MB
+sim t=    90s wall=   67.3s plan=5463 fail=0 retryAttempts=0 waiting=0 active=4179 events=13627 storage_free_min=2MB
+sim t=   120s wall=   89.0s plan=7219 fail=0 retryAttempts=0 waiting=0 active=5413 events=11934 storage_free_min=0MB
+sim t=   150s wall=  116.0s plan=9079 fail=0 retryAttempts=0 waiting=0 active=6734 events=10144 storage_free_min=0MB
+sim t=   180s wall=  146.2s plan=10886 fail=0 retryAttempts=0 waiting=0 active=7979 events=8391 storage_free_min=0MB
+sim t=   210s wall=  177.8s plan=12688 fail=0 retryAttempts=0 waiting=0 active=9242 events=6643 storage_free_min=1MB
+sim t=   240s wall=  211.2s plan=14554 fail=0 retryAttempts=0 waiting=0 active=10565 events=4762 storage_free_min=0MB
+sim t=   270s wall=  700.6s plan=110020 fail=93799 retryAttempts=93679 waiting=120 active=11803 events=2902 storage_free_min=0MB
+sim t=   300s wall= 4168.8s plan=1338329 fail=1320700 retryAttempts=1320087 waiting=613 active=13206 events=938 storage_free_min=0MB
+sim t=   330s wall=12442.4s plan=2674690 fail=2656711 retryAttempts=2656448 waiting=263 active=12689 events=755 storage_free_min=1MB
+sim t=   360s wall=13893.0s plan=3082762 fail=3064569 retryAttempts=3064520 waiting=49 active=12208 events=703 storage_free_min=5MB
+sim t=   390s wall=13921.4s plan=3101457 fail=3083215 retryAttempts=3083215 waiting=0 active=11801 events=564 storage_free_min=387MB
+sim t=   420s wall=13921.5s plan=3101457 fail=3083215 retryAttempts=3083215 waiting=0 active=11359 events=492 storage_free_min=821MB
+sim t=   450s wall=13921.7s plan=3101457 fail=3083215 retryAttempts=3083215 waiting=0 active=10921 events=481 storage_free_min=1380MB
+sim t=   480s wall=13921.8s plan=3101457 fail=3083215 retryAttempts=3083215 waiting=0 active=10485 events=478 storage_free_min=1721MB
+sim t=   510s wall=13922.0s plan=3101457 fail=3083215 retryAttempts=3083215 waiting=0 active=10066 events=439 storage_free_min=2142MB
+sim t=   540s wall=13922.1s plan=3101457 fail=3083215 retryAttempts=3083215 waiting=0 active=9665 events=403 storage_free_min=2798MB
+sim t=   570s wall=13922.2s plan=3101457 fail=3083215 retryAttempts=3083215 waiting=0 active=9311 events=389 storage_free_min=3500MB
+sim t=   600s wall=13922.3s plan=3101457 fail=3083215 retryAttempts=3083215 waiting=0 active=8932 events=365 storage_free_min=3819MB
+sim t=   630s wall=13922.4s plan=3101457 fail=3083215 retryAttempts=3083215 waiting=0 active=8587 events=362 storage_free_min=4113MB
+sim t=   660s wall=13922.4s plan=3101457 fail=3083215 retryAttempts=3083215 waiting=0 active=8234 events=356 storage_free_min=4492MB
+sim t=   690s wall=13922.5s plan=3101457 fail=3083215 retryAttempts=3083215 waiting=0 active=7915 events=331 storage_free_min=4847MB
+sim t=   720s wall=13922.6s plan=3101457 fail=3083215 retryAttempts=3083215 waiting=0 active=7617 events=308 storage_free_min=4962MB
+sim t=   750s wall=13922.7s plan=3101457 fail=3083215 retryAttempts=3083215 waiting=0 active=7285 events=277 storage_free_min=5136MB
+sim t=   780s wall=13922.7s plan=3101457 fail=3083215 retryAttempts=3083215 waiting=0 active=6982 events=254 storage_free_min=5341MB
+sim t=   810s wall=13922.8s plan=3101457 fail=3083215 retryAttempts=3083215 waiting=0 active=6699 events=270 storage_free_min=5657MB
+sim t=   840s wall=13922.9s plan=3101457 fail=3083215 retryAttempts=3083215 waiting=0 active=6396 events=268 storage_free_min=5854MB
+sim t=   870s wall=13922.9s plan=3101457 fail=3083215 retryAttempts=3083215 waiting=0 active=6071 events=249 storage_free_min=6220MB
+sim t=   900s wall=13923.0s plan=3101457 fail=3083215 retryAttempts=3083215 waiting=0 active=5747 events=249 storage_free_min=6719MB

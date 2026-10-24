@@ -1,0 +1,81 @@
+{
+ "F1_r0.7_s1": {
+  "degeneracy": {
+   "tie_mean": 29.665182186234816,
+   "tie_median": 17.0,
+   "tie_share_gt1": 0.9769230769230769,
+   "flat_share": 0.16771255060728746,
+   "n_placements": 8
+  },
+  "relayouts": [
+   {
+    "actual_changes": 1013,
+    "min_changes": 588,
+    "naive_lb": 588,
+    "cost_affinity": {
+     "origin_to_root": 47.24707749981826,
+     "task_to_task": 145.80224743184974,
+     "total": 193.049324931668,
+     "origin_share": 0.24474096201342274
+    },
+    "cost_minchange": {
+     "origin_to_root": 24.8201011062522,
+     "task_to_task": 83.17134753546745,
+     "total": 107.99144864171964,
+     "origin_share": 0.22983394906199647
+    }
+   },
+   {
+    "actual_changes": 226,
+    "min_changes": 72,
+    "naive_lb": 72,
+    "cost_affinity": {
+     "origin_to_root": 44.61877429923943,
+     "task_to_task": 128.24331727673604,
+     "total": 172.86209157597546,
+     "origin_share": 0.2581177509334302
+    },
+    "cost_minchange": {
+     "origin_to_root": 46.821688514524645,
+     "task_to_task": 137.088224719307,
+     "total": 183.90991323383165,
+     "origin_share": 0.2545903463887418
+    }
+   },
+   {
+    "actual_changes": 444,
+    "min_changes": 105,
+    "naive_lb": 105,
+    "cost_affinity": {
+     "origin_to_root": 38.600623908425725,
+     "task_to_task": 107.07372047084237,
+     "total": 145.6743443792681,
+     "origin_share": 0.26497887512661594
+    },
+    "cost_minchange": {
+     "origin_to_root": 41.436290341933244,
+     "task_to_task": 126.33187436883482,
+     "total": 167.76816471076808,
+     "origin_share": 0.2469854183203906
+    }
+   },
+   {
+    "actual_changes": 543,
+    "min_changes": 142,
+    "naive_lb": 142,
+    "cost_affinity": {
+     "origin_to_root": 32.83703060245548,
+     "task_to_task": 69.99851643047602,
+     "total": 102.83554703293149,
+     "origin_share": 0.31931595202133684
+    },
+    "cost_minchange": {
+     "origin_to_root": 37.02194031101966,
+     "task_to_task": 103.03104777501599,
+     "total": 140.05298808603567,
+     "origin_share": 0.26434238081572947
+    }
+   }
+  ]
+ }
+}

@@ -1,0 +1,22 @@
+# Every value below is stated in the DFPS paper (Zolfaghari et al., IEEE TSC 2025, DOI 10.1109/TSC.2025.3592226).
+# DO NOT EDIT to "tune" anything. tests/test_paper_constants.py compares this file with an independent copy of
+# the paper's numbers and fails on any difference. Ranges are ranges only: the paper never states a distribution.
+function_runtime_s:        {min: 2,  max: 10,  source: "p.10 Tab.2 (range obtained from [45])"}
+cold_start_delay_s:        {min: 2,  max: 10,  source: "p.10 Tab.2 (range obtained from [45])"}
+intermediate_state_mb:     {min: 10, max: 50,  source: "p.10 Tab.2"}
+number_of_workflows:       {default: 15, scenario3_min: 5, scenario3_max: 40, source: "p.10 Tab.2, Sec.5.2.3"}
+number_of_edge_nodes:      {default: 80, scenario2_min: 20, scenario2_max: 160, source: "p.10 Tab.2, Sec.5.2.2"}
+average_bandwidth_mb_s:    {value: 50, source: "p.10 Tab.2"}
+edge_node_function_capacity: {min: 5, max: 25, source: "p.10 Tab.2 (ecc_k)"}
+edge_node_storage_capacity_gb: {min: 10, max: 30, source: "p.10 Tab.2 (esc_k)"}
+incoming_request_rate_per_s: {min: 0.5, max: 100, source: "p.10 Tab.2 (see Q-7: does not map one-to-one onto the Poisson means in the text)"}
+replacement_interval_s:    {value: 4, sweep_min: 1, sweep_max: 9, source: "p.10 Tab.2 and Sec.5.1"}
+propagation_delay_s:       {value: 0, source: "p.5 (negligible, assumed zero)"}
+uniform_workload_mean_ms:  {min: 200, max: 700, source: "p.9 Sec.5.1 (per-application Poisson mean)"}
+pareto_workload:           {high_rate_fraction: 0.2, high_mean_ms_min: 50, high_mean_ms_max: 100, low_mean_s_min: 2, low_mean_s_max: 4, source: "p.9 Sec.5.1 (about 20% of applications)"}
+arrival_scaling_factors:   {values: [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0], source: "p.10 Sec.5.2.1"}
+workloads_per_experiment:  {value: 10, source: "p.10 Sec.5.2"}
+significance_level:        {value: 0.05, test: "repeated-measures ANOVA", source: "p.10 Sec.5.2"}
+nsga2_population_size:     {value: 100, source: "p.9 Sec.4.4"}
+nsga2_objectives:          {value: 2, source: "p.9 Sec.4.4"}
+alibaba_job_max_execution_s: {value: 60, source: "p.9 Sec.5.1 (applications with short execution times, under one minute)"}

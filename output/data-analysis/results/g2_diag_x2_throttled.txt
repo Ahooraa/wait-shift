@@ -1,0 +1,8 @@
+sim t=    30s wall=   30.7s plan=2064 fail=0 retryAttempts=0 waiting=0 active=1692 events=19858 storage_free_min=7MB
+sim t=    60s wall=   79.9s plan=4251 fail=0 retryAttempts=0 waiting=0 active=3210 events=17778 storage_free_min=3MB
+sim t=    90s wall=  128.4s plan=6399 fail=0 retryAttempts=0 waiting=0 active=4675 events=15638 storage_free_min=0MB
+sim t=   120s wall=  174.5s plan=8467 fail=0 retryAttempts=0 waiting=0 active=6060 events=13618 storage_free_min=2MB
+sim t=   150s wall=  213.9s plan=10653 fail=0 retryAttempts=0 waiting=0 active=7540 events=11518 storage_free_min=0MB
+sim t=   180s wall=  249.7s plan=12724 fail=0 retryAttempts=0 waiting=0 active=8886 events=9398 storage_free_min=1MB
+sim t=   210s wall=  284.6s plan=14844 fail=20 retryAttempts=8 waiting=12 active=10234 events=7375 storage_free_min=0MB
+sim t=   240s wall=  334.9s plan=20425 fail=3774 retryAttempts=3554 waiting=220 active=11500 events=5282 storage_free_min=0MB

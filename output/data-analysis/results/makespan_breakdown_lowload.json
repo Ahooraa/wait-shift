@@ -1,0 +1,125 @@
+{
+ "load x0.25, Uniform x0.25": {
+  "SR": {
+   "plan_wait": 0.0,
+   "transfer": 1.1891053747672082,
+   "reroute": 0.0,
+   "queue": 3.0286899680712924,
+   "exec": 21.20393969593145,
+   "makespan": 25.42173503876995,
+   "depth": 2.94672131147541,
+   "n": 488,
+   "avg_makespan_sim": 25.42173503876995,
+   "utilization": 0.042280527035513,
+   "unloaded_critical_path_exec": 19.10075071482985
+  },
+  "SG": {
+   "plan_wait": 0.0,
+   "transfer": 1.0470941382779995,
+   "reroute": 0.0,
+   "queue": 2.1240252732905005,
+   "exec": 21.201425308045003,
+   "makespan": 24.372544719613508,
+   "depth": 2.9405737704918034,
+   "n": 488,
+   "avg_makespan_sim": 24.372544719613508,
+   "utilization": 0.042952729525162145,
+   "unloaded_critical_path_exec": 19.10075071482985
+  },
+  "DFPS": {
+   "plan_wait": 0.0,
+   "transfer": 1.397724006840368,
+   "reroute": 0.9982998092715867,
+   "queue": 0.9941728803121045,
+   "exec": 21.52978131387811,
+   "makespan": 24.919978010302174,
+   "depth": 2.9364754098360657,
+   "n": 488,
+   "avg_makespan_sim": 24.919978010302174,
+   "utilization": 0.04251725067499923,
+   "unloaded_critical_path_exec": 19.10075071482985
+  }
+ },
+ "load x0.25 + single-task jobs, Uniform x0.25": {
+  "SR": {
+   "plan_wait": 0.0,
+   "transfer": 1.3279149399778558,
+   "reroute": 0.0,
+   "queue": 6.965274193438119,
+   "exec": 23.504649221523223,
+   "makespan": 31.7978383549392,
+   "depth": 3.5869120654396727,
+   "n": 489,
+   "avg_makespan_sim": 31.7978383549392,
+   "utilization": 0.043632597106552456,
+   "unloaded_critical_path_exec": 23.140179887929403
+  },
+  "SG": {
+   "plan_wait": 0.0,
+   "transfer": 1.2481271808167844,
+   "reroute": 0.0,
+   "queue": 4.561662300304379,
+   "exec": 24.060900711470026,
+   "makespan": 29.87069019259119,
+   "depth": 3.6359918200409,
+   "n": 489,
+   "avg_makespan_sim": 29.87069019259119,
+   "utilization": 0.043524551588236454,
+   "unloaded_critical_path_exec": 23.1401798879294
+  },
+  "DFPS": {
+   "plan_wait": 0.0,
+   "transfer": 1.874407803702468,
+   "reroute": 1.4140754290485993,
+   "queue": 1.3527713736413698,
+   "exec": 23.981398297650536,
+   "makespan": 28.622652904042972,
+   "depth": 3.6298568507157465,
+   "n": 489,
+   "avg_makespan_sim": 28.622652904042972,
+   "utilization": 0.04400208462031749,
+   "unloaded_critical_path_exec": 23.1401798879294
+  }
+ },
+ "base, Uniform x0.25": {
+  "SR": {
+   "plan_wait": 0.0,
+   "transfer": 1.46684704291972,
+   "reroute": 0.0,
+   "queue": 32.851445626616844,
+   "exec": 19.450712567032028,
+   "makespan": 53.76900523656859,
+   "depth": 2.8898018366360563,
+   "n": 2069,
+   "avg_makespan_sim": 53.76900523656859,
+   "utilization": 0.15854052874311914,
+   "unloaded_critical_path_exec": 18.7177131722075
+  },
+  "SG": {
+   "plan_wait": 0.0,
+   "transfer": 1.3268265610973609,
+   "reroute": 0.0,
+   "queue": 17.634613067452523,
+   "exec": 19.8625422576332,
+   "makespan": 38.823981886183084,
+   "depth": 2.9023682938617688,
+   "n": 2069,
+   "avg_makespan_sim": 38.823981886183084,
+   "utilization": 0.16357205294812233,
+   "unloaded_critical_path_exec": 18.7177131722075
+  },
+  "DFPS": {
+   "plan_wait": 0.0,
+   "transfer": 1.7067023766335565,
+   "reroute": 2.4794340801326964,
+   "queue": 3.8552959543578043,
+   "exec": 20.2272298519608,
+   "makespan": 28.268662263084856,
+   "depth": 2.9081681971967135,
+   "n": 2069,
+   "avg_makespan_sim": 28.268662263084856,
+   "utilization": 0.1691641774742951,
+   "unloaded_critical_path_exec": 18.7177131722075
+  }
+ }
+}

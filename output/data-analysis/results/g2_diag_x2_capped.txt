@@ -1,0 +1,12 @@
+t=  30 wall=    19s waiting=0 ok:n=2064,s=18 fail:n=0,s=0 fail_arrival:n=0,s=0 fail_retry:n=0,s=0
+t=  60 wall=    40s waiting=0 ok:n=4251,s=39 fail:n=0,s=0 fail_arrival:n=0,s=0 fail_retry:n=0,s=0
+t=  90 wall=    63s waiting=0 ok:n=6399,s=61 fail:n=0,s=0 fail_arrival:n=0,s=0 fail_retry:n=0,s=0
+t= 120 wall=    85s waiting=0 ok:n=8467,s=82 fail:n=0,s=0 fail_arrival:n=0,s=0 fail_retry:n=0,s=0
+t= 150 wall=   107s waiting=0 ok:n=10653,s=104 fail:n=0,s=0 fail_arrival:n=0,s=0 fail_retry:n=0,s=0
+t= 180 wall=   132s waiting=0 ok:n=12724,s=128 fail:n=0,s=0 fail_arrival:n=0,s=0 fail_retry:n=0,s=0
+t= 210 wall=   158s waiting=18 ok:n=14818,s=153 fail:n=39,s=0 fail_arrival:n=18,s=0 fail_retry:n=21,s=0
+t= 240 wall=   179s waiting=238 ok:n=16633,s=171 fail:n=559,s=3 fail_arrival:n=252,s=1 fail_retry:n=307,s=1
+t= 270 wall=   201s waiting=543 ok:n=18381,s=189 fail:n=1164,s=6 fail_arrival:n=577,s=4 fail_retry:n=587,s=2
+t= 300 wall=   221s waiting=1007 ok:n=20015,s=204 fail:n=1928,s=10 fail_arrival:n=1060,s=6 fail_retry:n=868,s=4
+t= 330 wall=   238s waiting=773 ok:n=20249,s=219 fail:n=1994,s=12 fail_arrival:n=1060,s=6 fail_retry:n=934,s=6
+t= 360 wall=   253s waiting=520 ok:n=20502,s=231 fail:n=2041,s=14 fail_arrival:n=1060,s=6 fail_retry:n=981,s=8

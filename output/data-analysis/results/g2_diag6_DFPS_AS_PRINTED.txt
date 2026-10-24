@@ -1,0 +1,12 @@
+DFPS_AS_PRINTED t=   60 wall=    20s waiting=0 active=3003 events=18611 adjusts=15 last_adjust_ms=208
+DFPS_AS_PRINTED t=  120 wall=    42s waiting=0 active=5164 events=14810 adjusts=30 last_adjust_ms=224
+DFPS_AS_PRINTED t=  180 wall=    66s waiting=0 active=7093 events=10880 adjusts=45 last_adjust_ms=331
+DFPS_AS_PRINTED t=  240 wall=    93s waiting=0 active=8812 events=6801 adjusts=60 last_adjust_ms=318
+DFPS_AS_PRINTED t=  300 wall=   118s waiting=0 active=10517 events=2711 adjusts=75 last_adjust_ms=332
+DFPS_AS_PRINTED t=  360 wall=   128s waiting=0 active=8339 events=2250 adjusts=90 last_adjust_ms=343
+DFPS_AS_PRINTED t=  420 wall=   134s waiting=0 active=6397 events=1807 adjusts=105 last_adjust_ms=311
+DFPS_AS_PRINTED t=  480 wall=   139s waiting=0 active=4465 events=1294 adjusts=120 last_adjust_ms=112
+DFPS_AS_PRINTED t=  540 wall=   141s waiting=0 active=2536 events=981 adjusts=135 last_adjust_ms=64
+DFPS_AS_PRINTED t=  600 wall=   143s waiting=0 active=820 events=676 adjusts=150 last_adjust_ms=27
+DFPS_AS_PRINTED t=  660 wall=   143s waiting=0 active=46 events=227 adjusts=165 last_adjust_ms=11
+DFPS_AS_PRINTED DONE wall 143 completed 18958

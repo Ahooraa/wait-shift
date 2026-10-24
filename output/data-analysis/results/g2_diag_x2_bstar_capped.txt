@@ -1,0 +1,14 @@
+t=  30 wall=    22s waiting=0 active=1685 queued_runs=1440 adjusts=7 adjust_ms mean/max since last=96/196
+t=  60 wall=    49s waiting=0 active=3099 queued_runs=2906 adjusts=15 adjust_ms mean/max since last=277/367
+t=  90 wall=    75s waiting=0 active=4301 queued_runs=4686 adjusts=22 adjust_ms mean/max since last=463/643
+t= 120 wall=   103s waiting=0 active=5282 queued_runs=5584 adjusts=30 adjust_ms mean/max since last=622/718
+t= 150 wall=   132s waiting=0 active=6208 queued_runs=6815 adjusts=37 adjust_ms mean/max since last=948/1200
+t= 180 wall=   167s waiting=0 active=7051 queued_runs=7660 adjusts=45 adjust_ms mean/max since last=1153/1311
+t= 210 wall=   201s waiting=0 active=7967 queued_runs=9139 adjusts=52 adjust_ms mean/max since last=1315/1802
+t= 240 wall=   238s waiting=0 active=8738 queued_runs=9947 adjusts=60 adjust_ms mean/max since last=1575/1790
+t= 270 wall=   274s waiting=0 active=9527 queued_runs=11154 adjusts=67 adjust_ms mean/max since last=1608/1785
+t= 300 wall=   314s waiting=0 active=10270 queued_runs=11902 adjusts=75 adjust_ms mean/max since last=1708/2149
+t= 330 wall=   332s waiting=0 active=8954 queued_runs=9832 adjusts=82 adjust_ms mean/max since last=2228/2653
+t= 360 wall=   347s waiting=0 active=7627 queued_runs=7164 adjusts=90 adjust_ms mean/max since last=1456/1874
+t= 390 wall=   357s waiting=0 active=6312 queued_runs=5321 adjusts=97 adjust_ms mean/max since last=1052/1367
+t= 420 wall=   367s waiting=0 active=5076 queued_runs=3868 adjusts=105 adjust_ms mean/max since last=818/1277

@@ -1,0 +1,272 @@
+{
+  "design": {
+    "rho": 0.7,
+    "duration_s": 900.0,
+    "warmup_s": 60.0,
+    "seeds": [
+      1,
+      2,
+      3
+    ],
+    "periods": [
+      1,
+      2,
+      4,
+      8,
+      16,
+      32,
+      64
+    ]
+  },
+  "families": {
+    "F1": {
+      "table": {
+        "1": {
+          "n": 3,
+          "p99": 756.4558987445498,
+          "mean": 194.4307853596986,
+          "goodput": 6.392460317460318,
+          "reconfigs": 1383.6666666666667,
+          "cold_starts": 54671.666666666664,
+          "unfinished_max": 0,
+          "bottleneck_max": 2.741783074028797,
+          "offered_util_median": 0.7004294451384198
+        },
+        "2": {
+          "n": 3,
+          "p99": 643.085748907838,
+          "mean": 172.89865804214324,
+          "goodput": 6.849206349206349,
+          "reconfigs": 662.6666666666666,
+          "cold_starts": 29012.0,
+          "unfinished_max": 0,
+          "bottleneck_max": 2.741783074028797,
+          "offered_util_median": 0.7004294451384198
+        },
+        "4": {
+          "n": 3,
+          "p99": 602.2912645518792,
+          "mean": 160.62024664814453,
+          "goodput": 6.851190476190475,
+          "reconfigs": 333.6666666666667,
+          "cold_starts": 15015.666666666666,
+          "unfinished_max": 0,
+          "bottleneck_max": 2.741783074028797,
+          "offered_util_median": 0.7004294451384198
+        },
+        "8": {
+          "n": 3,
+          "p99": 652.7493234520634,
+          "mean": 176.75637018457488,
+          "goodput": 8.227380952380953,
+          "reconfigs": 180.0,
+          "cold_starts": 7367.333333333333,
+          "unfinished_max": 0,
+          "bottleneck_max": 2.741783074028797,
+          "offered_util_median": 0.7004294451384198
+        },
+        "16": {
+          "n": 3,
+          "p99": 802.7881411736247,
+          "mean": 217.27623158430933,
+          "goodput": 6.938888888888889,
+          "reconfigs": 98.66666666666667,
+          "cold_starts": 3643.6666666666665,
+          "unfinished_max": 0,
+          "bottleneck_max": 2.741783074028797,
+          "offered_util_median": 0.7004294451384198
+        },
+        "32": {
+          "n": 3,
+          "p99": 1101.0329324862957,
+          "mean": 304.3455935601581,
+          "goodput": 5.36388888888889,
+          "reconfigs": 62.0,
+          "cold_starts": 1896.6666666666667,
+          "unfinished_max": 0,
+          "bottleneck_max": 2.741783074028797,
+          "offered_util_median": 0.7004294451384198
+        },
+        "64": {
+          "n": 3,
+          "p99": 1404.3881528920745,
+          "mean": 420.46023324763274,
+          "goodput": 4.614285714285714,
+          "reconfigs": 36.0,
+          "cold_starts": 1014.6666666666666,
+          "unfinished_max": 0,
+          "bottleneck_max": 2.741783074028797,
+          "offered_util_median": 0.7004294451384198
+        }
+      },
+      "T_star": 4,
+      "complete": true
+    },
+    "F2": {
+      "table": {
+        "1": {
+          "n": 3,
+          "p99": 959.9193873697765,
+          "mean": 315.5911813766998,
+          "goodput": 1.701984126984127,
+          "reconfigs": 1560.3333333333333,
+          "cold_starts": 57676.333333333336,
+          "unfinished_max": 0,
+          "bottleneck_max": 2.8943454490726523,
+          "offered_util_median": 0.6775897417262012
+        },
+        "2": {
+          "n": 3,
+          "p99": 738.1788632524443,
+          "mean": 263.44261842241366,
+          "goodput": 1.8936507936507938,
+          "reconfigs": 704.6666666666666,
+          "cold_starts": 30022.333333333332,
+          "unfinished_max": 0,
+          "bottleneck_max": 2.8943454490726523,
+          "offered_util_median": 0.6775897417262012
+        },
+        "4": {
+          "n": 3,
+          "p99": 574.3695242630818,
+          "mean": 233.54568865540213,
+          "goodput": 1.8468253968253967,
+          "reconfigs": 335.3333333333333,
+          "cold_starts": 15388.333333333334,
+          "unfinished_max": 0,
+          "bottleneck_max": 2.8943454490726523,
+          "offered_util_median": 0.6775897417262012
+        },
+        "8": {
+          "n": 3,
+          "p99": 585.0191739860669,
+          "mean": 244.4382699043828,
+          "goodput": 1.8456349206349205,
+          "reconfigs": 169.66666666666666,
+          "cold_starts": 7368.333333333333,
+          "unfinished_max": 0,
+          "bottleneck_max": 2.8943454490726523,
+          "offered_util_median": 0.6775897417262012
+        },
+        "16": {
+          "n": 3,
+          "p99": 763.6553562139828,
+          "mean": 307.4637253006785,
+          "goodput": 1.5103174603174603,
+          "reconfigs": 91.33333333333333,
+          "cold_starts": 3862.0,
+          "unfinished_max": 0,
+          "bottleneck_max": 2.8943454490726523,
+          "offered_util_median": 0.6775897417262012
+        },
+        "32": {
+          "n": 3,
+          "p99": 1148.6249911506832,
+          "mean": 488.1036873760285,
+          "goodput": 1.3591269841269842,
+          "reconfigs": 59.0,
+          "cold_starts": 2050.6666666666665,
+          "unfinished_max": 0,
+          "bottleneck_max": 2.8943454490726523,
+          "offered_util_median": 0.6775897417262012
+        },
+        "64": {
+          "n": 3,
+          "p99": 1817.22542031384,
+          "mean": 735.1965329135809,
+          "goodput": 1.1519841269841269,
+          "reconfigs": 40.333333333333336,
+          "cold_starts": 1131.0,
+          "unfinished_max": 0,
+          "bottleneck_max": 2.8943454490726523,
+          "offered_util_median": 0.6775897417262012
+        }
+      },
+      "T_star": 8,
+      "complete": true
+    },
+    "F3": {
+      "table": {
+        "1": {
+          "n": 3,
+          "p99": 457.23366471117714,
+          "mean": 140.20918068891987,
+          "goodput": 6.432142857142857,
+          "reconfigs": 1210.3333333333333,
+          "cold_starts": 52060.666666666664,
+          "unfinished_max": 0,
+          "bottleneck_max": 1.6433625142236512,
+          "offered_util_median": 0.6788542512126714
+        },
+        "2": {
+          "n": 3,
+          "p99": 381.6147501337295,
+          "mean": 122.08115695477704,
+          "goodput": 7.257539682539682,
+          "reconfigs": 597.0,
+          "cold_starts": 28316.0,
+          "unfinished_max": 0,
+          "bottleneck_max": 1.6433625142236512,
+          "offered_util_median": 0.6788542512126714
+        },
+        "4": {
+          "n": 3,
+          "p99": 431.1168482615006,
+          "mean": 131.3179912810086,
+          "goodput": 6.936111111111111,
+          "reconfigs": 315.3333333333333,
+          "cold_starts": 14717.333333333334,
+          "unfinished_max": 0,
+          "bottleneck_max": 1.6433625142236512,
+          "offered_util_median": 0.6788542512126714
+        },
+        "8": {
+          "n": 3,
+          "p99": 440.6535984886037,
+          "mean": 132.11011491044067,
+          "goodput": 6.663888888888889,
+          "reconfigs": 160.0,
+          "cold_starts": 7338.666666666667,
+          "unfinished_max": 0,
+          "bottleneck_max": 1.6433625142236512,
+          "offered_util_median": 0.6788542512126714
+        },
+        "16": {
+          "n": 3,
+          "p99": 585.828285513323,
+          "mean": 168.66180455579757,
+          "goodput": 6.109126984126984,
+          "reconfigs": 88.33333333333333,
+          "cold_starts": 3620.0,
+          "unfinished_max": 0,
+          "bottleneck_max": 1.6433625142236512,
+          "offered_util_median": 0.6788542512126714
+        },
+        "32": {
+          "n": 3,
+          "p99": 766.9458530224179,
+          "mean": 226.38438967133925,
+          "goodput": 4.961507936507937,
+          "reconfigs": 50.0,
+          "cold_starts": 1850.0,
+          "unfinished_max": 0,
+          "bottleneck_max": 1.6433625142236512,
+          "offered_util_median": 0.6788542512126714
+        },
+        "64": {
+          "n": 3,
+          "p99": 1052.143161567516,
+          "mean": 312.9671245850098,
+          "goodput": 4.146031746031746,
+          "reconfigs": 31.0,
+          "cold_starts": 967.6666666666666,
+          "unfinished_max": 0,
+          "bottleneck_max": 1.6433625142236512,
+          "offered_util_median": 0.6788542512126714
+        }
+      },
+      "T_star": 2,
+      "complete": true
+    }
+  }
+}

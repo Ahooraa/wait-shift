@@ -1,0 +1,152 @@
+{
+ "uniform_x0.25": {
+  "paper_Heu": 199,
+  "paper_RL": 46,
+  "paper_DFPS": 11,
+  "HEU_asrun": {
+   "makespan": 13.644000657454534,
+   "cold": 2244.5
+  },
+  "HEU_xu": {
+   "makespan": 36.28982446494968,
+   "cold": 4051.0
+  },
+  "RL_asrun": {
+   "makespan": 12.417465351686577,
+   "cold": 1036.0
+  },
+  "RL_random": {
+   "makespan": 17.515118567749184,
+   "cold": 2260.5
+  },
+  "RL_random0": {
+   "makespan": 21.382902551383943,
+   "cold": 4082.0
+  }
+ },
+ "uniform_x1.0": {
+  "paper_Heu": 290,
+  "paper_RL": 145,
+  "paper_DFPS": 13,
+  "HEU_asrun": {
+   "makespan": 14.535550413917967,
+   "cold": 10884.0
+  },
+  "HEU_xu": {
+   "makespan": 62.12093754751787,
+   "cold": 13546.5
+  },
+  "RL_asrun": {
+   "makespan": 10.660322866444382,
+   "cold": 1159.5
+  },
+  "RL_random": {
+   "makespan": 36.266214739538825,
+   "cold": 10002.0
+  },
+  "RL_random0": {
+   "makespan": 40.38756864702542,
+   "cold": 15018.0
+  }
+ },
+ "uniform_x2.0": {
+  "paper_Heu": 405,
+  "paper_RL": 268,
+  "paper_DFPS": 63,
+  "HEU_asrun": {
+   "makespan": 42.79587837719738,
+   "cold": 26223.5
+  },
+  "HEU_xu": {
+   "makespan": 389.5926737505944,
+   "cold": 13005.0
+  },
+  "RL_asrun": {
+   "makespan": 34.994517312902744,
+   "cold": 24121.0
+  },
+  "RL_random": {
+   "makespan": 118.39628311256809,
+   "cold": 20574.0
+  },
+  "RL_random0": {
+   "makespan": 125.83770462423557,
+   "cold": 24063.0
+  }
+ },
+ "pareto_x0.25": {
+  "paper_Heu": 156,
+  "paper_RL": 153,
+  "paper_DFPS": 31,
+  "HEU_asrun": {
+   "makespan": 10.907303220135617,
+   "cold": 1057.5
+  },
+  "HEU_xu": {
+   "makespan": 31.211308647954183,
+   "cold": 4351.0
+  },
+  "RL_asrun": {
+   "makespan": 11.926672576945837,
+   "cold": 974.5
+  },
+  "RL_random": {
+   "makespan": 14.430707163711157,
+   "cold": 1090.0
+  },
+  "RL_random0": {
+   "makespan": 20.694232431328636,
+   "cold": 4383.5
+  }
+ },
+ "pareto_x1.0": {
+  "paper_Heu": 222,
+  "paper_RL": 213,
+  "paper_DFPS": 85,
+  "HEU_asrun": {
+   "makespan": 12.304478420751156,
+   "cold": 7286.5
+  },
+  "HEU_xu": {
+   "makespan": 60.51099576351356,
+   "cold": 15302.0
+  },
+  "RL_asrun": {
+   "makespan": 10.379199712368404,
+   "cold": 1240.0
+  },
+  "RL_random": {
+   "makespan": 38.92550824664076,
+   "cold": 6267.0
+  },
+  "RL_random0": {
+   "makespan": 50.46787265607964,
+   "cold": 16033.5
+  }
+ },
+ "pareto_x2.0": {
+  "paper_Heu": 295,
+  "paper_RL": 285,
+  "paper_DFPS": 158,
+  "HEU_asrun": {
+   "makespan": 52.817674895253816,
+   "cold": 17423.5
+  },
+  "HEU_xu": {
+   "makespan": 376.52027629538,
+   "cold": 14441.0
+  },
+  "RL_asrun": {
+   "makespan": 41.052092246158075,
+   "cold": 12384.5
+  },
+  "RL_random": {
+   "makespan": 129.78668361409947,
+   "cold": 15408.5
+  },
+  "RL_random0": {
+   "makespan": 154.1010058534279,
+   "cold": 24537.5
+  }
+ }
+}

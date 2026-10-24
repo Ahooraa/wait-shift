@@ -1,0 +1,891 @@
+<meta charset="utf-8">
+<title>DFPS Controller Talk</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one 16:9 slide at a time on wide screens (arrow keys / buttons), stacked slides on narrow screens.
+   One message per slide: an action title, one visual or table, short text. Speaker notes sit in .say (press N). */
+:root {
+  --bg: #eef1f5;
+  --paper: #ffffff;
+  --ink: #17212e;
+  --muted: #5b6878;
+  --rule: #d5dce5;
+  --accent: #1d5fb8;
+  --accent-soft: #dbe7f7;
+  --good: #23784a;
+  --warn: #a8670f;
+  --bad: #b03636;
+  --good-soft: #dcefe3;
+  --warn-soft: #f6e9d3;
+  --bad-soft: #f5dddd;
+  --f-display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f141b; --paper: #161d27; --ink: #e4e9f0; --muted: #96a3b4; --rule: #2a3442;
+    --accent: #6ea4ee; --accent-soft: #1d2d45;
+    --good: #5fbf88; --warn: #e0a54a; --bad: #e57373;
+    --good-soft: #17301f; --warn-soft: #33270f; --bad-soft: #351a1a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f141b; --paper: #161d27; --ink: #e4e9f0; --muted: #96a3b4; --rule: #2a3442;
+  --accent: #6ea4ee; --accent-soft: #1d2d45;
+  --good: #5fbf88; --warn: #e0a54a; --bad: #e57373;
+  --good-soft: #17301f; --warn-soft: #33270f; --bad-soft: #351a1a;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 18px; line-height: 1.45;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 28px;
+}
+.deck { max-width: 1120px; margin: 0 auto; display: grid; gap: 14px; }
+.wide .deck { width: 1120px; }
+.wide body, body.wide { padding-block: 12px; overflow-x: hidden; }
+.slide {
+  background: var(--paper); border: 1px solid var(--rule); border-radius: 6px;
+  padding: 22px clamp(18px, 3.6vw, 42px) 26px; display: flex; flex-direction: column; gap: 14px; min-width: 0;
+}
+.wide .slide { aspect-ratio: 16 / 9; max-width: 100%; overflow: auto; }
+.slide > * { flex-shrink: 0; }
+.wide .slide:not(.on) { display: none; }
+.bar { display: flex; justify-content: space-between; gap: 12px; font-family: var(--f-mono); font-size: 12px; color: var(--muted); letter-spacing: .04em; text-transform: uppercase; border-bottom: 1px solid var(--rule); padding-bottom: 8px; }
+h1, h2 { font-family: var(--f-display); font-weight: 600; text-wrap: balance; margin: 0; line-height: 1.14; }
+h1 { font-size: clamp(32px, 4.8vw, 54px); }
+h2 { font-size: clamp(23px, 2.9vw, 31px); }
+h3 { font-family: var(--f-display); font-weight: 600; font-size: 19px; margin: 0; }
+p { margin: 0; max-width: 70ch; }
+.lede { font-size: clamp(17px, 1.7vw, 21px); color: var(--muted); }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px 32px; align-items: start; }
+.cols > * { min-width: 0; }
+.cols.l { grid-template-columns: repeat(auto-fit, minmax(300px, 1.25fr) minmax(260px, 1fr)); }
+ul { margin: 0; padding-left: 1.15em; display: grid; gap: 7px; }
+li::marker { color: var(--accent); }
+.k { font-family: var(--f-mono); font-size: .88em; }
+.num { font-variant-numeric: tabular-nums; }
+.tbl { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 15px; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-family: var(--f-mono); font-weight: 500; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+td.r, th.r { text-align: right; }
+.best { color: var(--good); font-weight: 600; }
+.worse { color: var(--bad); }
+.pill { display: inline-block; font-family: var(--f-mono); font-size: 12px; font-weight: 500; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.pill.go { background: var(--good-soft); color: var(--good); }
+.pill.no { background: var(--bad-soft); color: var(--bad); }
+.note { font-size: 13.5px; color: var(--muted); }
+.metric { font-size: 14px; color: var(--muted); border-top: 1px solid var(--rule); padding-top: 8px; }
+.metric b { color: var(--ink); }
+.callout { border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 11px 16px; border-radius: 0 4px 4px 0; }
+.callout p { max-width: none; }
+.why { border-left: 3px solid var(--good); background: var(--good-soft); padding: 11px 16px; border-radius: 0 4px 4px 0; }
+.why p { max-width: none; }
+.title-slide { justify-content: center; gap: 22px; }
+.meta { display: flex; flex-wrap: wrap; gap: 8px 24px; font-family: var(--f-mono); font-size: 13px; color: var(--muted); }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; }
+.card { border: 1px solid var(--rule); border-radius: 5px; padding: 13px 15px; display: grid; gap: 5px; align-content: start; }
+.card b { font-family: var(--f-display); font-size: 19px; font-weight: 600; line-height: 1.2; }
+.card span { font-size: 15px; color: var(--muted); }
+.card .tag { font-family: var(--f-mono); font-size: 11.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--accent); }
+.card.hl { border-color: var(--good); background: var(--good-soft); }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
+.stat { border: 1px solid var(--rule); border-radius: 5px; padding: 12px 16px; display: grid; gap: 2px; }
+.stat .v { font-family: var(--f-display); font-size: 40px; font-weight: 600; line-height: 1.05; color: var(--accent); font-variant-numeric: tabular-nums; }
+.stat .l { font-size: 14px; color: var(--muted); }
+.stat.good .v { color: var(--good); }
+.steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; counter-reset: st; }
+.steps > div { border: 1px solid var(--rule); border-radius: 5px; padding: 12px 14px; display: grid; gap: 4px; align-content: start; font-size: 15px; color: var(--muted); }
+.steps > div::before { counter-increment: st; content: counter(st); font-family: var(--f-mono); font-size: 13px; color: var(--accent); }
+.steps b { font-family: var(--f-display); font-size: 19px; font-weight: 600; color: var(--ink); line-height: 1.2; }
+.flow { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; counter-reset: step; }
+.flow > div { border: 1px solid var(--rule); border-radius: 5px; padding: 11px 14px; display: grid; gap: 4px; align-content: start; font-size: 15px; color: var(--muted); }
+.flow > div::before { counter-increment: step; content: "Step " counter(step); font-family: var(--f-mono); font-size: 12px; color: var(--accent); }
+.flow b { font-family: var(--f-display); font-size: 18px; font-weight: 600; color: var(--ink); line-height: 1.2; }
+.eq { font-family: var(--f-mono); font-size: 14.5px; background: var(--bg); border: 1px solid var(--rule); border-radius: 4px; padding: 9px 13px; overflow-x: auto; }
+.pfig { margin: 0; display: grid; gap: 6px; align-content: start; min-width: 0; }
+.pfig img { width: auto; max-width: 100%; height: auto; max-height: 300px; justify-self: center; background: #ffffff; border: 1px solid var(--rule); border-radius: 4px; padding: 6px; }
+.pfig figcaption { font-size: 13.5px; color: var(--muted); text-align: center; }
+.sbs { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+.sbs > figure { margin: 0; display: grid; gap: 4px; justify-items: center; min-width: 0; }
+.sbs img { width: auto; max-width: 100%; height: auto; max-height: 330px; background: #ffffff; border: 1px solid var(--rule); border-radius: 4px; padding: 4px; }
+.sbs figcaption { font-size: 13.5px; color: var(--muted); text-align: center; }
+.sbs figcaption b { color: var(--ink); }
+@media (max-width: 760px) { .sbs { grid-template-columns: 1fr; } }
+.fc { font-family: var(--f-mono); font-size: 12px; font-weight: 500; padding: 1px 6px; border-radius: 3px; color: var(--paper); }
+.fc.f1 { background: var(--accent); } .fc.f2 { background: var(--good); } .fc.f3 { background: var(--warn); }
+
+/* timeline of the two loops */
+.tl { display: grid; grid-template-columns: 170px 1fr; gap: 10px 16px; align-items: center; font-size: 15px; }
+.tl .lab b { display: block; font-family: var(--f-display); font-size: 18px; font-weight: 600; line-height: 1.15; }
+.tl .lab span { color: var(--muted); font-size: 13.5px; }
+.lane { position: relative; height: 44px; background: var(--bg); border-radius: 4px; border: 1px solid var(--rule); }
+.lane .blk { position: absolute; top: 5px; bottom: 5px; width: 8%; background: var(--accent); color: var(--paper); border-radius: 3px; font-family: var(--f-mono); font-size: 12px; display: grid; place-items: center; }
+.lane.fast { background-image: repeating-linear-gradient(90deg, var(--good) 0 2px, transparent 2px calc(100% / 45)); background-position: 6px 0; background-size: calc(100% - 6px) 100%; background-repeat: no-repeat; }
+.tl .axis { grid-column: 2; display: flex; justify-content: space-between; font-family: var(--f-mono); font-size: 12px; color: var(--muted); }
+
+/* queue picture */
+.qv { display: grid; gap: 12px; }
+.qrow { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.qrow .nm { font-family: var(--f-mono); font-size: 12px; color: var(--muted); width: 118px; }
+.qrow .nd { display: flex; gap: 10px; flex-wrap: wrap; }
+.qn { border: 1px solid var(--rule); border-radius: 4px; padding: 6px 9px; display: grid; gap: 3px; min-width: 112px; }
+.qn small { font-family: var(--f-mono); font-size: 11px; color: var(--muted); }
+.qs { display: flex; flex-wrap: wrap; gap: 2px; max-width: 124px; min-height: 18px; }
+.qs i { width: 13px; height: 13px; border-radius: 2px; background: var(--warn); display: block; }
+.qs i.mv { background: var(--accent); }
+.qs i.ok { background: var(--rule); }
+
+/* horizontal bars */
+.hbars { display: grid; grid-template-columns: max-content 1fr; gap: 7px 12px; align-items: center; font-size: 15px; }
+.hbars .tr { display: flex; align-items: center; gap: 8px; }
+.hbars .b { height: 16px; border-radius: 2px; background: var(--accent); flex: none; }
+.hbars .b.m { background: var(--muted); } .hbars .b.w { background: var(--warn); } .hbars .b.g { background: var(--good); } .hbars .b.r { background: var(--bad); }
+.hbars .v { font-family: var(--f-mono); font-size: 13px; color: var(--muted); white-space: nowrap; }
+.hbars .l { white-space: nowrap; }
+
+/* held-out chart */
+.ho { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 18px 30px; }
+.ho h3 { margin-bottom: 6px; }
+.hgrp { display: grid; grid-template-columns: 58px 1fr; gap: 4px 8px; align-items: center; padding: 3px 0; border-bottom: 1px solid var(--rule); }
+.hgrp .gl { font-family: var(--f-mono); font-size: 12px; color: var(--muted); }
+.hrow { display: flex; align-items: center; gap: 6px; height: 15px; }
+.hb { height: 12px; border-radius: 2px; flex: none; }
+.hb.o { background: var(--accent); } .hb.b { background: var(--muted); } .hb.r { background: var(--warn); }
+.hrow span { font-family: var(--f-mono); font-size: 12px; color: var(--ink); }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 14px; color: var(--muted); }
+.legend i { display: inline-block; width: 11px; height: 11px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+
+/* 2 x 2 */
+.g22 th { font-size: 12px; }
+.g22 th.rh { text-align: left; text-transform: none; font-family: var(--f-body); font-size: 16px; font-weight: 600; color: var(--ink); letter-spacing: 0; }
+.g22 td { font-size: 17px; padding: 11px 14px; text-align: center; }
+.g22 td.c { font-family: var(--f-display); font-size: 30px; font-weight: 600; }
+.g22 td.c1 { background: var(--bad-soft); color: var(--bad); }
+.g22 td.c2 { background: var(--warn-soft); color: var(--warn); }
+.g22 td.c4 { background: var(--good-soft); color: var(--good); }
+.g22 td.ef { color: var(--accent); font-family: var(--f-mono); font-size: 16px; }
+
+.menu-fab { display: none; }
+.narrow .menu-fab { display: block; position: fixed; top: 12px; right: 12px; z-index: 60; width: 40px; height: 40px; border-radius: 50%;
+  border: 1px solid var(--rule); background: var(--paper); color: var(--ink); font-size: 16px; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
+.nav { max-width: 1120px; width: 100%; margin: 12px auto 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; font-family: var(--f-mono); font-size: 13px; color: var(--muted); }
+.nav button { font: inherit; color: var(--ink); background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; padding: 6px 14px; cursor: pointer; }
+.nav button:hover { border-color: var(--accent); }
+.nav button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.nav button:disabled { opacity: .4; cursor: default; }
+.narrow .nav { display: none; }
+.menu-overlay { position: fixed; inset: 0; z-index: 70; background: rgba(23,33,46,.4); display: flex; justify-content: flex-end; opacity: 0; pointer-events: none; transition: opacity .22s ease; }
+.menu-overlay.open { opacity: 1; pointer-events: auto; }
+.menu-panel { background: var(--paper); width: min(330px, 85vw); height: 100%; max-height: 100vh; display: flex; flex-direction: column; box-shadow: -8px 0 30px rgba(0,0,0,.22); transform: translateX(100%); transition: transform .25s ease; }
+.menu-overlay.open .menu-panel { transform: translateX(0); }
+.menu-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--rule); font-size: 15px; flex: none; }
+.menu-head button { font: inherit; color: var(--muted); background: none; border: none; cursor: pointer; font-size: 16px; padding: 2px 6px; }
+.menu-list { overflow-y: auto; padding: 6px 0; }
+.menu-group-title { font-family: var(--f-mono); font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); padding: 10px 18px 4px; }
+.menu-item { display: flex; align-items: baseline; gap: 10px; width: 100%; text-align: left; font: inherit; font-size: 13.5px; color: var(--ink); background: none; border: none; cursor: pointer; padding: 7px 18px; }
+.menu-item:hover, .menu-item:focus-visible { background: var(--accent-soft); }
+.menu-item.current { background: var(--accent-soft); font-weight: 600; }
+.menu-item .mn { font-family: var(--f-mono); color: var(--muted); min-width: 22px; flex: none; }
+
+/* speaker notes */
+.say { display: none; }
+.narrow .say { display: block; font-size: 14px; color: var(--muted); border-top: 1px dashed var(--rule); padding-top: 8px; font-style: italic; }
+#notes { position: fixed; left: 50%; bottom: 10px; transform: translateX(-50%); width: min(1060px, calc(100vw - 32px)); z-index: 50; background: var(--paper); color: var(--ink);
+  border: 1px solid var(--accent); border-radius: 6px; padding: 12px 16px; font-size: 16px; line-height: 1.45; box-shadow: 0 6px 24px rgba(0,0,0,.25); }
+#notes small { display: block; font-family: var(--f-mono); font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px; }
+@media (prefers-reduced-motion: no-preference) { .wide .slide.on { animation: in .25s ease-out; } @keyframes in { from { opacity: .4; transform: translateY(4px); } } }
+</style>
+
+<main class="deck" id="deck">
+
+<!-- 1 · TITLE -->
+<section class="slide title-slide">
+  <div class="bar"><span>DFPS research meeting</span><span>simulation study</span></div>
+  <h1>Moving capacity, then moving the queue: a simpler controller for serverless workflows on edge servers</h1>
+  <p class="lede">We start from DFPS (Zolfaghari et al., IEEE Transactions on Services Computing, 2025), look at where it falls short, rebuild it, and test what actually makes it work.</p>
+  <div class="meta"><span>24 Oct 2026</span><span>Simulator study · Azure 2019 and Huawei 2023 traffic</span></div>
+  <div class="say">Open with the one-sentence story: DFPS places and schedules serverless workflows on edge servers. We rebuilt it, measured where it has room to improve, and found a simpler controller that exploits that room. Everything is in simulation.</div>
+</section>
+
+<!-- 2 · ROADMAP -->
+<section class="slide">
+  <div class="bar"><span>Overview</span><span>the talk in five steps</span></div>
+  <h2>We go from the paper to a new controller in five steps</h2>
+  <div class="steps">
+    <div><b>The DFPS paper</b>What it solves, how it works, where it may be weak</div>
+    <div><b>Our re-implementation</b>Four errors fixed; the corrected version is called B*</div>
+    <div><b>Headroom</b>How much better could it get, and what in B* matters?</div>
+    <div><b>Our controller</b>Three mechanisms, each answering one problem</div>
+    <div><b>Results and limits</b>Held-out tests, robustness, where it does not win</div>
+  </div>
+  <div class="callout"><p><b>Main message.</b> The gain does not come from clever container swaps. It comes from adapting capacity to load every minute and then <b>moving the requests that are already waiting</b> to where the capacity is.</p></div>
+  <div class="say">Give the whole answer up front so the audience can follow the evidence. Sections 1 and 2 are background, section 3 motivates the new design, section 4 is the contribution, section 5 is the evidence.</div>
+</section>
+
+<!-- 3 · DFPS problem -->
+<section class="slide">
+  <div class="bar"><span>1 · The DFPS paper</span><span>the problem</span></div>
+  <h2>DFPS decides where the steps of serverless workflows run on a network of edge servers</h2>
+  <div class="cols l">
+    <ul>
+      <li>Each edge server holds a fixed number of function <b>containers</b> (5–25 slots). 80 servers, linked by a network.</li>
+      <li>A request is a <b>workflow</b>: a small graph of functions. Each step hands 10–50 MB of state to the next.</li>
+      <li>The goal is a short <b>makespan</b>: time from the request's arrival to the end of its last step.</li>
+      <li>Starting a container (a <b>cold start</b>) takes 2–10 s, so running containers must be reused and placed well.</li>
+    </ul>
+    <figure class="pfig"><img src="figs/dfps-fig1-workflow.png" alt="Sample image-processing workflow: face detection, duplicate check, thumbnail and indexing in parallel, persist metadata; each arrow carries a state" loading="lazy"><figcaption>A workflow: five functions, arrows carry intermediate states s1–s4. Fig. 1 of the paper.</figcaption></figure>
+  </div>
+  <div class="say">A workflow is a DAG of functions. Two things make the problem hard: data has to move between steps, and a function only runs where a container for it exists. Cold starts are expensive, so the layout of containers across servers matters a lot.</div>
+</section>
+
+<!-- 4 · three parts -->
+<section class="slide">
+  <div class="bar"><span>1 · The DFPS paper</span><span>three parts, three time scales</span></div>
+  <h2>DFPS has three parts that work at different time scales</h2>
+  <div class="cards">
+    <div class="card"><span class="tag">Once, before any request</span><b>1 · Initial placement</b><span>Decides how many containers of each function go on each server. A genetic algorithm (NSGA-II) balances closeness against each function's fair share.</span></div>
+    <div class="card"><span class="tag">For every arriving request</span><b>2 · Request scheduling</b><span>Matches the request's whole workflow onto running containers (graph pattern matching), weighing queueing against data transfer.</span></div>
+    <div class="card hl"><span class="tag">Every 4 seconds</span><b>3 · Dynamic replacement</b><span>Swaps a few containers between functions and moves waiting requests (simulated annealing). This is DFPS's auto-scaling, and the part this talk is about.</span></div>
+  </div>
+  <p class="note">Part 2 stays unchanged in our controller. Part 1 only provides the starting layout.</p>
+  <div class="say">Explain each in one sentence. Part 1 is offline and fixed. Part 2 is a per-request dispatcher. Part 3 is the only thing that reacts to changing traffic, so everything we study is about how well it adapts.</div>
+</section>
+
+<!-- 5 · part 3 detail -->
+<section class="slide">
+  <div class="bar"><span>1 · The DFPS paper</span><span>part 3 in detail</span></div>
+  <h2>Part 3 adapts capacity by changing one container per trial</h2>
+  <p>Every 4 s DFPS tries about 100 small changes (simulated annealing) and keeps those that save time. One trial:</p>
+  <div class="flow">
+    <div><b>Pick a container</b>A random server, and on it the function with the fewest recent requests.</div>
+    <div><b>Turn it into another function</b>The new function is chosen at random. It needs a cold start. The total number of containers never changes.</div>
+    <div><b>Pull waiting requests</b>Requests of the new function that wait at nearby servers move here if they would finish sooner.</div>
+  </div>
+  <div class="why"><p><b>Why it helps:</b> under uneven traffic it keeps shifting slots from idle functions to busy ones, which is why DFPS beats static layouts.</p></div>
+  <div class="say">This is the mechanism to remember. One trial changes one container, and the target function is picked at random. Keep this in mind: the next slide points out what that implies when traffic shifts quickly.</div>
+</section>
+
+<!-- 6 · weaknesses -->
+<section class="slide">
+  <div class="bar"><span>1 · The DFPS paper</span><span>hints of weakness</span></div>
+  <h2>Four places where DFPS can fall behind when traffic shifts</h2>
+  <div class="cards">
+    <div class="card"><span class="tag">Speed</span><b>Slow to adapt</b><span>One container per trial, and the new function is random: with 30 functions, only about 1 trial in 30 hits the overloaded one. Six missing containers can take about 24 s.</span></div>
+    <div class="card"><span class="tag">Starting point</span><b>The first layout is planned offline</b><span>Its "fair share" uses run time only and ignores how often a function is called, so a frequently called short function gets few containers.</span></div>
+    <div class="card"><span class="tag">Timing</span><b>A request's plan is fixed on arrival</b><span>All steps are assigned to servers at arrival. Queues that grow later are not seen by requests already planned.</span></div>
+    <div class="card"><span class="tag">Overload</span><b>No way to say no</b><span>Every request is accepted. When work exceeds capacity the queue grows without limit.</span></div>
+  </div>
+  <p class="note">These are hints from reading the paper. The following sections measure how much each one matters.</p>
+  <div class="say">These are hypotheses, not findings. The first three are about adaptation speed and the last about overload. Later we show that the real lever turned out to be the request side of part 3, not the container swaps.</div>
+</section>
+
+<!-- 7 · B* -->
+<section class="slide">
+  <div class="bar"><span>2 · Re-implementation</span><span>B*: DFPS rebuilt and corrected</span></div>
+  <h2>We rebuilt DFPS from the paper and fixed four errors; the result is called B*</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Error</th><th>Where</th><th>As printed</th><th>In B*</th></tr></thead>
+    <tbody>
+      <tr><td><b>E1</b></td><td>Eq. 3, initial placement</td><td>Fair-share score adds signed gaps, so it is 0 for every layout</td><td>Sum of absolute gaps</td></tr>
+      <tr><td><b>E2</b></td><td>Eq. 6, scheduling weights</td><td>Queueing formula (Erlang-C) is missing a term; μ is used as a rate but defined as a time</td><td>Full formula, μ = 1 ÷ run time</td></tr>
+      <tr><td><b>E3</b></td><td>Algorithm 2, annealing</td><td>A worse trial is never undone</td><td>Keep a worse trial with probability e<sup>Δ/T</sup>; return the best layout found</td></tr>
+      <tr><td><b>E4</b></td><td>Algorithm 1, replacement</td><td>A pulled request is filed in the wrong queue and stays in the old one</td><td>Goes to the new queue; every request is in exactly one queue</td></tr>
+    </tbody>
+  </table></div>
+  <p>We did not have the authors' code. B* follows the paper and changes nothing else, so improvements measured against it are on the safe side.</p>
+  <p class="note">81 automated tests: queueing results against the textbook M/M/c formula (largest error 3.2%), Little's law (error ≤ 0.001%), container and storage bookkeeping after every step, identical runs for identical seeds.</p>
+  <div class="say">Two formula errors and two algorithm errors. E1 means the printed placement only optimises closeness. E3 means the printed annealing cannot back out of a bad trial. We did not tune anything else.</div>
+</section>
+
+<!-- 8 · claims -->
+<section class="slide">
+  <div class="bar"><span>2 · Re-implementation</span><span>does B* reproduce the paper?</span></div>
+  <h2>With the fixes, B* reproduces all three of the paper's claims; the printed version reproduces two</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Claim in the paper (setup: 80 servers, 15 workflows, Uniform and Pareto traffic)</th><th>As printed</th><th>B*</th></tr></thead>
+    <tbody>
+      <tr><td>(i) Makespan rises with the arrival rate, for every method</td><td class="best">holds</td><td class="best">holds</td></tr>
+      <tr><td>(ii) Under Pareto traffic: DFPS &lt; SG &lt; SR (mean makespan)</td><td class="worse">fails at 3 of 4 rates</td><td class="best">holds at all 4</td></tr>
+      <tr><td>(iii) The static methods SR and SG have no cold starts</td><td class="best">holds</td><td class="best">holds</td></tr>
+      <tr><td><b>Claims reproduced</b></td><td class="worse"><b>2 of 3</b></td><td class="best"><b>3 of 3</b></td></tr>
+    </tbody>
+  </table></div>
+  <p>B* is also faster than the printed version at every load point, by up to 48 s (Uniform) and 70 s (Pareto) in mean makespan.</p>
+  <p class="note">SR = random placement, SG = static greedy placement. Claim (ii) fails as printed because E1 makes SG's score constant, so SG is no better than random.</p>
+  <div class="say">The test of a re-implementation is whether it reproduces the original's claims. The printed equations fail claim (ii); the corrected version holds. That gives us a trustworthy baseline.</div>
+</section>
+
+<!-- 9 · Fig 5 -->
+<section class="slide">
+  <div class="bar"><span>2 · Re-implementation</span><span>paper vs B*, Fig. 5</span></div>
+  <h2>B* follows the paper's curves, but the other baselines are much stronger in our simulator</h2>
+  <div class="sbs">
+    <figure><img src="figs/paper_fig5.png" alt="Paper Fig. 5: varying arrival rates, six panels" loading="lazy"><figcaption><b>Paper</b> · DFPS as published (Fig. 5)</figcaption></figure>
+    <figure><img src="figs/repro_fig5.png" alt="Our reproduction of Fig. 5: varying arrival rates, six panels" loading="lazy"><figcaption><b>Ours</b> · B* and the same baselines, mean of 5 workloads</figcaption></figure>
+  </div>
+  <div class="cols">
+    <ul><li><b>Matches:</b> makespan rises with load for every method; Pareto order B* &lt; SG &lt; SR at every rate.</li></ul>
+    <ul><li><b>Differs:</b> the on-demand baselines Heu and RL are as fast as B* or faster in ours; in the paper they are 4–20× slower.</li></ul>
+  </div>
+  <p class="note">Only the paper's open workload choices were calibrated, against Fig. 5. Figs. 6 and 7 were kept aside as an independent check and match in the same way. Panels: rows are mean makespan, utilization, cold starts; left Uniform, right Pareto.</p>
+  <div class="say">Left is the paper, right is ours. The shape and the ranking match. The important difference is the baselines: our versions of Heu and RL follow their source papers and are much stronger than in the DFPS paper. That changes the question from "does DFPS beat the baselines" to "where does it have room".</div>
+</section>
+
+<!-- 10 · baselines -->
+<section class="slide">
+  <div class="bar"><span>2 · Re-implementation</span><span>B* against the baselines</span></div>
+  <h2>RL is the strongest baseline unless the servers are crowded, where B* wins</h2>
+  <p>Best method at each of the 48 points of Figs. 5–7: <b>RL 34</b>, <b>B* 9</b>, <b>Heu 5</b> (by mean makespan).</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Situation</th><th class="r">B*<br>mean / P99 (s)</th><th class="r">Heu<br>mean / P99 (s)</th><th class="r">RL<br>mean / P99 (s)</th></tr></thead>
+    <tbody>
+      <tr><td>Crowded: Uniform, rate ×2</td><td class="r best">19 / 73</td><td class="r">34 / 138</td><td class="r">25 / 98</td></tr>
+      <tr><td>Crowded: Uniform, 20 servers</td><td class="r best">64 / 207</td><td class="r">202 / 893</td><td class="r">219 / 669</td></tr>
+      <tr><td>Room: Pareto, rate ×1</td><td class="r">32 / 109</td><td class="r">12 / 46</td><td class="r best">11 / 44</td></tr>
+      <tr><td>Room: Pareto, rate ×2</td><td class="r">99 / 306</td><td class="r">62 / 272</td><td class="r best">45 / 140</td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout"><p>RL and Heu start containers exactly where traffic is, which wins when there is spare capacity. B* wins when it is tight because it reuses containers. <b>B* is 2–3× slower on P99 under skewed traffic with room: that is the gap our study goes after.</b></p></div>
+  <p class="note">Mean = average makespan; P99 = the slowest 1% of requests. RL is a neural dispatcher (DDQN, after MOSEC) that places one step at a time and keeps no fixed layout.</p>
+  <div class="say">This is the motivation in numbers. B* is not best everywhere. When capacity is tight it wins, when there is room the on-demand methods win by 2–3× on P99. A good new controller should keep the first and match the second.</div>
+</section>
+
+<!-- 11 · setup -->
+<section class="slide">
+  <div class="bar"><span>3 · Headroom</span><span>experimental setup</span></div>
+  <h2>How we test: one simulator, two real traffic traces, rules fixed in advance</h2>
+  <div class="cols l">
+    <div class="tbl"><table>
+      <tbody>
+        <tr><th>Cluster</th><td>80 edge nodes, about 1,240 container slots (a fixed budget), 30 functions</td></tr>
+        <tr><th>Workflows</th><td>15 per scenario: 6 real SeBS-Flow applications, the paper's Fig. 1 example, 8 from the Alibaba trace (2–62 steps, median 5)</td></tr>
+        <tr><th>Traffic</th><td>Azure Functions 2019 (smooth) and Huawei Cloud 2023 (bursty), scaled to 50%, 70% and 85% of capacity</td></tr>
+        <tr><th>Seeds</th><td>Development 1–3 (used to design); held-out 4–10 (reserved for confirmation)</td></tr>
+        <tr><th>Baselines</th><td>B*, RL, RL calibrated. "Best existing" = the best of these in each case</td></tr>
+      </tbody>
+    </table></div>
+    <div class="callout"><p><b>Metric used in every table</b></p>
+      <p style="margin-top:6px"><b>P99 completion latency</b> = the 99th-percentile time, in seconds, from a request's arrival to the end of its last step, over requests arriving in a 15-minute window after a 60-s warm-up. Lower is better.</p>
+      <p style="margin-top:6px"><b>Gain</b> = (reference − ours) ÷ reference.</p></div>
+  </div>
+  <p class="note">Decision rules (what counts as a GO) were written before any experiment and changes were logged as deviations.</p>
+  <div class="say">Define the metric here once and keep it for the rest of the talk. P99 matters because users feel the slow tail. Azure is smooth, Huawei bursty, so together they test adaptation. Development and held-out seeds are separate so that the final numbers are not tuned.</div>
+</section>
+
+<!-- 12 · cheater -->
+<section class="slide">
+  <div class="bar"><span>3 · Headroom</span><span>how much room is there?</span></div>
+  <h2>A controller that knows the future beats B* by 12–46%, and a simple rule keeps the gain without foresight</h2>
+  <p><b>Upper bound.</b> A "cheater" that tests five layouts by simulating the next 120 s of real requests. Gain in P99 completion latency over B*, 90 cases (all loads):</p>
+  <div class="stats">
+    <div class="stat"><span class="v">+34%</span><span class="l">Azure</span></div>
+    <div class="stat"><span class="v">+46%</span><span class="l">Huawei</span></div>
+    <div class="stat"><span class="v">+12%</span><span class="l">Synthetic traffic</span></div>
+  </div>
+  <div class="why"><p><b>No foresight needed.</b> A rule that every minute gives each function containers for its <i>current</i> load and backlog reached <b>+56.5% (Azure) and +45% (Huawei)</b> over the best existing method at 70–85% load (9 cases each). Forecasting and simulating ahead added nothing.</p></div>
+  <p class="note">A cheater is a lower bound on what is possible, so it can understate the room but not overstate it. At 50% load RL still wins against this rule.</p>
+  <div class="say">The room is real: even against the best existing method, a rule with no foresight wins clearly at high load. Two references in this slide differ on purpose: the tiles compare to B* over all loads, the green box compares to the best existing method at 70 and 85 percent load.</div>
+</section>
+
+<!-- 13 · diagnostic -->
+<section class="slide">
+  <div class="bar"><span>3 · Headroom</span><span>what in B* matters?</span></div>
+  <h2>Taking B* apart: its container swaps were not the useful part, moving waiting requests was</h2>
+  <p>In every round B* makes about 75 container changes and moves about 220 waiting requests; about half of its container changes undo the previous re-layout. We kept each part separately, on top of a re-layout every minute:</p>
+  <div class="tbl"><table>
+    <thead><tr><th>What runs on top of the minute-by-minute re-layout</th><th class="r">P99 gain over B*</th></tr></thead>
+    <tbody>
+      <tr><td>B*'s container swaps and request moves together</td><td class="r">+55.0%</td></tr>
+      <tr><td><b>Request moves only, no B*</b></td><td class="r best"><b>+71.7%</b></td></tr>
+      <tr><td>B*'s container swaps only (its request moves dropped)</td><td class="r">+9.9%</td></tr>
+      <tr><td>Re-layout only</td><td class="r worse">−11.2%</td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout"><p>Capacity moves to where the load is, <b>but the requests already waiting stay behind</b>. Moving them is what pays. This turns the design into two simple mechanisms and removes the need for B*'s annealing.</p></div>
+  <p class="metric"><b>Metric:</b> reduction of P99 completion latency against B*. 12 development cases: Azure and Huawei, 70–85% load, seeds 1–3.</p>
+  <div class="say">This is the pivot of the talk. We switched B*'s parts off one at a time. Request moves alone beat B*'s whole machinery. The re-layout alone is slightly worse than B*, so neither is enough alone.</div>
+</section>
+
+<!-- 14 · overview -->
+<section class="slide">
+  <div class="bar"><span>4 · Our controller</span><span>overview</span></div>
+  <h2>Our controller: a slow loop resizes and places containers, a fast loop moves waiting requests</h2>
+  <div class="tl">
+    <div class="lab"><b>Every 60 s</b><span>re-layout</span></div>
+    <div class="lane"><div class="blk" style="left:0">①②</div><div class="blk" style="left:33.3%">①②</div><div class="blk" style="left:66.6%">①②</div></div>
+    <div class="lab"><b>Every 4 s</b><span>request moves</span></div>
+    <div class="lane fast"></div>
+    <div class="axis"><span>0 s</span><span>60 s</span><span>120 s</span><span>180 s</span></div>
+  </div>
+  <div class="cards">
+    <div class="card"><span class="tag">Mechanism 1</span><b>① Sizing</b><span>How many containers each function gets, from recent load and backlog.</span></div>
+    <div class="card"><span class="tag">Mechanism 2</span><b>② Incremental placement</b><span>Where the changed containers go, with as few changes as possible.</span></div>
+    <div class="card"><span class="tag">Mechanism 3</span><b>③ Request moves</b><span>Send each waiting request to the node where it will finish soonest.</span></div>
+  </div>
+  <p class="note">Unchanged from DFPS: NSGA-II starting layout, graph-matching request scheduling, the fixed number of slots. Removed: annealing, forecasting, simulation, learning.</p>
+  <div class="say">Two loops. The slow loop runs once a minute and combines mechanisms 1 and 2 into a new layout. The fast loop runs every four seconds and runs mechanism 3. For each mechanism the next slides state the problem, what we measured, and what we did about it.</div>
+</section>
+
+<!-- 15 · M1 rule -->
+<section class="slide">
+  <div class="bar"><span>4 · Our controller</span><span>mechanism 1 · sizing</span></div>
+  <h2>Mechanism 1 · Sizing: give each function the containers its load and backlog need</h2>
+  <p><b>Problem.</b> DFPS's fair share counts run time only, so a function that is called often but runs briefly is starved while others idle. We size from what is happening now.</p>
+  <div class="cols">
+    <div style="display:grid;gap:10px">
+      <div class="eq">busy containers needed =<br>&nbsp;&nbsp;arrivals per second × run time<br>&nbsp;&nbsp;+ queued requests × run time ÷ 120 s</div>
+      <div class="eq">containers = ⌈ needed ÷ 0.8 ⌉ (at least 1),<br>scaled to fit the fixed slot budget</div>
+      <p class="note">Arrival rate = the last 2 minutes. No forecast. Runs every 60 s.</p>
+    </div>
+    <div>
+      <div class="tbl"><table>
+        <thead><tr><th>Function</th><th class="r">Calls /s</th><th class="r">Run time</th><th class="r">Queued</th><th class="r">Needed</th><th class="r">Gets</th></tr></thead>
+        <tbody>
+          <tr><td><span class="fc f1">f1</span></td><td class="r">3</td><td class="r">2 s</td><td class="r">60</td><td class="r">7.0</td><td class="r best">9</td></tr>
+          <tr><td><span class="fc f2">f2</span></td><td class="r">0.5</td><td class="r">4 s</td><td class="r">0</td><td class="r">2.0</td><td class="r">3</td></tr>
+          <tr><td><span class="fc f3">f3</span></td><td class="r">0.5</td><td class="r">6 s</td><td class="r">0</td><td class="r">3.0</td><td class="r">4</td></tr>
+        </tbody>
+      </table></div>
+      <p class="note">Illustrative numbers, 16 slots. f1 runs briefly but is called six times as often, so it gets the most containers. Fair share by run time alone would give it the fewest.</p>
+    </div>
+  </div>
+  <div class="say">Needed containers are what the arrival rate keeps busy, plus what it takes to drain the queue within two minutes. Dividing by 0.8 keeps a margin. Because the slot budget is fixed, the result is scaled to fit, which makes this effectively demand-proportional allocation.</div>
+</section>
+
+<!-- 16 · M1 evidence -->
+<section class="slide">
+  <div class="bar"><span>4 · Our controller</span><span>mechanism 1 · what we tested</span></div>
+  <h2>Sizing is kept simple on purpose: foresight and tuned formulas did not improve it</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Test</th><th>Result (P99 completion latency)</th></tr></thead>
+    <tbody>
+      <tr><td>Use the exact future arrival rate, or score layouts by simulating the next 2 minutes</td><td>No extra gain: our plain rule reached 97–121% of their result</td></tr>
+      <tr><td>Utilisation target 0.7 or 0.9 instead of 0.8; horizon 60 s or 240 s instead of 120 s</td><td>Changes of 1.6% or less</td></tr>
+      <tr><td>Published autoscaling rules instead of ours. <b>HPA-style</b> (Kubernetes autoscaler): containers = load ÷ 0.8, no backlog term. <b>Fifer-style</b>: adds containers for the backlog only when its drain time exceeds a cold start. <b>Kraken-style</b>: adds weights from the workflow graph</td><td class="worse">3.6%, 5.4% and 70.9% worse</td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout"><p>Sizing from queue and load is a known idea (HPA, Fifer, Kraken), and adapted versions get close. <b>Sizing alone is not our contribution.</b> What matters is what we pair it with.</p></div>
+  <p class="metric"><b>Metric:</b> P99 completion latency, 18 development cases (Azure and Huawei, 50/70/85% load, seeds 1–3), B* switched off. "Worse" = higher P99 than our rule. These tests ran on the earlier version of the controller (affinity placement, moves capped at 300 per round); only the rule under test differed.</p>
+  <div class="say">Be upfront here: this mechanism is close to published autoscalers. The point of the slide is that we tried foresight and extra tuning and neither helped, so we kept the rule simple. The next two mechanisms are where the value is.</div>
+</section>
+
+<!-- 17 · M2 rule -->
+<section class="slide">
+  <div class="bar"><span>4 · Our controller</span><span>mechanism 2 · placement</span></div>
+  <h2>Mechanism 2 · Placement: change as few containers as possible, and put them where requests will use them</h2>
+  <p><b>Problem.</b> Our first placement rule rebuilt the whole layout every minute. It changed 2–6 times more containers than the new counts required, and each change is a cold start.</p>
+  <div class="flow">
+    <div><b>Start from the live layout</b>Only the difference between old and new counts is changed.</div>
+    <div><b>Shrink cheaply, grow where it gains most</b>Shrinking a function removes the container whose loss costs least. Growing adds one at the (function, node) pair with the largest gain.</div>
+    <div><b>Score by expected transfer time</b>A function's requests are spread over its containers in proportion to containers × e<sup>−hops</sup>; the cost is the transfer time that results.</div>
+  </div>
+  <div class="hbars">
+    <span class="l">Rebuild every minute</span><div class="tr"><div class="b m" style="width:220px"></div><span class="v">100% of container changes</span></div>
+    <span class="l">Incremental</span><div class="tr"><div class="b" style="width:92px"></div><span class="v">42%, and 38% less transfer time</span></div>
+  </div>
+  <p class="note">Offline comparison on real re-layout inputs: 58% fewer container changes and 38% less expected transfer time.</p>
+  <div class="say">Incremental means: do not rebuild, edit. The scoring function models how requests will actually be spread over containers. Offline this looked like a clear win on both measures. The next slide shows why offline numbers were not enough.</div>
+</section>
+
+<!-- 18 · M2 surprise -->
+<section class="slide">
+  <div class="bar"><span>4 · Our controller</span><span>mechanism 2 · the surprise</span></div>
+  <h2>A layout 38% better on transfer time was 22% worse on P99, until requests could move freely</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Placement rule</th><th class="r">P99 (s), moves capped at 300 per round</th><th class="r">P99 (s), moves unlimited</th><th class="r">Cold starts per run</th><th class="r">Forced reroutes per run</th></tr></thead>
+    <tbody>
+      <tr><td>Old: rebuild every minute</td><td class="r best">166.2</td><td class="r">141.0</td><td class="r">4,386</td><td class="r">10,768</td></tr>
+      <tr><td><b>Incremental</b></td><td class="r worse">208.6 (22.5% worse)</td><td class="r best"><b>140.3</b></td><td class="r best">1,396 (−68%)</td><td class="r">707</td></tr>
+    </tbody>
+  </table></div>
+  <div class="cols">
+    <p><b>Why.</b> The old rule's constant rebuilding removed functions from nodes all the time and forced waiting requests to move. It redistributed queues as a side effect. A stable layout loses that.</p>
+    <p><b>Lesson.</b> Transfer distance did not predict P99. Waiting requests did. With explicit, uncapped request moves the P99 is equal and cold starts fall by 68%.</p>
+  </div>
+  <p class="metric"><b>Metric:</b> P99 completion latency (seconds), 18 development cases, B* off, only the placement rule differs. Cold starts and reroutes are the unlimited-moves columns.</p>
+  <div class="say">This is the finding that led to mechanism 3. The offline distance score said the new placement was clearly better, but P99 got worse. We measured why: the old rule was accidentally moving queued requests around. Once we give requests an explicit, uncapped way to move, the new placement matches the old one's P99 with a third of the cold starts.</div>
+</section>
+
+<!-- 19 · M3 rule -->
+<section class="slide">
+  <div class="bar"><span>4 · Our controller</span><span>mechanism 3 · request moves</span></div>
+  <h2>Mechanism 3 · Request moves: send each waiting request to where it will finish soonest</h2>
+  <p><b>Problem.</b> DFPS fixes a request's servers when it arrives. After the layout changes or a queue builds, requests keep waiting in the old place while capacity sits idle elsewhere.</p>
+  <div class="cols">
+    <div class="qv">
+      <div class="qrow"><span class="nm">Before a move round</span><div class="nd">
+        <div class="qn"><small>node A · f2</small><div class="qs"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+        <div class="qn"><small>node B · f2</small><div class="qs"><i></i></div></div></div></div>
+      <div class="qrow"><span class="nm">After</span><div class="nd">
+        <div class="qn"><small>node A · f2</small><div class="qs"><i></i><i></i><i></i><i></i><i></i></div></div>
+        <div class="qn"><small>node B · f2</small><div class="qs"><i></i><i class="mv"></i><i class="mv"></i><i class="mv"></i></div></div></div></div>
+      <p class="note">Illustration. Blue = requests moved from A to B.</p>
+    </div>
+    <ul>
+      <li>Every 4 s, and right after each re-layout.</li>
+      <li>Longest queues first, from the back of the queue.</li>
+      <li>Target: the node holding the function where the estimated finish is earliest = input transfer + queue wait + output transfers to the children's planned nodes.</li>
+      <li>Storage must fit. <b>No cap</b> on the number of moves.</li>
+    </ul>
+  </div>
+  <div class="say">The finish-time estimate is B*'s own estimate, we reuse it. What is new is applying it systematically, to the longest queues, on every tick, with no cap and straight after the layout changes. The picture shows the idea in miniature.</div>
+</section>
+
+<!-- 20 · 2x2 -->
+<section class="slide">
+  <div class="bar"><span>4 · Our controller</span><span>why both loops</span></div>
+  <h2>Neither loop works alone: together they cut P99 completion latency by a factor of 29</h2>
+  <div class="tbl"><table class="g22">
+    <thead><tr><th></th><th>No request moves</th><th>Request moves</th><th>Effect of moves</th></tr></thead>
+    <tbody>
+      <tr><th class="rh">Fixed starting layout</th><td class="c c1">3,725 s</td><td class="c c2">1,727 s</td><td class="ef">×2.2</td></tr>
+      <tr><th class="rh">Re-layout every 60 s</th><td class="c c2">1,022 s</td><td class="c c4">130 s</td><td class="ef">×7.9</td></tr>
+      <tr><th class="rh">Effect of the re-layout</th><td class="ef">×3.6</td><td class="ef">×13.3</td><td></td></tr>
+    </tbody>
+  </table></div>
+  <div class="why"><p>Request moves are worth ×2.2 on a fixed layout but <b>×7.9 once the layout adapts</b>. The effects multiply and reinforce each other (interaction −1.30 on the log scale, interval −1.52 to −1.07).</p></div>
+  <p class="metric"><b>Metric:</b> P99 completion latency in seconds, geometric mean over 18 development cases (Azure and Huawei, 50/70/85% load, seeds 1–3). B* annealing off in all four cells; same scenario, start layout and seed in each. For reference, B* alone: 507 s.</p>
+  <div class="say">This is the core experiment. A 2-by-2 of the two loops, with raw seconds so nobody has to trust a ratio. Doing only one gives 1,000 to 1,700 seconds; doing both gives 130. The loops are not additive, they depend on each other.</div>
+</section>
+
+<!-- 21 · move rule ablation -->
+<section class="slide">
+  <div class="bar"><span>4 · Our controller</span><span>mechanism 3 · what we tested</span></div>
+  <h2>The finish-time estimate beats textbook balancers, and capping the moves costs performance</h2>
+  <div class="cols">
+    <div>
+      <h3>Other ways to move requests</h3>
+      <div class="tbl"><table>
+        <thead><tr><th>Replacement</th><th class="r">P99 vs ours</th></tr></thead>
+        <tbody>
+          <tr><td>Join-shortest-queue moves</td><td class="r worse">9.0% worse</td></tr>
+          <tr><td>Work stealing</td><td class="r worse">28.6% worse</td></tr>
+          <tr><td>Whole textbook stack: HPA-style sizing (containers = load ÷ 0.8) + shortest-queue moves</td><td class="r worse">15.1% worse</td></tr>
+        </tbody>
+      </table></div>
+      <p class="note">The textbook stack still reaches about 88% of our gain over the best existing method (+46.6% vs +53.1%).</p>
+    </div>
+    <div>
+      <h3>Capping the number of moves</h3>
+      <div class="tbl"><table>
+        <thead><tr><th>Moves per 4-s round</th><th class="r">P99 gain over B*</th></tr></thead>
+        <tbody>
+          <tr><td>At most 100</td><td class="r">+55.9%</td></tr>
+          <tr><td>At most 300</td><td class="r">+70.5%</td></tr>
+          <tr><td>At most 1,000</td><td class="r">+77.5%</td></tr>
+          <tr><td>No cap</td><td class="r best">+77.9%</td></tr>
+        </tbody>
+      </table></div>
+      <p class="note">85% load, 6 cases. Stays true when moving a request is priced at 5× its transfer cost.</p>
+    </div>
+  </div>
+  <p class="metric"><b>Metric:</b> P99 completion latency; "worse" = higher than our controller. Left: 18 development cases, run on the earlier controller version (affinity placement, moves capped at 300 per round) with only the rule under test changed. Right: gain = reduction against B*.</p>
+  <div class="say">Two checks on mechanism 3. First, a generic balancer is worse than the finish-time estimate, so the estimate does real work. Second, any cap on moves loses performance, so we keep it uncapped. Part of the gain is from simply having a decent stack, which we state honestly.</div>
+</section>
+
+<!-- 22 · timing -->
+<section class="slide">
+  <div class="bar"><span>4 · Our controller</span><span>timing</span></div>
+  <h2>A stale layout is expensive, so the slow loop must be applied on time</h2>
+  <div class="cols">
+    <div>
+      <h3>Re-layout applied late</h3>
+      <div class="hbars">
+        <span class="l">On time</span><div class="tr"><div class="b" style="width:42px"></div><span class="v">150 s</span></div>
+        <span class="l">60 s late</span><div class="tr"><div class="b w" style="width:59px"></div><span class="v">210 s (+44%)</span></div>
+        <span class="l">120 s late</span><div class="tr"><div class="b w" style="width:85px"></div><span class="v">302 s (+113%)</span></div>
+        <span class="l">300 s late</span><div class="tr"><div class="b r" style="width:188px"></div><span class="v">669 s (+370%)</span></div>
+      </div>
+      <p class="note">P99 completion latency, 12 cases at 70–85% load. At 300 s late, 29,907 requests per case find no node to run on, against 0.2 on time.</p>
+    </div>
+    <div>
+      <h3>Small timing decisions</h3>
+      <ul style="font-size:16px">
+        <li><b>Adopted:</b> request moves also run on the tick that applies a re-layout (+1.6% P99).</li>
+        <li><b>Adopted:</b> a 4-s move period on both datasets (Huawei was 8 s, +8.2% by changing).</li>
+        <li><b>Not adopted:</b> 2 s (only +2.2% for 29% more moves).</li>
+        <li><b>Reported separately:</b> re-layout every 30 s instead of 60 s (+4.9%, 7% more cold starts).</li>
+      </ul>
+    </div>
+  </div>
+  <div class="callout"><p>Layout freshness is a requirement, not a tuning knob: without a fresh layout the fast loop cannot compensate.</p></div>
+  <div class="say">Left shows what happens if the new layout is applied late. One minute late already costs 44 percent; five minutes late is catastrophic. The right side lists the small timing decisions we tested and what we kept.</div>
+</section>
+
+<!-- 23 · held-out -->
+<section class="slide">
+  <div class="bar"><span>5 · Results</span><span>held-out validation</span></div>
+  <h2>On seeds never used for design, the controller cuts P99 completion latency by 65% at 70–85% load</h2>
+  <div class="legend"><span><i style="background:var(--accent)"></i>Ours</span><span><i style="background:var(--muted)"></i>B*</span><span><i style="background:var(--warn)"></i>RL</span><span>P99 completion latency in seconds, lower is better</span></div>
+  <div class="ho" id="ho"></div>
+  <div class="stats">
+    <div class="stat good"><span class="v">+65.3%</span><span class="l">70–85% load, 28 cases, 28 wins (interval 61–70)</span></div>
+    <div class="stat"><span class="v">+16.4%</span><span class="l">50% load, 14 cases, 11 wins (interval 9–24)</span></div>
+    <div class="stat"><span class="v">+49.0%</span><span class="l">all loads, 42 cases, 39 wins (interval 41–57)</span></div>
+  </div>
+  <p class="metric"><b>Metric:</b> gain = reduction of P99 completion latency against the best of B*, RL, RL calibrated in the same case. Held-out seeds 4–10, 42 cases; the chart shows 7 cases per bar. The configuration was frozen on 23 Oct before these runs.</p>
+  <div class="say">This is the headline. The configuration was written down and frozen before running the held-out seeds. At 70 to 85 percent load it wins every one of 28 cases. At 50 percent the gain is smaller, and we explain why on the limits slide. A later refinement chosen on development seeds gave 60.0 percent against 58.2 percent there, so the held-out figure is conservative for the final version.</div>
+</section>
+
+<!-- 24 · robustness -->
+<section class="slide">
+  <div class="bar"><span>5 · Results</span><span>robustness</span></div>
+  <h2>The gain survives expensive relocation and holds for every workflow shape tested</h2>
+  <div class="cols">
+    <div>
+      <h3>Pricing a request move</h3>
+      <div class="tbl"><table>
+        <thead><tr><th>Move cost</th><th class="r">Gain over B*</th><th class="r">Ours vs RL, 50% load</th></tr></thead>
+        <tbody>
+          <tr><td>×1 (nominal)</td><td class="r">+70.9%</td><td class="r">+21.6%</td></tr>
+          <tr><td>×2</td><td class="r">+70.1%</td><td class="r">+12.9%</td></tr>
+          <tr><td>×5</td><td class="r">+66.5%</td><td class="r worse">−19.6%</td></tr>
+        </tbody>
+      </table></div>
+      <p class="note">Every relocation is charged ×1, ×2 or ×5 its transfer time, for all controllers. 18 development cases, 18 wins each. RL pays nothing to relocate.</p>
+    </div>
+    <div>
+      <h3>Workflow shapes (85% load, gain over B*)</h3>
+      <div class="hbars" style="font-size:14px;gap:5px 10px">
+        <span class="l">Chain of 3</span><div class="tr"><div class="b g" style="width:171px"></div><span class="v">+85%</span></div>
+        <span class="l">Diamond, 4 wide</span><div class="tr"><div class="b g" style="width:163px"></div><span class="v">+82%</span></div>
+        <span class="l">Wide fan-out, 18</span><div class="tr"><div class="b g" style="width:156px"></div><span class="v">+78%</span></div>
+        <span class="l">Fan-in tree</span><div class="tr"><div class="b g" style="width:146px"></div><span class="v">+73%</span></div>
+        <span class="l">Chain of 12</span><div class="tr"><div class="b g" style="width:136px"></div><span class="v">+68%</span></div>
+        <span class="l">Real SeBS-Flow apps</span><div class="tr"><div class="b g" style="width:132px"></div><span class="v">+66%</span></div>
+      </div>
+      <p class="note">Six of the nine shapes shown; all 36 cases are wins, range +66% to +85%.</p>
+    </div>
+  </div>
+  <p class="metric"><b>Metric:</b> reduction of P99 completion latency against B* (or against RL, right column of the left table).</p>
+  <div class="say">Two threats to validity. First, the simulator has no link contention, so moving requests is cheaper than in reality; we charged moves up to five times their cost and the gain barely drops. Second, we ran nine different workflow shapes; ours won all 36 cases.</div>
+</section>
+
+<!-- 25 · limits -->
+<section class="slide">
+  <div class="bar"><span>5 · Results</span><span>limits</span></div>
+  <h2>Where it does not win: low load, very costly relocation, and anything beyond the simulator</h2>
+  <div class="cards">
+    <div class="card"><span class="tag">Low load</span><b>50% load: small gains</b><span>Task times are random, so a request's P99 is about 88 s even with no queueing at all. Ours is 121 s (33 s above that floor), RL 144 s (57 s above). RL is still ahead in 4 of 20 cases, all on bursty Huawei traffic.</span></div>
+    <div class="card"><span class="tag">Cost of moving</span><b>Relocation 5× dearer</b><span>RL pays nothing to relocate, so at 50% load it overtakes us when moving a request costs five times its transfer time.</span></div>
+    <div class="card"><span class="tag">Overload</span><b>No way to say no</b><span>Like DFPS, the controller accepts everything. Above capacity it needs an admission rule (next slide).</span></div>
+    <div class="card"><span class="tag">Evidence</span><b>Simulation only</b><span>No link contention, exponential task durations, no real deployment yet. Gains at high load are the main claim.</span></div>
+  </div>
+  <p class="note">The 88 s floor and the other 50%-load numbers are means over 20 scenarios (seeds 1–10, Azure and Huawei); all are P99 completion latency.</p>
+  <div class="say">Say this plainly. At low load there is little to gain, because most of a request's latency is just its own execution. And everything is simulated, so the next step for a journal paper is a real deployment or a third workload.</div>
+</section>
+
+<!-- 26 · extensions -->
+<section class="slide">
+  <div class="bar"><span>5 · Results</span><span>extensions (preliminary)</span></div>
+  <h2>Two extensions point beyond the core result</h2>
+  <div class="cols">
+    <div>
+      <h3>Overload: admission control</h3>
+      <div class="tbl"><table>
+        <thead><tr><th>Goodput (workflows/s)</th><th class="r">Admit all</th><th class="r">With admission</th></tr></thead>
+        <tbody>
+          <tr><td>B*</td><td class="r">2.32</td><td class="r">7.67</td></tr>
+          <tr><td><b>Ours</b></td><td class="r">10.30</td><td class="r best">23.29</td></tr>
+        </tbody>
+      </table></div>
+      <p class="note">Admit a request only if the requests in the system are at most 1.0 × the container slots. 20 overload windows; ours wins all 20. Goodput = workflows finishing within 3× their unloaded critical path, per second.</p>
+    </div>
+    <div>
+      <h3>Elastic capacity: leave slots empty</h3>
+      <div class="tbl"><table>
+        <thead><tr><th>Utilisation target</th><th class="r">Containers used</th><th class="r">P99 cost</th></tr></thead>
+        <tbody>
+          <tr><td>0.65</td><td class="r">94% of slots</td><td class="r">+3.0%</td></tr>
+          <tr><td>0.8</td><td class="r">87% of slots</td><td class="r">+10.8%</td></tr>
+        </tbody>
+      </table></div>
+      <p class="note">The saving exists only at low load (at 50% load, 80% of slots for +10.7% P99 at target 0.65). Even at 68% of containers it stays ahead of B*.</p>
+    </div>
+  </div>
+  <div class="callout"><p>Still running: a second admission round (thresholds, move caps, SLO factors) and a test of other request dispatchers in place of graph pattern matching.</p></div>
+  <div class="say">These are preliminary. Admission nearly doubles goodput for ours and triples it for B*, and the controller stays ahead. Elastic capacity gives a trade-off between containers used and tail latency. The dispatcher test checks that we do not depend on DFPS's matcher.</div>
+</section>
+
+<!-- 27 · conclusion -->
+<section class="slide">
+  <div class="bar"><span>5 · Results</span><span>conclusions and next steps</span></div>
+  <h2>Conclusions and next steps</h2>
+  <div class="cols">
+    <div>
+      <h3>What we found</h3>
+      <ul>
+        <li>DFPS's headroom is real, and most of B*'s gain came from <b>moving waiting requests</b>, not from its container swaps.</li>
+        <li>Two simple loops, a re-layout every minute and finish-time request moves every 4 s, <b>multiply</b> (×13.3 and ×7.9) and need each other.</li>
+        <li>On held-out seeds: <b>+65% P99</b> over the best existing method at 70–85% load, +16% at 50%. Simulation only.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Next steps</h3>
+      <ul>
+        <li>Confirm the final configuration on fresh seeds (11 and up).</li>
+        <li>Finish admission round 2 and the other-dispatcher test.</li>
+        <li>Heavy-tailed task durations; measure request ping-pong.</li>
+        <li>A real deployment or a third workload.</li>
+        <li>Systematic related-work search on queued-request migration in serverless platforms.</li>
+      </ul>
+    </div>
+  </div>
+  <p class="note">Novelty claim: the combination of a fixed slot budget, workflow graphs, incremental placement and queued-request redistribution, plus the decomposition of why it works. Sizing and placement alone are close to published ideas.</p>
+  <div class="say">Close with the three findings and the honest scope: simulation, strongest at high load. Invite questions on whichever mechanism the professor wants to dig into; every claim has a slide behind it.</div>
+</section>
+
+</main>
+<nav class="nav" aria-label="Slide navigation">
+  <button id="prev" type="button">← Previous</button>
+  <span><span id="count" class="num">1 / 27</span> · <button id="menuBtn" type="button" title="Slide menu (M)">☰ Menu</button> · <button id="notesBtn" type="button" title="Speaker notes (N)">Notes</button> · <button id="fs" type="button" title="Full screen (F)">Full screen</button></span>
+  <button id="next" type="button">Next →</button>
+</nav>
+
+<button id="menuFab" class="menu-fab" type="button" aria-label="Open slide menu" title="Slide menu (M)">☰</button>
+<div id="menuOverlay" class="menu-overlay">
+  <div class="menu-panel" role="dialog" aria-label="Slide menu">
+    <div class="menu-head"><b>Jump to a slide</b><button id="menuClose" type="button" aria-label="Close menu">✕</button></div>
+    <div id="menuList" class="menu-list"></div>
+  </div>
+</div>
+<div id="notes" hidden><small>Speaker notes</small><div id="notesText"></div></div>
+
+<script>
+(function () {
+  // Held-out P99 completion latency (s), 60 s cadence, 7 cases per bar: [ours, B*, RL]
+  const HO = {
+    "Azure 2019": { 50: [120, 235, 158], 70: [143, 450, 670], 85: [182, 632, 1018] },
+    "Huawei 2023": { 50: [119, 385, 133], 70: [147, 670, 511], 85: [188, 925, 827] }
+  };
+  const MAX = 1100, cls = ["o", "b", "r"];
+  const host = document.getElementById("ho");
+  Object.keys(HO).forEach(name => {
+    const box = document.createElement("div");
+    const h = document.createElement("h3"); h.textContent = name; box.appendChild(h);
+    [50, 70, 85].forEach(load => {
+      const g = document.createElement("div"); g.className = "hgrp";
+      const l = document.createElement("span"); l.className = "gl"; l.textContent = load + "% load"; g.appendChild(l);
+      const rows = document.createElement("div");
+      HO[name][load].forEach((v, k) => {
+        const r = document.createElement("div"); r.className = "hrow";
+        const b = document.createElement("div"); b.className = "hb " + cls[k];
+        b.style.width = "calc((100% - 44px) * " + (v / MAX).toFixed(4) + ")";
+        const s = document.createElement("span"); s.textContent = v;
+        r.appendChild(b); r.appendChild(s); rows.appendChild(r);
+      });
+      g.appendChild(rows); box.appendChild(g);
+    });
+    host.appendChild(box);
+  });
+
+  const slides = Array.from(document.querySelectorAll(".slide"));
+  const count = document.getElementById("count");
+  const prev = document.getElementById("prev"), next = document.getElementById("next");
+  const notes = document.getElementById("notes"), notesText = document.getElementById("notesText");
+  let i = 0, notesOn = false;
+  const m = Number((location.hash.match(/^#s(\d+)$/) || [])[1]);
+  if (m >= 1 && m <= slides.length) i = m - 1;
+
+  function showNotes() {
+    const say = slides[i].querySelector(".say");
+    notesText.textContent = say ? say.textContent : "";
+    notes.hidden = !(notesOn && !document.body.classList.contains("narrow"));
+  }
+  function show(n) {
+    i = Math.max(0, Math.min(slides.length - 1, n));
+    slides.forEach((s, k) => s.classList.toggle("on", k === i));
+    count.textContent = (i + 1) + " / " + slides.length;
+    prev.disabled = i === 0;
+    next.disabled = i === slides.length - 1;
+    try { history.replaceState(null, "", "#s" + (i + 1)); } catch (e) {}
+    showNotes();
+  }
+  function toggleNotes() { notesOn = !notesOn; showNotes(); }
+  document.getElementById("notesBtn").addEventListener("click", toggleNotes);
+
+  // slide menu
+  (function () {
+    const overlay = document.getElementById("menuOverlay");
+    const list = document.getElementById("menuList");
+    const openers = [document.getElementById("menuBtn"), document.getElementById("menuFab")];
+    let built = false;
+    function build() {
+      if (built) return;
+      built = true;
+      let last = null;
+      slides.forEach((s, k) => {
+        const spans = s.querySelectorAll(".bar > span");
+        const title = spans[0] ? spans[0].textContent.trim() : "Slide " + (k + 1);
+        const sub = spans[1] ? spans[1].textContent.trim() : "";
+        if (title !== last) {
+          const h = document.createElement("div"); h.className = "menu-group-title"; h.textContent = title; list.appendChild(h); last = title;
+        }
+        const b = document.createElement("button");
+        b.type = "button"; b.className = "menu-item"; b.dataset.i = k;
+        const a = document.createElement("span"); a.className = "mn"; a.textContent = k + 1;
+        const c = document.createElement("span"); c.textContent = sub || title;
+        b.appendChild(a); b.appendChild(c);
+        b.addEventListener("click", () => jump(k));
+        list.appendChild(b);
+      });
+    }
+    function markCurrent() { list.querySelectorAll(".menu-item").forEach(b => b.classList.toggle("current", Number(b.dataset.i) === i)); }
+    function jump(k) {
+      close();
+      if (document.body.classList.contains("narrow")) slides[k].scrollIntoView({ behavior: "smooth", block: "start" });
+      else show(k);
+    }
+    function open() { build(); markCurrent(); overlay.classList.add("open"); const cur = list.querySelector(".menu-item.current"); if (cur) cur.scrollIntoView({ block: "center" }); }
+    function close() { overlay.classList.remove("open"); }
+    function toggle() { overlay.classList.contains("open") ? close() : open(); }
+    openers.forEach(b => b && b.addEventListener("click", toggle));
+    overlay.addEventListener("click", e => { if (e.target === overlay) close(); });
+    document.getElementById("menuClose").addEventListener("click", close);
+    document.addEventListener("keydown", e => {
+      if (e.key === "Escape" && overlay.classList.contains("open")) close();
+      else if ((e.key === "m" || e.key === "M") && !overlay.classList.contains("open")) { e.preventDefault(); open(); }
+    });
+  })();
+
+  const deckEl = document.getElementById("deck"), navEl = document.querySelector(".nav");
+  function mode() {
+    const wide = window.innerWidth >= 760;
+    document.body.classList.toggle("wide", wide);
+    document.body.classList.toggle("narrow", !wide);
+    let z = 1;
+    if (wide) z = Math.max(0.6, Math.min((window.innerWidth - 40) / 1120, (window.innerHeight - 30) / (630 + 14 + 60)));
+    deckEl.style.zoom = z; navEl.style.zoom = z;
+    showNotes();
+  }
+  function toggleFs() {
+    try {
+      if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
+      else document.exitFullscreen().catch(() => {});
+    } catch (e) {}
+  }
+  const fsBtn = document.getElementById("fs");
+  if (fsBtn) fsBtn.addEventListener("click", toggleFs);
+  document.addEventListener("fullscreenchange", mode);
+  prev.addEventListener("click", () => show(i - 1));
+  next.addEventListener("click", () => show(i + 1));
+  document.addEventListener("keydown", e => {
+    if (e.key === "ArrowRight" || e.key === "PageDown" || e.key === " ") { e.preventDefault(); show(i + 1); }
+    else if (e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); show(i - 1); }
+    else if (e.key === "Home") show(0);
+    else if (e.key === "End") show(slides.length - 1);
+    else if (e.key === "f" || e.key === "F") toggleFs();
+    else if (e.key === "n" || e.key === "N") toggleNotes();
+  });
+  window.addEventListener("resize", mode);
+  mode();
+  show(i);
+})();
+</script>

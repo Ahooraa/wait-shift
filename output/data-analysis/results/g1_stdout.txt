@@ -1,0 +1,76 @@
+{
+  "script": "g1_trace_screen.py",
+  "dev_fraction": 0.6,
+  "top_functions": 200,
+  "F1_azure2019": {
+    "family": "F1 Azure 2019 per-minute",
+    "functions": 200,
+    "minutes": 12096,
+    "hours": 201.6,
+    "median_invocations_per_min_of_functions": 758.9369506835938,
+    "d1_change_points_per_hour": {
+      "median": 0.18353174603174605,
+      "mean": 0.1955605158730159,
+      "p25": 0.08432539682539683,
+      "p75": 0.24801587301587302,
+      "log1p_median": 0.15625,
+      "share_of_functions_ge_1_per_hour": 0.005
+    },
+    "d1_deviation_share_ge_2x": {
+      "median": 0.015464990663759396,
+      "pooled_mean": 0.155959329828993,
+      "poisson_null_median": 0.0,
+      "excess_over_null_median": 0.015464990663759396
+    },
+    "d2_overload_share_aggregate_rho0.7": 0.000248015873015873,
+    "d2_overload_share_per_function_median_rho0.7": 0.17022156084656084,
+    "d2_functions_with_positive_median": 175,
+    "aggregate_load_cv": 0.10456734895706177,
+    "runtime_s": 427.14097833633423,
+    "d1_meets_threshold": false,
+    "d2_class": "KILL"
+  },
+  "F2_huawei_public2023": {
+    "family": "F2 Huawei Public 2023 per-minute",
+    "functions": 200,
+    "minutes": 21600,
+    "hours": 360.0,
+    "median_invocations_per_min_of_functions": 2.0,
+    "d1_change_points_per_hour": {
+      "median": 0.008333333333333333,
+      "mean": 0.08316666666666667,
+      "p25": 0.0,
+      "p75": 0.17847222222222223,
+      "log1p_median": 0.008333333333333333,
+      "share_of_functions_ge_1_per_hour": 0.0
+    },
+    "d1_deviation_share_ge_2x": {
+      "median": 0.4897042955118025,
+      "pooled_mean": 0.4890197154240375,
+      "poisson_null_median": 0.4082914572864321,
+      "excess_over_null_median": 0.06105426672030123
+    },
+    "d2_overload_share_aggregate_rho0.7": 0.13305555555555557,
+    "d2_overload_share_per_function_median_rho0.7": 0.002638888888888889,
+    "d2_functions_with_positive_median": 95,
+    "aggregate_load_cv": 0.6234824061393738,
+    "runtime_s": 1664.3809969425201,
+    "d1_meets_threshold": true,
+    "d2_class": "PASS"
+  },
+  "durations_azure2021": {
+    "invocations": 1809618,
+    "mean_s": 3.66492391046066,
+    "scv_overall": 27.828447143771037,
+    "functions_with_ge_100_invocations": 169,
+    "scv_per_function_median": 1.9291625792960703,
+    "scv_per_function_p90": 25.608372940575183,
+    "share_functions_scv_gt_1": 0.6153846153846154,
+    "expected": "much greater than 1 (heavy tail)"
+  },
+  "G1": {
+    "D1": "PASS",
+    "D2": "PASS",
+    "rule": "direction passes when the plan threshold holds in >= 1 real-trace family"
+  }
+}

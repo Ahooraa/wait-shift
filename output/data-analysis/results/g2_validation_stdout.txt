@@ -1,0 +1,32 @@
+{
+  "criteria": {
+    "mmc_rel_err": 0.05,
+    "little_rel_err": 0.02,
+    "n_requests_per_cell": 1000000
+  },
+  "wall_s": 600.0266103744507,
+  "mmc_pass_literal": true,
+  "mmc_pass_literal_or_3se": true,
+  "little_pass": true,
+  "conservation_pass": true,
+  "determinism_pass": true,
+  "runtime_budget": {
+    "simulated_s": 300.0,
+    "wall_s": 100.11424493789673,
+    "n_arrivals": 5230,
+    "wall_per_simulated_hour_min": 20.022848987579344,
+    "longest_window_min_within_10min": 0.49942942716110184,
+    "ms_per_arrival": 19.14230304739899,
+    "avg_makespan": 276.3372271026946,
+    "n_unfinished": 123
+  }
+}
+1 0.5 wait sim 0.99833 th 1.00000 err 0.17% se 0.00456 | little 0.00% | util 0.499
+1 0.8 wait sim 3.95683 th 4.00000 err 1.08% se 0.04075 | little 0.00% | util 0.799
+1 0.9 wait sim 8.89704 th 9.00000 err 1.14% se 0.21009 | little 0.00% | util 0.899
+4 0.5 wait sim 0.08638 th 0.08696 err 0.67% se 0.00090 | little 0.00% | util 0.499
+4 0.8 wait sim 0.73610 th 0.74554 err 1.27% se 0.00983 | little 0.00% | util 0.799
+4 0.9 wait sim 1.94676 th 1.96938 err 1.15% se 0.04846 | little 0.00% | util 0.899
+16 0.5 wait sim 0.00116 th 0.00113 err 3.21% se 0.00007 | little 0.00% | util 0.499
+16 0.8 wait sim 0.09279 th 0.09528 err 2.60% se 0.00224 | little 0.00% | util 0.799
+16 0.9 wait sim 0.36238 th 0.36959 err 1.95% se 0.01143 | little 0.00% | util 0.899

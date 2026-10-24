@@ -1,0 +1,79 @@
+{
+ "name": "FROZEN-1",
+ "frozen_at": "2026-10-23T23:22:31",
+ "decided_by": "user, 2026-10-23: soft routing without the waiting term, then test the 30 s version",
+ "controller": "busiest-first sizing (utilisation 0.8, backlog cleared in 120 s) + incremental soft-routing placement (tau 1, origin weight 1, NO waiting term) + finish-time request moves (no cap) ; B* annealing off; dispatcher unchanged; fixed slot budget; no foresight (last-2-minutes persistence)",
+ "churn_dict": {
+  "no_inner": true,
+  "rebal": true,
+  "rebal_max": 1000000000,
+  "placement": "qaware",
+  "origin_weight": 1.0,
+  "tau": 1.0,
+  "queue_term": false
+ },
+ "epoch_variants_s": [
+  60,
+  30
+ ],
+ "simulator_flags": "elastic=False, move_cost=1.0",
+ "development_seeds": [
+  1,
+  2,
+  3
+ ],
+ "heldout_seeds": [
+  4,
+  5,
+  6,
+  7,
+  8,
+  9,
+  10
+ ],
+ "rule": "nothing in this configuration may be changed after looking at held-out results; the 30 s variant is the only other configuration run on the held-out seeds",
+ "code_sha256_prefix": {
+  "dfps/o3s.py": "b4df4c15fde60a11",
+  "dfps/controllers.py": "80eeced8ff0b70fe",
+  "dfps/sim.py": "47bc2d9ddcdecb65",
+  "dfps/solution.py": "457d4dd0efd29c3d",
+  "dfps/matching.py": "2f1926a897f2232f",
+  "output/data-analysis/d3s_headroom.py": "1bfd62f9d434c4fb",
+  "output/data-analysis/new_layer_sweep.py": "79325a91e2fef09d"
+ },
+ "successors": [
+  {
+   "name": "FROZEN-2",
+   "frozen_at": "2026-10-24T14:17:29",
+   "decided_by": "user, 2026-10-24, after the timing test on development seeds",
+   "changes_from_FROZEN_1": [
+    "request moves also run on the tick that applies a re-layout (churn moves_after_relayout=True); FROZEN-1 skipped that tick",
+    "request-move period 4 s on both families (Huawei was 8 s = B*'s tuned T*); B* keeps its own tuned period in every comparison"
+   ],
+   "churn_dict": {
+    "no_inner": true,
+    "rebal": true,
+    "rebal_max": 1000000000,
+    "placement": "qaware",
+    "origin_weight": 1.0,
+    "tau": 1.0,
+    "queue_term": false,
+    "moves_after_relayout": true
+   },
+   "move_period_s": {
+    "F1": 4.0,
+    "F2": 4.0
+   },
+   "relayout_epoch_s": 60,
+   "evidence": "timing test, development seeds: moves right after a re-layout +1.7% P99 (+1 to +3), 12/16 better, cold starts unchanged",
+   "held_out_status": "seeds 4-10 were used for FROZEN-1 (60 s and 30 s) and their results have been seen; FROZEN-2 was chosen from development seeds only. A strictly clean test needs fresh seeds (11 and above).",
+   "code_sha256_prefix": {
+    "dfps/o3s.py": "477a1936e5a2cf4c",
+    "dfps/controllers.py": "80eeced8ff0b70fe",
+    "dfps/sim.py": "47bc2d9ddcdecb65",
+    "output/data-analysis/frozen2.py": "88f25b8434943564",
+    "output/data-analysis/frozen_sweep.py": "7e996abb13379348"
+   }
+  }
+ ]
+}

@@ -1,0 +1,26 @@
+SR t=   60 wall=    18s waiting=0 active=3275 events=17742 adjusts=0 last_adjust_ms=0
+SR t=  120 wall=    36s waiting=0 active=6088 events=13626 adjusts=0 last_adjust_ms=0
+SR t=  180 wall=    56s waiting=0 active=8923 events=9408 adjusts=0 last_adjust_ms=0
+SR t=  240 wall=    74s waiting=307 active=11620 events=5179 adjusts=0 last_adjust_ms=0
+SR t=  300 wall=    88s waiting=1449 active=14390 events=978 adjusts=0 last_adjust_ms=0
+SR t=  360 wall=   100s waiting=897 active=13017 events=726 adjusts=0 last_adjust_ms=0
+SR t=  420 wall=   111s waiting=335 active=11729 events=665 adjusts=0 last_adjust_ms=0
+SR t=  480 wall=   122s waiting=0 active=10579 events=559 adjusts=0 last_adjust_ms=0
+SR t=  540 wall=   122s waiting=0 active=9482 events=461 adjusts=0 last_adjust_ms=0
+SR t=  600 wall=   122s waiting=0 active=8524 events=415 adjusts=0 last_adjust_ms=0
+SR t=  660 wall=   122s waiting=0 active=7652 events=363 adjusts=0 last_adjust_ms=0
+SR t=  720 wall=   122s waiting=0 active=6792 events=348 adjusts=0 last_adjust_ms=0
+SR t=  780 wall=   122s waiting=0 active=5943 events=301 adjusts=0 last_adjust_ms=0
+SR t=  840 wall=   122s waiting=0 active=5180 events=257 adjusts=0 last_adjust_ms=0
+SR t=  900 wall=   122s waiting=0 active=4465 events=206 adjusts=0 last_adjust_ms=0
+SR t=  960 wall=   122s waiting=0 active=3828 events=194 adjusts=0 last_adjust_ms=0
+SR t= 1020 wall=   122s waiting=0 active=3246 events=150 adjusts=0 last_adjust_ms=0
+SR t= 1080 wall=   122s waiting=0 active=2778 events=142 adjusts=0 last_adjust_ms=0
+SR t= 1140 wall=   122s waiting=0 active=2328 events=122 adjusts=0 last_adjust_ms=0
+SR t= 1200 wall=   122s waiting=0 active=1972 events=82 adjusts=0 last_adjust_ms=0
+SR t= 1260 wall=   122s waiting=0 active=1689 events=75 adjusts=0 last_adjust_ms=0
+SR t= 1320 wall=   123s waiting=0 active=1425 events=67 adjusts=0 last_adjust_ms=0
+SR t= 1380 wall=   123s waiting=0 active=1176 events=54 adjusts=0 last_adjust_ms=0
+SR t= 1440 wall=   123s waiting=0 active=971 events=50 adjusts=0 last_adjust_ms=0
+SR t= 1500 wall=   123s waiting=0 active=777 events=37 adjusts=0 last_adjust_ms=0
+SR DONE wall 123 completed 18182

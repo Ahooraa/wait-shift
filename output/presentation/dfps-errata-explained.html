@@ -1,0 +1,352 @@
+<title>DFPS Errata Explained</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a single reading column; each erratum is one section with the same four parts
+   (what is printed / why it breaks / small example with a picture / our fix and its effect). */
+:root {
+  --bg: #eef1f5; --paper: #ffffff; --ink: #17212e; --muted: #5b6878; --rule: #d5dce5;
+  --accent: #1d5fb8; --accent-soft: #dbe7f7;
+  --good: #23784a; --good-soft: #dcefe3; --bad: #b03636; --bad-soft: #f5dddd; --warn: #a8670f;
+  --f-display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f141b; --paper: #161d27; --ink: #e4e9f0; --muted: #96a3b4; --rule: #2a3442;
+    --accent: #6ea4ee; --accent-soft: #1d2d45; --good: #5fbf88; --good-soft: #17301f; --bad: #e57373; --bad-soft: #351a1a; --warn: #e0a54a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f141b; --paper: #161d27; --ink: #e4e9f0; --muted: #96a3b4; --rule: #2a3442;
+  --accent: #6ea4ee; --accent-soft: #1d2d45; --good: #5fbf88; --good-soft: #17301f; --bad: #e57373; --bad-soft: #351a1a; --warn: #e0a54a;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 16px; line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 28px 48px;
+}
+.wrap { max-width: 860px; margin: 0 auto; display: grid; gap: 22px; }
+header { display: grid; gap: 10px; }
+h1, h2, h3 { font-family: var(--f-display); font-weight: 600; text-wrap: balance; margin: 0; line-height: 1.15; }
+h1 { font-size: clamp(30px, 5vw, 44px); }
+h2 { font-size: clamp(22px, 3.2vw, 30px); }
+h3 { font-size: 15px; font-family: var(--f-mono); font-weight: 500; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+p { margin: 0; }
+.lede { color: var(--muted); max-width: 66ch; }
+nav.toc { display: flex; flex-wrap: wrap; gap: 8px; }
+nav.toc a { font-family: var(--f-mono); font-size: 13px; color: var(--accent); text-decoration: none; border: 1px solid var(--rule); background: var(--paper); border-radius: 4px; padding: 4px 10px; }
+nav.toc a:hover, nav.toc a:focus-visible { border-color: var(--accent); outline: none; }
+section.err { background: var(--paper); border: 1px solid var(--rule); border-radius: 6px; padding: clamp(18px, 3.5vw, 34px); display: grid; gap: 16px; min-width: 0; }
+.tag { font-family: var(--f-mono); font-size: 12px; color: var(--muted); letter-spacing: .04em; text-transform: uppercase; display: flex; flex-wrap: wrap; gap: 6px 16px; border-bottom: 1px solid var(--rule); padding-bottom: 8px; }
+.part { display: grid; gap: 8px; }
+.part > p, .part > ul { max-width: 68ch; }
+ul { margin: 0; padding-left: 1.15em; display: grid; gap: 4px; }
+li::marker { color: var(--accent); }
+.m { font-family: var(--f-mono); font-size: .92em; }
+.formula { font-family: var(--f-mono); font-size: 15px; background: var(--bg); border: 1px solid var(--rule); border-radius: 4px; padding: 10px 14px; overflow-x: auto; white-space: nowrap; }
+.formula .bad { color: var(--bad); } .formula .good { color: var(--good); }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+.two > * { min-width: 0; }
+.box { border: 1px solid var(--rule); border-radius: 4px; padding: 12px 14px; display: grid; gap: 8px; align-content: start; }
+.box.bad { border-color: var(--bad); background: var(--bad-soft); }
+.box.good { border-color: var(--good); background: var(--good-soft); }
+.box b.h { font-family: var(--f-display); font-size: 17px; }
+.tbl { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; font-size: 14px; }
+th, td { padding: 6px 10px; border-bottom: 1px solid var(--rule); text-align: right; }
+th:first-child, td:first-child { text-align: left; }
+th { font-family: var(--f-mono); font-weight: 500; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+td.neg { color: var(--bad); } td.pos { color: var(--good); }
+tr.sum td { font-weight: 600; border-bottom: none; }
+.chart svg { width: 100%; height: auto; display: block; }
+.chart text { fill: var(--muted); font-family: var(--f-mono); font-size: 12px; }
+.chart .ax { stroke: var(--rule); }
+.s-good { stroke: var(--good); } .s-bad { stroke: var(--bad); } .s-acc { stroke: var(--accent); } .s-ink { stroke: var(--ink); }
+.fl-good { fill: var(--good); } .fl-bad { fill: var(--bad); } .fl-acc { fill: var(--accent); } .fl-rule { fill: var(--rule); }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 13px; color: var(--muted); }
+.legend i { display: inline-block; width: 14px; height: 3px; margin-right: 6px; vertical-align: 3px; }
+.cap { font-size: 13px; color: var(--muted); }
+.effect { border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 10px 14px; border-radius: 0 4px 4px 0; }
+/* E4 queue picture */
+.queues { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+.q { border: 1px solid var(--rule); border-radius: 4px; padding: 8px 10px; display: grid; gap: 6px; }
+.q .name { font-family: var(--f-mono); font-size: 12px; color: var(--muted); }
+.reqs { display: flex; flex-wrap: wrap; gap: 4px; min-height: 26px; }
+.r { font-family: var(--f-mono); font-size: 12px; padding: 2px 7px; border-radius: 3px; background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent); }
+.r.dup { background: var(--bad-soft); color: var(--bad); border-color: var(--bad); }
+.r.wrong { background: var(--bad-soft); color: var(--bad); border-color: var(--bad); border-style: dashed; }
+.r.ok { background: var(--good-soft); color: var(--good); border-color: var(--good); }
+footer { font-size: 13px; color: var(--muted); }
+</style>
+
+<div class="wrap">
+<header>
+  <h1>Four errors in the printed DFPS method, and how B* fixes them</h1>
+  <p class="lede">Each section shows what the paper prints, why it breaks, a small worked example with a picture, and what we changed. Page numbers refer to Zolfaghari et al. (2025) as recorded in our notes; check whether your copy uses printed or PDF page numbers.</p>
+  <nav class="toc" aria-label="Errors">
+    <a href="#e1">E1 · Eq. 3 cost</a><a href="#e2">E2 · Eq. 6 queue</a><a href="#e3">E3 · Alg. 2 annealing</a><a href="#e4">E4 · Alg. 1 replacement</a>
+  </nav>
+</header>
+
+<section class="err" id="e1">
+  <div class="tag"><span>E1</span><span>Eq. 3 · page 6</span><span>placement cost</span></div>
+  <h2>The placement cost always comes out as zero</h2>
+  <div class="part">
+    <h3>What the paper prints</h3>
+    <p>Eq. 3 measures how far a placement is from the ideal one. For every function <span class="m">f<sub>l</sub></span> it compares how many containers the function actually has (<span class="m">FAN</span>) with how many it should have (<span class="m">FEN</span>), and adds up the differences with a plain sign, without an absolute value.</p>
+    <div class="formula">Σ<sub>f<sub>l</sub> ∈ F</sub> ( FAN(f<sub>l</sub>) − FEN(f<sub>l</sub>) )&nbsp;&nbsp;&nbsp;<span class="bad">← printed: no |…|</span></div>
+  </div>
+  <div class="part">
+    <h3>Why it breaks</h3>
+    <p>Both counts share out the same containers: the actual counts add up to all container slots, and Eq. 4 shares the same total out as the ideal counts (pp. 5–6). So every function with too many containers is balanced by functions with too few. Pluses and minuses cancel, and the sum is exactly 0 for <i>every</i> placement, good or bad. The method cannot tell placements apart.</p>
+  </div>
+  <div class="part">
+    <h3>Small example</h3>
+    <p>Three functions sharing 6 container slots. The ideal is 2 / 2 / 2; the actual placement is 5 / 1 / 0, which is clearly bad.</p>
+    <div class="two">
+      <div class="tbl"><table>
+        <thead><tr><th>Function</th><th>Has (FAN)</th><th>Should (FEN)</th><th>FAN − FEN</th><th>|FAN − FEN|</th></tr></thead>
+        <tbody>
+          <tr><td>f1</td><td>5</td><td>2</td><td class="pos">+3</td><td>3</td></tr>
+          <tr><td>f2</td><td>1</td><td>2</td><td class="neg">−1</td><td>1</td></tr>
+          <tr><td>f3</td><td>0</td><td>2</td><td class="neg">−2</td><td>2</td></tr>
+          <tr class="sum"><td>Sum</td><td>6</td><td>6</td><td class="neg">0</td><td class="pos">6</td></tr>
+        </tbody>
+      </table></div>
+      <div class="chart" id="c-e1" role="img" aria-label="Bars of +3, -1 and -2 cancel to zero"></div>
+    </div>
+    <p class="cap">Printed cost: 0, the same as a perfect placement. With absolute values: 6, so the badness is visible.</p>
+  </div>
+  <div class="part">
+    <h3>Our fix and its effect</h3>
+    <div class="formula">Σ<sub>f<sub>l</sub> ∈ F</sub> <span class="good">| FAN(f<sub>l</sub>) − FEN(f<sub>l</sub>) |</span></div>
+    <div class="effect"><p>With the printed cost, the paper's SG baseline is no better than random placement. That is why the printed DFPS fails the paper's own claim "DFPS beats SG, which beats random" at 3 of 4 load scales in our reproduction. With the fix, the claim holds at all 4.</p></div>
+  </div>
+</section>
+
+<section class="err" id="e2">
+  <div class="tag"><span>E2</span><span>Eq. 6 · page 7</span><span>queue length estimate</span></div>
+  <h2>The queueing formula mixes up time and rate, and misses a term</h2>
+  <div class="part">
+    <h3>What the paper prints</h3>
+    <p>Eq. 6 estimates the number of requests for function <span class="m">f<sub>l</sub></span> on node <span class="m">e<sub>k</sub></span>, which has <span class="m">fn<sub>lk</sub></span> containers and receives <span class="m">λ<sub>lk</sub></span> requests per second:</p>
+    <div class="formula">FRN(f<sub>l</sub>, e<sub>k</sub>) = (λ<sub>lk</sub>/μ<sub>l</sub>)<sup>fn<sub>lk</sub></sup> λ<sub>lk</sub> μ<sub>l</sub> / [ (fn<sub>lk</sub> − 1)! (fn<sub>lk</sub>μ<sub>l</sub> − λ<sub>lk</sub>)<sup>2</sup> ] + λ<sub>lk</sub>/μ<sub>l</sub></div>
+    <p>The textbook formula for the same quantity (M/M/c queue, <span class="m">c</span> containers) is</p>
+    <div class="formula">L = <span class="good">P0</span> · (λ/μ)<sup>c</sup> λ μ / [ (c − 1)! (cμ − λ)<sup>2</sup> ] + λ/μ,&nbsp;&nbsp; μ = service <span class="good">rate</span></div>
+    <p>So the printed formula is the textbook one with <span class="m">P0</span> left out. Four things go wrong:</p>
+    <ul>
+      <li><b>Time used as a rate.</b> The paper defines <span class="m">μ</span> as the <i>average execution time</i> (p. 7), and Eq. 4 uses it as a time. In <span class="m">λ/μ</span> and <span class="m">nμ − λ</span> it only makes sense as a <i>rate</i> (requests per second).</li>
+      <li><b>Missing P0.</b> The real Erlang-C formula needs P0, the probability that the system is empty. Without it, the size of the result is wrong.</li>
+      <li><b>Wrong label.</b> The formula adds <span class="m">λ/μ</span> (requests being served), so it counts requests in the whole system. The text calls it "requests in the queue".</li>
+      <li><b>No overload check.</b> When requests arrive faster than containers can serve them (<span class="m">λ ≥ nμ</span>), no finite queue length exists, but the formula still returns a number.</li>
+    </ul>
+  </div>
+  <div class="part">
+    <h3>Small example</h3>
+    <p>A function takes <b>0.5 s</b> per request and has <b>2 containers</b>. Requests arrive at <b>3 per second</b>. Each container can serve 1 / 0.5 = <b>2 requests per second</b>, so together they handle 4 per second: the system is busy (75%) but stable.</p>
+    <div class="two">
+      <div class="box bad"><b class="h">Plug in μ = 0.5 (the time, as printed)</b>
+        <div class="formula">nμ − λ = 2 × 0.5 − 3 = <span class="bad">−2</span></div>
+        <p>A negative capacity margin: the formula says the system is overloaded and gives a meaningless (negative) queue, although it is fine.</p></div>
+      <div class="box good"><b class="h">Use μ = 1 / 0.5 = 2 per second (a rate)</b>
+        <div class="formula">nμ − λ = 2 × 2 − 3 = <span class="good">+1</span></div>
+        <p>Full Erlang-C with P0 = 1/7: on average <b>1.93</b> requests wait in the queue, and each waits about <b>0.64 s</b>.</p></div>
+    </div>
+    <div class="chart" id="c-e2" role="img" aria-label="Average wait in seconds as arrivals rise from 0 to 4 per second, growing sharply near 4"></div>
+    <div class="legend"><span><i style="background:var(--good)"></i>Erlang-C with P0 (our fix): waiting time for this example as arrivals increase</span><span><i style="background:var(--bad)"></i>capacity limit: 4 requests per second</span></div>
+    <p class="cap">The correct curve stays small at low load and shoots up as arrivals approach capacity. Beyond capacity there is no steady queue, so we treat that case explicitly.</p>
+  </div>
+  <div class="part">
+    <h3>Our fix and its effect</h3>
+    <ul>
+      <li>Use the service <i>rate</i> μ = 1 / execution time</li>
+      <li>Use the standard Erlang-C formula including P0 (computed in a numerically stable way)</li>
+      <li>Label the result correctly and handle overload (λ ≥ nμ) explicitly</li>
+    </ul>
+    <div class="effect"><p>This estimate decides where requests are sent and how the annealing scores a placement. With the wrong units, busy functions can look idle and idle ones busy.</p></div>
+  </div>
+</section>
+
+<section class="err" id="e3">
+  <div class="tag"><span>E3</span><span>Algorithm 2 · page 9</span><span>simulated annealing</span></div>
+  <h2>The search keeps every bad move and returns wherever it stops</h2>
+  <div class="part">
+    <h3>What the paper prints</h3>
+    <p>Simulated annealing improves the placement step by step. Each loop makes a neighbour placement (line 5) and scores it: <span class="m">Δ ← EF(Sol<sub>t</sub>)</span> (line 6), where Δ &lt; 0 means the change made things worse. The printed rule (lines 7–9): if Δ &lt; 0, undo the change if</p>
+    <div class="formula">random(0,1) ≥ e<sup>−Δ/T</sup>&nbsp;&nbsp;&nbsp;<span class="bad">← printed, with Δ &lt; 0</span></div>
+    <p>The temperature is lowered every loop (line 12). The step counter <span class="m">t</span> is set to 1 (line 3) and never increased, and the loop returns <span class="m">Sol<sub>t</sub></span>, the <i>last</i> placement (line 14).</p>
+  </div>
+  <div class="part">
+    <h3>Why it breaks</h3>
+    <ul>
+      <li>If Δ is negative, then −Δ/T is positive, so e<sup>−Δ/T</sup> is <b>greater than 1</b>. A random number between 0 and 1 is never ≥ a number above 1. So a worse change is <b>never undone</b>.</li>
+      <li>Because <span class="m">t</span> stays at 1, line 5 literally rebuilds <span class="m">Sol<sub>1</sub></span> from <span class="m">Sol<sub>0</sub></span> on every loop. The indices only make sense if <span class="m">t</span> is increased each loop.</li>
+      <li>The search can end on a placement worse than one it already found, and it returns that worse one.</li>
+    </ul>
+    <div class="chart" id="c-e3a" role="img" aria-label="Random numbers lie between 0 and 1; the printed threshold lies above 1, so the test never fires"></div>
+    <p class="cap">Example with δ = −0.5 and T = 1: the threshold is exp(0.5) ≈ 1.65. Every random number (0 to 1) falls short of it.</p>
+  </div>
+  <div class="part">
+    <h3>Toy illustration</h3>
+    <p>A made-up search problem, run with the same random numbers both ways. It shows the behaviour, not DFPS's real numbers.</p>
+    <div class="chart" id="c-e3b" role="img" aria-label="Cost over 300 steps: the printed rule drifts randomly, the fixed rule settles low and keeps the best"></div>
+    <div class="legend"><span><i style="background:var(--bad)"></i>printed rule: accepts every move</span><span><i style="background:var(--good)"></i>Metropolis rule, cooling</span><span><i style="background:var(--accent)"></i>best found so far (what the fix returns)</span></div>
+  </div>
+  <div class="part">
+    <h3>Our fix and its effect</h3>
+    <div class="formula">keep a worse move with probability <span class="good">e<sup>Δ/T</sup></span> (between 0 and 1); continue from the current placement; return the <span class="good">best</span> placement found</div>
+    <div class="effect"><p>This is the standard Metropolis rule. It still sometimes keeps a worse move to escape local traps, but less often as the temperature falls (the paper's own line 12), and it never throws away the best placement it has seen.</p></div>
+  </div>
+</section>
+
+<section class="err" id="e4">
+  <div class="tag"><span>E4</span><span>Algorithm 1 · page 8</span><span>replacing a function</span></div>
+  <h2>Moved requests are copied into the wrong queue and never removed</h2>
+  <div class="part">
+    <h3>What the paper prints</h3>
+    <p>Algorithm 1 picks a node <span class="m">e<sub>s</sub></span>, removes one instance of its least-used function <span class="m">f<sub>r</sub></span> and starts an instance of a random function <span class="m">f<sub>n</sub></span> instead (lines 2–5). If that was the last <span class="m">f<sub>r</sub></span> instance on the node, its waiting requests go to the best other node (lines 7–17). Then waiting <span class="m">f<sub>n</sub></span> requests on nearby nodes <span class="m">e<sub>s′</sub></span> are pulled over to the new instance if that helps (lines 19–25). Three things go wrong:</p>
+    <ul>
+      <li><b>Line 23</b> adds the pulled-over <span class="m">f<sub>n</sub></span> request to <span class="m">FRQ<sub>rs</sub></span>, the queue of <span class="m">f<sub>r</sub></span> on <span class="m">e<sub>s</sub></span>. That is the queue of a <i>different function</i>. The new <span class="m">f<sub>n</sub></span> instance, which the request was moved for, never sees it. It should be <span class="m">FRQ<sub>ns</sub></span>.</li>
+      <li><b>Line 23</b> also never takes the request out of <span class="m">FRQ<sub>ns′</sub></span> on the nearby node, so it now waits in two queues. (Line 16 has the same gap, but there the old queue belongs to the instance that was just removed, so it matters less.)</li>
+      <li><b>Line 9</b> sets <span class="m">e<sub>s′</sub> ← ∅</span>, so the first comparison on line 12, <span class="m">AET(r<sub>q</sub>, e<sub>s′</sub>)</span>, compares against a node that does not exist.</li>
+    </ul>
+  </div>
+  <div class="part">
+    <h3>Picture: pulling request R7 of f<sub>n</sub> over to the new instance (lines 19–25)</h3>
+    <div class="two">
+      <div class="box bad"><b class="h">As printed (line 23)</b>
+        <div class="queues">
+          <div class="q"><span class="name">f_n queue on nearby node e_s′</span><div class="reqs"><span class="r">R5</span><span class="r">R6</span><span class="r dup">R7</span></div></div>
+          <div class="q"><span class="name">f_n queue on e_s (new instance)</span><div class="reqs"></div></div>
+          <div class="q"><span class="name">f_r queue on e_s (FRQ_rs)</span><div class="reqs"><span class="r">R2</span><span class="r wrong">R7</span></div></div>
+        </div>
+        <p>R7 stays in its old queue <i>and</i> lands in the queue of <span class="m">f<sub>r</sub></span>, a different function. It can run twice, or be handed to a container that cannot run it.</p></div>
+      <div class="box good"><b class="h">B*</b>
+        <div class="queues">
+          <div class="q"><span class="name">f_n queue on nearby node e_s′</span><div class="reqs"><span class="r">R5</span><span class="r">R6</span></div></div>
+          <div class="q"><span class="name">f_n queue on e_s (new instance)</span><div class="reqs"><span class="r ok">R7</span></div></div>
+          <div class="q"><span class="name">f_r queue on e_s (FRQ_rs)</span><div class="reqs"><span class="r">R2</span></div></div>
+        </div>
+        <p>R7 moves: it leaves the nearby node's queue and joins the new f<sub>n</sub> instance's queue. Every request exists exactly once.</p></div>
+    </div>
+  </div>
+  <div class="part">
+    <h3>Our fix and its effect</h3>
+    <ul>
+      <li>Line 23: append to <span class="m">FRQ<sub>ns</sub></span> (the new <span class="m">f<sub>n</sub></span> instance), not <span class="m">FRQ<sub>rs</sub></span></li>
+      <li>Remove the request from its source queue when it moves (lines 16 and 23)</li>
+      <li>Give <span class="m">e_s′</span> a starting value, so the first comparison is defined</li>
+    </ul>
+    <div class="effect"><p>Our simulator checks that each request is in exactly one place. Followed literally, the printed lines would break that check, so they cannot be run as written.</p></div>
+  </div>
+</section>
+
+<footer>Not changed in B*: E5 (the scheduler minimises total edge weight while the paper's goal is makespan; kept as printed, alternative tested separately) and E6 (three places where the text and the algorithms disagree). Source: knowledge/concepts/dfps-printed-errata.md.</footer>
+</div>
+
+<script>
+(function () {
+  const NS = "http://www.w3.org/2000/svg";
+  const el = (t, a, txt) => { const e = document.createElementNS(NS, t); for (const k in a) e.setAttribute(k, a[k]); if (txt != null) e.textContent = txt; return e; };
+
+  // E1: +3, -1, -2 bars around zero
+  (function () {
+    const W = 320, H = 200, x0 = 60, mid = 100, u = 22, vals = [["f1", 3], ["f2", -1], ["f3", -2]];
+    const s = el("svg", { viewBox: `0 0 ${W} ${H}` });
+    s.appendChild(el("line", { x1: x0 - 10, x2: W - 10, y1: mid, y2: mid, class: "s-ink", "stroke-width": 1 }));
+    s.appendChild(el("text", { x: 0, y: mid + 4 }, "0"));
+    vals.forEach(([n, v], i) => {
+      const x = x0 + i * 75, h = Math.abs(v) * u;
+      s.appendChild(el("rect", { x, y: v > 0 ? mid - h : mid, width: 44, height: h, class: v > 0 ? "fl-good" : "fl-bad", rx: 2 }));
+      s.appendChild(el("text", { x: x + 22, y: v > 0 ? mid - h - 6 : mid + h + 14, "text-anchor": "middle" }, (v > 0 ? "+" : "−") + Math.abs(v)));
+      s.appendChild(el("text", { x: x + 22, y: H - 6, "text-anchor": "middle" }, n));
+    });
+    document.getElementById("c-e1").appendChild(s);
+  })();
+
+  // E2: Erlang-C waiting time, c = 2, mu = 2/s, lambda 0..3.9
+  (function () {
+    const c = 2, mu = 2;
+    function wq(l) {
+      const a = l / mu, rho = a / c;
+      if (rho >= 1) return Infinity;
+      let sum = 0, term = 1;
+      for (let k = 0; k < c; k++) { if (k > 0) term *= a / k; sum += term; }
+      const last = term * a / c; // a^c / c!
+      const p0 = 1 / (sum + last / (1 - rho));
+      const lq = p0 * last * rho / Math.pow(1 - rho, 2);
+      return lq / l;
+    }
+    const W = 640, H = 230, L = 46, R = 16, T = 12, B = 34, xmax = 4, ymax = 4;
+    const x = v => L + v / xmax * (W - L - R), y = v => T + (1 - Math.min(v, ymax) / ymax) * (H - T - B);
+    const s = el("svg", { viewBox: `0 0 ${W} ${H}` });
+    for (let t = 0; t <= 4; t++) {
+      s.appendChild(el("line", { x1: x(t), x2: x(t), y1: T, y2: H - B, class: "ax" }));
+      s.appendChild(el("text", { x: x(t), y: H - B + 16, "text-anchor": "middle" }, t + "/s"));
+      s.appendChild(el("line", { x1: L, x2: W - R, y1: y(t), y2: y(t), class: "ax" }));
+      s.appendChild(el("text", { x: L - 6, y: y(t) + 4, "text-anchor": "end" }, t + " s"));
+    }
+    s.appendChild(el("text", { x: (L + W - R) / 2, y: H - 4, "text-anchor": "middle" }, "arrival rate λ"));
+    let d = "";
+    for (let l = 0.05; l <= 3.93; l += 0.02) d += (d ? "L" : "M") + x(l).toFixed(1) + "," + y(wq(l)).toFixed(1);
+    s.appendChild(el("path", { d, fill: "none", class: "s-good", "stroke-width": 2.5 }));
+    s.appendChild(el("line", { x1: x(4), x2: x(4), y1: T, y2: H - B, class: "s-bad", "stroke-width": 2, "stroke-dasharray": "5 4" }));
+    s.appendChild(el("circle", { cx: x(3), cy: y(wq(3)), r: 5, class: "fl-acc" }));
+    s.appendChild(el("text", { x: x(3) - 8, y: y(wq(3)) - 8, "text-anchor": "end" }, "λ = 3/s: wait ≈ " + wq(3).toFixed(2) + " s"));
+    document.getElementById("c-e2").appendChild(s);
+  })();
+
+  // E3a: number line 0..2 with random range and threshold
+  (function () {
+    const W = 640, H = 80, L = 20, R = 20, x = v => L + v / 2 * (W - L - R), th = Math.exp(0.5);
+    const s = el("svg", { viewBox: `0 0 ${W} ${H}` });
+    s.appendChild(el("line", { x1: x(0), x2: x(2), y1: 40, y2: 40, class: "ax", "stroke-width": 2 }));
+    s.appendChild(el("rect", { x: x(0), y: 32, width: x(1) - x(0), height: 16, class: "fl-acc", rx: 2, opacity: 0.8 }));
+    s.appendChild(el("text", { x: (x(0) + x(1)) / 2, y: 24, "text-anchor": "middle" }, "random numbers: 0 to 1"));
+    s.appendChild(el("line", { x1: x(th), x2: x(th), y1: 22, y2: 58, class: "s-bad", "stroke-width": 2.5 }));
+    s.appendChild(el("text", { x: x(th), y: 16, "text-anchor": "middle" }, "threshold ≈ " + th.toFixed(2)));
+    [0, 1, 2].forEach(t => s.appendChild(el("text", { x: x(t), y: 72, "text-anchor": "middle" }, t)));
+    document.getElementById("c-e3a").appendChild(s);
+  })();
+
+  // E3b: toy annealing on a bumpy 1-D landscape, same random stream for both rules
+  (function () {
+    let seed = 7;
+    const rnd = () => { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; };
+    const f = v => 0.02 * v * v + 3 * Math.sin(v) + 3 * Math.sin(2.3 * v) + 8;
+    const N = 300, steps = [], us = [];
+    for (let i = 0; i < N; i++) { steps.push((rnd() - 0.5) * 2.4); us.push(rnd()); }
+    function run(printed) {
+      let v = 12, cost = f(v), best = cost, T = 3; const cur = [], bst = [];
+      for (let i = 0; i < N; i++) {
+        const nv = Math.max(-20, Math.min(20, v + steps[i])), nc = f(nv), delta = cost - nc; // delta < 0: worse
+        let accept;
+        if (printed) accept = true; // printed revert test never fires for delta < 0
+        else accept = delta >= 0 || us[i] < Math.exp(delta / T);
+        if (accept) { v = nv; cost = nc; }
+        best = Math.min(best, cost); cur.push(cost); bst.push(best);
+        if (!printed) T = Math.max(0.05, T * 0.985);
+      }
+      return { cur, bst };
+    }
+    const a = run(true), b = run(false);
+    const all = a.cur.concat(b.cur), ymin = Math.floor(Math.min(...all)), ymax = Math.ceil(Math.max(...all));
+    const W = 640, H = 230, L = 40, R = 14, T = 12, B = 32;
+    const x = i => L + i / (N - 1) * (W - L - R), y = v => T + (1 - (v - ymin) / (ymax - ymin)) * (H - T - B);
+    const s = el("svg", { viewBox: `0 0 ${W} ${H}` });
+    for (let t = 0; t <= N; t += 50) { s.appendChild(el("line", { x1: x(Math.min(t, N - 1)), x2: x(Math.min(t, N - 1)), y1: T, y2: H - B, class: "ax" })); s.appendChild(el("text", { x: x(Math.min(t, N - 1)), y: H - B + 16, "text-anchor": "middle" }, t)); }
+    s.appendChild(el("text", { x: (L + W - R) / 2, y: H - 2, "text-anchor": "middle" }, "search step"));
+    s.appendChild(el("text", { x: 4, y: T + 10 }, "cost"));
+    s.appendChild(el("text", { x: 4, y: T + 24 }, "(high)"));
+    const path = (arr, cls, w) => { let d = ""; arr.forEach((v, i) => d += (i ? "L" : "M") + x(i).toFixed(1) + "," + y(v).toFixed(1)); s.appendChild(el("path", { d, fill: "none", class: cls, "stroke-width": w })); };
+    path(a.cur, "s-bad", 1.5); path(b.cur, "s-good", 1.8); path(b.bst, "s-acc", 2.5);
+    document.getElementById("c-e3b").appendChild(s);
+  })();
+})();
+</script>

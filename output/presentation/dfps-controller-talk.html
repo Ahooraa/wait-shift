@@ -805,6 +805,31 @@ td.r, th.r { text-align: right; }
   <div class="say">A smaller preliminary result. It matters only if the operator wants to save containers at low load. We have not yet reframed it as an SLO-constrained choice, so we would present it as exploratory.</div>
 </section>
 
+<!-- 30 · operating envelope -->
+<section class="slide">
+  <div class="bar"><span>5 · Results</span><span>operating envelope</span></div>
+  <h2>Our advantage over the stack grows sharply near overload, as the stack's moves quietly collapse</h2>
+  <p style="font-size:15px">Load swept to 92% (no admission control), data size ×1 and ×10, Azure and Huawei, one seed. Every cell completed 100% of its requests (no censoring).</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Load</th><th class="r">Gain over stack, ×1</th><th class="r">Gain over stack, ×10</th><th class="r">Moves/request, ours → stack (×1)</th></tr></thead>
+    <tbody>
+      <tr><td>50%</td><td class="r">+19.8% / +10.0%</td><td class="r">+53.7% / +52.8%</td><td class="r">2.35 → 1.48 / 1.24</td></tr>
+      <tr><td>70%</td><td class="r">+15.6% / +7.6%</td><td class="r">+54.0% / +47.1%</td><td class="r">3.15 → 2.44 / 2.03</td></tr>
+      <tr><td>85%</td><td class="r">+13.6% / +28.7%</td><td class="r">+52.6% / +58.2%</td><td class="r">3.76 → 3.08 / 2.63</td></tr>
+      <tr><td><b>92%</b></td><td class="r best"><b>+31.0% / +77.8%</b></td><td class="r best"><b>+48.6% / +63.4%</b></td><td class="r">4.12 → 3.19 / <b>1.08</b></td></tr>
+    </tbody>
+  </table></div>
+  <div class="cols">
+    <div class="why"><p><b>Why:</b> the stack's move rule (shortest queue) only fires when one queue is clearly longer than another. Near overload every queue is long, so that gap disappears and the rule goes quiet — moves per request on Huawei collapse from 2.63 at 85% load to 1.08 at 92%. It fails by moving less, not by crashing. Our rule compares estimated finish time directly, with no gap requirement, so it keeps moving.</p></div>
+    <ul style="font-size:14px">
+      <li>Moves/request for <i>ours</i> rises smoothly with load (2.35 → 4.12); the stack's falls once load passes 85%.</li>
+      <li>Ping-pong (a task moved 2+ times) also rises with load for ours: 6–7% at 50% to 16–18% at 92%.</li>
+    </ul>
+  </div>
+  <p class="metric"><b>Metric:</b> P99 completion latency; gain = reduction against the textbook stack (HPA sizing + shortest-queue moves, same placement). No admission control in this slide.</p>
+  <div class="say">This is the envelope result: a map, not a new mechanism. It explains why the gap over the stack isn't constant — it's largest exactly where the stack's own rule structurally breaks down under saturation. Good slide for "why does a simple rule nearly tie you at 70% load but lose badly at 92%?"</div>
+</section>
+
 <!-- 27 · conclusion -->
 <section class="slide">
   <div class="bar"><span>5 · Results</span><span>conclusions and next steps</span></div>
@@ -836,7 +861,7 @@ td.r, th.r { text-align: right; }
 </main>
 <nav class="nav" aria-label="Slide navigation">
   <button id="prev" type="button">← Previous</button>
-  <span><span id="count" class="num">1 / 30</span> · <button id="menuBtn" type="button" title="Slide menu (M)">☰ Menu</button> · <button id="notesBtn" type="button" title="Speaker notes (N)">Notes</button> · <button id="fs" type="button" title="Full screen (F)">Full screen</button></span>
+  <span><span id="count" class="num">1 / 31</span> · <button id="menuBtn" type="button" title="Slide menu (M)">☰ Menu</button> · <button id="notesBtn" type="button" title="Speaker notes (N)">Notes</button> · <button id="fs" type="button" title="Full screen (F)">Full screen</button></span>
   <button id="next" type="button">Next →</button>
 </nav>
 

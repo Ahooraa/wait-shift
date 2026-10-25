@@ -75,3 +75,16 @@ earlier review flagged as worth a cooldown/pruning rule -- first real number on 
 grid before acting. k=20 dropped from the envelope grid: the stack-controller, k=20, rho=0.92 cell ran 26+ minutes with no
 result (1.1 GB memory) before being stopped; plausibly pathological (no locality awareness + very large transfers + near
 overload), not worth the risk when k=1/10 already show the scaling trend clearly.
+
+## Dispersion-scaled move margin: killed by Phase 0, Check 3 (25 Oct)
+Move-gain logging added (dfps/o3s.py: O3SimAdjuster.gain_log, churn["log_gain"], one line per accepted move: a0 - best[0],
+the estimated finish-time improvement). 8 full runs (output/data-analysis/move_gain_probe.py), both families, loads
+50/70/85/92%, k=1, controller "ours" (the stack has no AET-gain concept). Result: mean gain RISES with load (7-11s at 50% to
+11-15s at 92%); median is stable at 5.4-6.7s across every cell; p10 stays near 1s; the near-zero-gain share (<=0.5s) is flat
+at 4-6% across all four loads, not rising toward saturation. Per the review's own pre-stated criterion ("if gains stay
+large, there's nothing to prune"), this kills the candidate: moves do not degrade into churn near overload, so no margin or
+cooldown rule is built. This also refines the envelope's explanation: the stack's move rate collapses near saturation
+because its RELATIVE (shortest-queue) criterion runs out of a gap to exceed, not because moves in general become low-value
+there -- our ABSOLUTE (finish-time) criterion keeps finding real improvements at every load. The 16-18% ping-pong share at
+92% load (operating_envelope.py) is consistent with this: repeat moves of the same task carry the same large-gain
+statistics on average, so it looks like correct re-optimization under shifting conditions, not wasted churn.

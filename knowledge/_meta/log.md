@@ -504,3 +504,7 @@ author: llm
 ## [2026-10-25] experiment | operating envelope launched (32 runs, k=20 dropped)
 - First data point (smoke, rho=0.92 k=1 ours): clean, no censoring, P99 159.95 s (vs 157.8 s at 85% load). Ping-pong 17.7% of moved tasks moved >=2 times -- inside the range worth a cooldown rule per the earlier pruning-idea review, one cell only so far.
 - k=20 dropped from the grid after the stack/92%-load/k=20 smoke cell ran 26+ min / 1.1 GB with no result (user stopped it). Grid now 32 runs: load {50,70,85,92%} x k {1,10} x {F1,F2} x {ours,stack}, launched with 8 workers.
+
+## [2026-10-25] experiment | move-gain probe (Phase 0, check 3): dispersion-scaled margin killed
+- dfps/o3s.py: gain_log added to rebalance_step (one line, gated by churn["log_gain"]), no cost when off.
+- 8 runs (F1/F2 x 50/70/85/92% load, k=1, ours only): mean gain 7-11s (50%) to 11-15s (92%), rising not collapsing; median stable 5.4-6.7s; near-zero-gain share flat 4-6% at every load. Candidate killed per its own pre-registered criterion. Full table and reasoning in [[novelty-register]].

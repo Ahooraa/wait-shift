@@ -280,6 +280,7 @@ class O3SimAdjuster:
         self.clear_s = float(self.churn.get("clear_s", self.clear_s))
         self.staleness_log = []                           # (now, mismatch) if churn["log_staleness"]: diagnostic, 2026-10-25
         self.calib_log = []                               # (now, proxy_mismatch, true_mismatch) if churn["calibrate_placement"]
+        self.gain_log = []                                # (now, gain_s) per accepted finish-time move, if churn["log_gain"] -- 2026-10-25
         self._calib_left = int(self.churn.get("calibrate_placement_n", 15))
         self._calib_tick = 0
 
@@ -681,6 +682,8 @@ class O3SimAdjuster:
                         best = (a, k2)
                 if best is None:
                     break                                               # requests further ahead wait less: stop this queue
+                if self.churn.get("log_gain"):
+                    self.gain_log.append((round(sim.now, 2), float(a0 - best[0])))
                 q = list(sol.queue(f, k))
                 q.remove(rq)
                 sol.set_queue(f, k, q)

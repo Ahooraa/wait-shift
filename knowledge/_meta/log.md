@@ -473,3 +473,8 @@ author: llm
 
 ## [2026-10-25] query | external method suggestions checked against the code and the literature
 - FAMG already in Sol.aet; LAQP vacuous by construction (inputs stored at the node before enqueue); AnchorDL and AeroFlow not found; ClusterFlow does price severed edges. Recorded in [[novelty-register]].
+
+## [2026-10-25] experiment | stress pilot 87/144: first results; rules R1-R3 evaluated; trace overhead check
+- Trace on or off gives identical results (F1 85%, seed 1, 140 s: P99 150.6956 vs 150.7, mean 67.18 vs 67.2, 639 cold starts, 2,405 completed): instrumentation does not change the simulation.
+- Ours' P99 advantage over the stack (HPA + JSQ, our placement) at k = 1 -> 10: mix 85% +16.5% -> +48.1%; chain12 +11.5% -> +41.2%; mix 70% (k = 10) +52.2%; wide16 (k = 10) +64.9%; layered12 (k = 10, one scenario) +29.5%. Against B*: +57.8% to +81.6% at k = 10.
+- Rule evaluation in [[workflow-aware-decision-rules]]: R1 (re-binding) does not fire (1 of 5 groups); R2 (slack ordering) fires; R3 confounded by churn.

@@ -478,3 +478,6 @@ author: llm
 - Trace on or off gives identical results (F1 85%, seed 1, 140 s: P99 150.6956 vs 150.7, mean 67.18 vs 67.2, 639 cold starts, 2,405 completed): instrumentation does not change the simulation.
 - Ours' P99 advantage over the stack (HPA + JSQ, our placement) at k = 1 -> 10: mix 85% +16.5% -> +48.1%; chain12 +11.5% -> +41.2%; mix 70% (k = 10) +52.2%; wide16 (k = 10) +64.9%; layered12 (k = 10, one scenario) +29.5%. Against B*: +57.8% to +81.6% at k = 10.
 - Rule evaluation in [[workflow-aware-decision-rules]]: R1 (re-binding) does not fire (1 of 5 groups); R2 (slack ordering) fires; R3 confounded by churn.
+
+## [2026-10-25] query | lambda x T proposal checked; interaction by load computed from the existing 2x2
+- Old 2x2 (18 cases): interaction -0.21 / -0.66 / -0.80 at 50 / 70 / 85% load; -0.87 Azure, -0.24 Huawei. Hypothesis of substitution through staleness contradicted by the layout-age data. Recorded in [[novelty-register]].

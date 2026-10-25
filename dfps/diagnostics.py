@@ -94,3 +94,112 @@ def summarize(sim):
         for k in rows[0]:
             out[f"{name}_{k}"] = float(np.mean([r[k] for r in rows]))
     return out
+
+
+def bounds(sim):
+    """First-order ceilings on what two workflow-aware fixes could save, replayed on the trace of a finished run (2026-10-25).
+
+    The sojourn of every traced request is recomputed forward through its DAG with one change at a time:
+      A  slack-ordering ceiling   a task on the realised critical path that waited at a (node, function) pool may start at the
+                                  moment a task of ANOTHER request started there during its wait, if that task had slack >= the
+                                  waiting task's execution time (it could have been delayed behind it without delaying its own
+                                  request). Slack = how long a task's end can slip before its request's completion moves, from the
+                                  realised times. 'A_unmoved' uses only tasks that were never relocated (exact queue), 'A_all'
+                                  also relocated ones (their wait includes the relocation, so this overstates).
+      B1 co-location ceiling      every state transfer on the realised critical path costs 0.
+      B2 fracture ceiling         only the critical-path transfers whose parent ran away from its plan or whose child was relocated
+                                  cost 0 (a perfect re-binding of descendants).
+    Savings propagate through the DAG (a second path may become critical), but the effect of freed slots on other requests is
+    ignored, and only tasks of requests that arrived in the measured window are candidates, so the ceilings are first-order.
+    Returns P99 and mean sojourn for the baseline replay and for each ceiling."""
+    import bisect
+    tr = sim.trace
+    if not tr or not tr["reqs"]:
+        return {}
+    net = sim.net
+    wfs = {w.id: w for w in sim.sc.workflows}
+    tasks = {}
+    for row in tr["tasks"]:
+        tasks.setdefault(row[0], {})[row[2]] = row
+    reqs = {r[0]: r for r in tr["reqs"]}
+
+    def stt(wf, u, t, node_u, node_t):
+        return net.stt(wf.ss[(u, t)], node_u, node_t)
+
+    info = {}                                            # per request: tasks, slack per task, critical chain
+    pool = {}                                            # (node, function) -> [(start, slack, exec, rid, task, moved)]
+    for rid, (_, wid, t_arr, t_done) in reqs.items():
+        wf, T = wfs[wid], tasks.get(rid, {})
+        if len(T) < wf.n:
+            continue
+        end = {t: T[t][7] for t in T}
+        edge_slack = {}
+        for t in T:
+            for u in wf.parents[t]:
+                edge_slack[(u, t)] = T[t][5] - (end[u] + stt(wf, u, t, T[u][4], T[t][3]))
+        slack = {}
+        for t in sorted(T, reverse=True):
+            slack[t] = (t_done - end[t]) if not wf.children[t] else min(edge_slack[(t, c)] + slack[c] for c in wf.children[t])
+        t = max(T, key=lambda x: end[x])
+        chain = [t]
+        while wf.parents[t]:
+            t = min(wf.parents[t], key=lambda u: edge_slack[(u, t)])
+            chain.append(t)
+        info[rid] = (wf, T, slack, set(chain))
+        for t, row in T.items():
+            pool.setdefault((row[4], wf.ft[t]), []).append((row[6], slack[t], row[7] - row[6], rid, t, row[8] > 0))
+    for lst in pool.values():
+        lst.sort()
+    starts = {key: [x[0] for x in lst] for key, lst in pool.items()}
+
+    def replay(rid, saved=None, zero_edges=None):
+        wf, T, slack, chain = info[rid]
+        t_arr = reqs[rid][2]
+        new_end = {}
+        for t in range(wf.n):
+            row = T[t]
+            if wf.parents[t]:
+                real = max(T[u][7] + stt(wf, u, t, T[u][4], row[3]) for u in wf.parents[t])
+                gap = max(0.0, row[5] - real)                # delay between the last input and the first enqueue (a reroute before the first enqueue)
+                first = max(new_end[u] + (0.0 if zero_edges and (u, t) in zero_edges else stt(wf, u, t, T[u][4], row[3])) for u in wf.parents[t]) + gap
+            else:
+                first = row[5]
+            wait = max(0.0, (row[6] - row[5]) - (saved.get(t, 0.0) if saved else 0.0))
+            new_end[t] = first + wait + (row[7] - row[6])
+        return max(new_end.values()) - t_arr
+
+    out = {}
+    base, a_un, a_all, b1, b2 = [], [], [], [], []
+    for rid in info:
+        wf, T, slack, chain = info[rid]
+        base.append(replay(rid))
+        for tag, acc in (("unmoved", a_un), ("all", a_all)):
+            saved = {}
+            for t in chain:
+                row = T[t]
+                if row[6] - row[5] <= 1e-9 or (tag == "unmoved" and row[8] > 0):
+                    continue
+                key, ex = (row[4], wf.ft[t]), row[7] - row[6]
+                lst, st = pool.get(key, []), starts.get(key, [])
+                i = bisect.bisect_left(st, row[5])
+                best = None
+                while i < len(lst) and lst[i][0] < row[6]:
+                    s, sl, exu, r2, t2, mv = lst[i]
+                    if r2 != rid and sl >= ex and (tag == "all" or not mv):
+                        best = s
+                        break
+                    i += 1
+                if best is not None:
+                    saved[t] = row[6] - best
+            acc.append(replay(rid, saved=saved))
+        crit_edges = {(u, c) for c in chain for u in wf.parents[c] if u in chain}
+        fr = {(u, t) for (u, t) in crit_edges if T[u][4] != T[u][3] or T[t][8] > 0}
+        b1.append(replay(rid, zero_edges=crit_edges))
+        b2.append(replay(rid, zero_edges=fr))
+    for name, arr in (("base", base), ("A_unmoved", a_un), ("A_all", a_all), ("B1_colocation", b1), ("B2_fracture", b2)):
+        a = np.array(arr)
+        out[name + "_p99"] = float(np.percentile(a, 99))
+        out[name + "_mean"] = float(a.mean())
+    out["n_requests"] = len(base)
+    out["replay_error"] = float(np.max(np.abs(np.array(base) - np.array([reqs[r][3] - reqs[r][2] for r in info]))))
+    return out

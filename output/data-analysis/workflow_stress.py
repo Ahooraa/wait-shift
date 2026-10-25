@@ -109,7 +109,7 @@ def transfer_share(sc):
     return float(np.mean(out))
 
 
-def one(args, duration=None, out=None):
+def one(args, duration=None, out=None, with_bounds=False):
     scen, k, ctrl, tstar = args
     out = RUNS / f"{tag(scen, k)}.{ctrl}.json" if out is None else out
     if out.exists():
@@ -142,7 +142,15 @@ def one(args, duration=None, out=None):
         except Exception:                                   # a diagnostics bug must not lose the run
             import traceback
             diag = {"error": traceback.format_exc()[-600:]}
-        out.write_text(json.dumps(dict(scenario=list(scen), k=k, ctrl=ctrl, transfer_share=transfer_share(sc), result=r, diag=diag)))
+        bnd = None
+        if with_bounds:
+            from dfps.diagnostics import bounds
+            try:
+                bnd = bounds(sim)
+            except Exception:
+                import traceback
+                bnd = {"error": traceback.format_exc()[-800:]}
+        out.write_text(json.dumps(dict(scenario=list(scen), k=k, ctrl=ctrl, transfer_share=transfer_share(sc), result=r, diag=diag, bounds=bnd)))
         return str(out)
     except Exception:
         import traceback

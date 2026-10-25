@@ -1,0 +1,8 @@
+data-aware planning ablation (placement + the moves priced against its plans); bar: >=3% worse at k=10, <=1% at k=1
+scenario         k | ours P99   noaff P99   change | cold ours   cold_noaff | mv/req ours  noaff | local edges final (ours -> noaff)
+mix               1 |    120.6      122.4     +1.5% |   1627     1617 |   3.05    3.18 | 21.3% -> 19.9%
+mix              10 |    242.4      266.5    +10.0% |   1595     1592 |   1.55    1.68 | 46.0% -> 42.2%
+mix               1 |    157.8      160.7     +1.8% |   1551     1562 |   3.59    3.68 | 16.9% -> 15.6%
+mix              10 |    346.3      334.6     -3.4% |   1458     1462 |   1.92    2.11 | 38.2% -> 34.9%
+chain12           1 |    231.7      238.7     +3.0% |   1109     1100 |   7.04    7.18 | 18.0% -> 17.0%
+chain12          10 |    484.5      491.2     +1.4% |   1042     1067 |   3.85    4.17 | 40.5% -> 38.3%

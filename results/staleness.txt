@@ -1,0 +1,16 @@
+F1_r0.5_s1     P99   102.7 | mean mismatch (count/placement) 0.189 / 0.173 | CV of increments 4.75 / 138.96 | corr(count mismatch, backlog/tail) 0.52 / 0.06 | corr(placement mismatch, backlog/tail) 0.48 / 0.04
+   drift shape, count/placement mismatch by time since the last re-layout:  0-15s: 0.139/0.158 (n=56) | 15-30s: 0.140/0.159 (n=56) | 30-45s: 0.142/0.159 (n=56) | 45-60s: 0.143/0.158 (n=42) | 60-90s: nan/nan (n=0)
+F1_r0.7_s1     P99   120.6 | mean mismatch (count/placement) 0.187 / 0.174 | CV of increments 2.23 / 59.38 | corr(count mismatch, backlog/tail) 0.35 / -0.08 | corr(placement mismatch, backlog/tail) 0.34 / -0.09
+   drift shape, count/placement mismatch by time since the last re-layout:  0-15s: 0.132/0.160 (n=56) | 15-30s: 0.135/0.160 (n=56) | 30-45s: 0.141/0.160 (n=56) | 45-60s: 0.145/0.160 (n=42) | 60-90s: nan/nan (n=0)
+F1_r0.85_s1    P99   157.8 | mean mismatch (count/placement) 0.175 / 0.177 | CV of increments 1.59 / 130.23 | corr(count mismatch, backlog/tail) -0.13 / -0.41 | corr(placement mismatch, backlog/tail) -0.11 / -0.43
+   drift shape, count/placement mismatch by time since the last re-layout:  0-15s: 0.119/0.163 (n=56) | 15-30s: 0.124/0.163 (n=56) | 30-45s: 0.130/0.164 (n=56) | 45-60s: 0.136/0.163 (n=42) | 60-90s: nan/nan (n=0)
+F2_r0.5_s1     P99    76.0 | mean mismatch (count/placement) 0.154 / 0.096 | CV of increments 8.19 / 169.46 | corr(count mismatch, backlog/tail) 0.61 / 0.47 | corr(placement mismatch, backlog/tail) 0.56 / 0.44
+   drift shape, count/placement mismatch by time since the last re-layout:  0-15s: 0.073/0.077 (n=56) | 15-30s: 0.076/0.077 (n=56) | 30-45s: 0.077/0.076 (n=56) | 45-60s: 0.078/0.076 (n=42) | 60-90s: nan/nan (n=0)
+F2_r0.7_s1     P99    90.3 | mean mismatch (count/placement) 0.150 / 0.096 | CV of increments 4.76 / 22.84 | corr(count mismatch, backlog/tail) 0.39 / 0.34 | corr(placement mismatch, backlog/tail) 0.36 / 0.32
+   drift shape, count/placement mismatch by time since the last re-layout:  0-15s: 0.068/0.077 (n=56) | 15-30s: 0.070/0.077 (n=56) | 30-45s: 0.073/0.077 (n=56) | 45-60s: 0.075/0.077 (n=42) | 60-90s: nan/nan (n=0)
+F2_r0.85_s1    P99   114.1 | mean mismatch (count/placement) 0.155 / 0.097 | CV of increments 1.86 / 13.05 | corr(count mismatch, backlog/tail) 0.02 / 0.06 | corr(placement mismatch, backlog/tail) 0.07 / 0.10
+   drift shape, count/placement mismatch by time since the last re-layout:  0-15s: 0.071/0.078 (n=56) | 15-30s: 0.077/0.078 (n=56) | 30-45s: 0.082/0.078 (n=56) | 45-60s: 0.085/0.077 (n=42) | 60-90s: nan/nan (n=0)
+
+burstiness by family (Azure/F1 = known-steadier reference, Huawei/F2 = known-bursty reference):
+  F1 (Azure)  CV = ['4.75', '2.23', '1.59']
+  F2 (Huawei) CV = ['8.19', '4.76', '1.86']

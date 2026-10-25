@@ -1,0 +1,16 @@
+n=15 | corr(proxy, true) = 0.22
+  t=  60.0  proxy=0.164  true=-0.122
+  t= 120.0  proxy=0.164  true=+0.323
+  t= 180.0  proxy=0.162  true=-0.344
+  t= 240.0  proxy=0.190  true=-0.124
+  t= 300.0  proxy=0.156  true=-0.395
+  t= 360.0  proxy=0.156  true=-0.232
+  t= 420.0  proxy=0.153  true=+0.049
+  t= 480.0  proxy=0.160  true=-0.320
+  t= 540.0  proxy=0.180  true=-0.265
+  t= 600.0  proxy=0.172  true=-0.404
+  t= 660.0  proxy=0.163  true=-0.403
+  t= 720.0  proxy=0.144  true=-0.307
+  t= 780.0  proxy=0.139  true=-0.177
+  t= 840.0  proxy=0.136  true=-0.506
+  t= 900.0  proxy=0.135  true=-0.340

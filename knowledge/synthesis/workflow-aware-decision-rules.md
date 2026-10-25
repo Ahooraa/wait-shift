@@ -110,3 +110,24 @@ planning-mediated, and that must be said explicitly rather than attributed to pl
 
 Smoke-test numbers from either script are NOT findings and must not be read as preliminary results; they only confirm the
 code runs and produces plausible magnitudes.
+
+## D1 and D2 full-length results, applied against the pre-registered rules above (25 Oct)
+
+### D1 verdict: event-triggered re-layout NOT built
+- Criterion 1 (burstiness by family) PASSES: F2 (Huawei) CV > F1 (Azure) CV at every load (8.19 vs 4.75 at 50%, 4.76 vs 2.23 at 70%, 1.86 vs 1.59 at 85%; count-mismatch series).
+- Criterion 2 (mismatch predicts loss) passes ONLY via backlog (mean-ish): corr(count or placement mismatch, backlog) > 0.3 in 4/6 cases. corr(mismatch, TAIL proxy -- p95 queue length, the one relevant to P99) > 0.3 in only 2/6, never above 0.47, and is near-zero or NEGATIVE at 85% load in both families (F1: -0.13/-0.41; F2: 0.02/0.07) -- the regime that matters most.
+- Criterion 3 (cold-start saving over 30s, offline replay) NOT attempted.
+- Since all three must hold and only #1 does cleanly, the trigger is not built. Finding: layout mismatch tracks congestion but not tail risk, consistent with this project's broader mean/tail divergence.
+- Placement-mismatch calibration (15 points, full run): corr(proxy, true) = 0.22, below the 0.3 instrument-validity bar; true mismatch was negative in 13/15 samples (live layout about as good as a fresh greedy rebuild, or the fresh rebuild is simply not a strong enough baseline -- both readings are open).
+
+### D2 verdict: mixed, no bucket fires cleanly, not closed
+| Scenario | k | ours P99 | noaff P99 | change | cold ours/noaff | mv/req ours/noaff |
+|---|---|---|---|---|---|---|
+| mix 70% | 1 | 120.6 | 122.4 | +1.5% | 1627/1617 | 3.05/3.18 |
+| mix 70% | 10 | 242.4 | 266.5 | +10.0% | 1595/1592 | 1.55/1.68 |
+| mix 85% | 1 | 157.8 | 160.7 | +1.8% | 1551/1562 | 3.59/3.68 |
+| mix 85% | 10 | 346.3 | 334.6 | -3.4% | 1458/1462 | 1.92/2.11 |
+| chain12 | 1 | 231.7 | 238.7 | +3.0% | 1109/1100 | 7.04/7.18 |
+| chain12 | 10 | 484.5 | 491.2 | +1.4% | 1042/1067 | 3.85/4.17 |
+
+mix-70% k=10 reads "load-bearing" (large loss without affinity); mix-85% k=10 is NEGATIVE (noaff better); chain12 k=10 is the pre-registered "interesting middle row" (+1.4% loss despite the 10.6% re-binding ceiling measured for that exact scenario in bounds_run.py -- the current heuristic captures little of a real, large ceiling there). Cold starts flat in every row (confirms this is not churn-mediated); moves/request consistently higher without affinity in every row (planning changes which moves the finish-time rule accepts, so part of any P99 difference is move-mediated, as pre-registered). Single seed per scenario -- noisy, especially the negative mix-85% row. Not closed; chain12 is the one cell worth a second seed before any decision.

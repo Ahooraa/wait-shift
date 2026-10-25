@@ -293,3 +293,24 @@ report, do not build. Both pass -> build a minimal adaptive-lam rule, one ablati
 margin and interaction-hunt threads); moves/request, cold starts, ping-pong share (already free from the trace);
 realized-vs-predicted gain at move-accept time (gain_log); lam, k, family, seed in every result file's metadata and
 filename (a run whose lam is not recorded in the filename is a run that cannot be told apart from another later).
+
+## Lambda sweep, Gate 0 result: axis binds, proceed to Gate 1 (26 Oct)
+
+6 runs (output/data-analysis/lambda_probe.py), k in {1,5,10} x {F1,F2}, seed 1, rho=0.85, free re-scoring of 165,708-
+204,575 logged decisions per cell (every evaluated move opportunity, not just accepted moves).
+
+| fam | k | n_dec | flip@lam=0 | flip@lam=0.5 | flip@lam=2 |
+|---|---|---|---|---|---|
+| F1 | 1  | 204575 | 16.1% | 9.0%  | 11.4% |
+| F1 | 5  | 190337 | 28.4% | 13.1% | 12.0% |
+| F1 | 10 | 181962 | 26.1% | 12.2% | 12.5% |
+| F2 | 1  | 202454 | 20.1% | 11.0% | 14.4% |
+| F2 | 5  | 180999 | 33.6% | 18.2% | 13.2% |
+| F2 | 10 | 165708 | 30.4% | 16.9% | 14.6% |
+
+At k=10, flip@lam=0 is 26.1% (F1) and 30.4% (F2), both far above the 15% threshold; F2 also exceeds 15% at lam=0.5 for
+k=5 and k=10. The axis binds strongly -- decisively above the "dead axis" (<5%) and "marginal" (5-15%) bands at every k
+tested, for both families. Per the pre-registration: **proceed to Gate 1** (the full 48-cell matrix). Caveat carried
+forward: this is a sensitivity diagnostic (recomputes the lam=1 decomposition under hypothetical lam', ignoring how a
+flipped decision would change later queue state), so a high flip rate means the rule is lam-sensitive, not yet that any
+particular lam improves P99 -- that is exactly what Gate 1 tests.

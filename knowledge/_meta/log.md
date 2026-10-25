@@ -512,3 +512,6 @@ author: llm
 ## [2026-10-25] experiment | P3 scaling probe: family-dependent curve, not a universal law
 - 28 runs (output/data-analysis/p3_scaling_probe.py), rho=0.85, k in {0.5,2,3,5,7,10}, seed-2 noise check at k=3,5.
 - Delta-gap(k) monotone in k for both families (pass); cross-family validation fails (F1 climbs earlier/faster than F2, family gap 15-22 pts, above the 2-10 pt noise floor). tau tracks Delta-gap within family (r=0.98/0.84) but not between. Full table and verdict in [[workflow-aware-decision-rules]] and [[novelty-register]].
+
+## [2026-10-26] experiment | lambda sweep Gate 0: axis binds, proceeding to Gate 1
+- 6 runs (output/data-analysis/lambda_probe.py), k in {1,5,10} x {F1,F2}, seed 1, free re-scoring of 165k-205k logged decisions per cell. Flip rate 16-34% at lam=0, well above the 15% threshold at k=10 for both families (26.1%/30.4%). Gate 0 passes decisively; launching the 48-cell Gate 1 matrix. Full table in [[workflow-aware-decision-rules]].

@@ -66,3 +66,12 @@ el50/65/80 (output/data-analysis/elastic_sweep.py) all use rebal_max=10**9 (unli
 and no free analysis. Given the review's own prior (saturation-family, a third saturation result adds nothing) and the cost
 (20 new runs), this is not built. No further interaction hunting; the existing re-layout x moves interaction (-0.21 to -0.80
 by load) stands as the project's one interaction finding.
+
+## First envelope data point and a real ping-pong number (25 Oct, smoke)
+rho=0.92, k=1, ours, F1 (140 s window): completed = arrived = 2,865 (no censoring), unfinished 0, parked 0, P99 159.95 s --
+barely above the 85%-load k=1 number (157.8 s, affinity_probe.py), i.e. the controller ramps from 85% to 92% gracefully at
+normal data intensity with no admission. Ping-pong (share of moved tasks moved >=2 times): 17.7%, inside the 15-25% range an
+earlier review flagged as worth a cooldown/pruning rule -- first real number on this question, from one cell; needs the full
+grid before acting. k=20 dropped from the envelope grid: the stack-controller, k=20, rho=0.92 cell ran 26+ minutes with no
+result (1.1 GB memory) before being stopped; plausibly pathological (no locality awareness + very large transfers + near
+overload), not worth the risk when k=1/10 already show the scaling trend clearly.

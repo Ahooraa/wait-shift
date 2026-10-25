@@ -59,7 +59,9 @@ def alibaba_dags():
 
 
 LOADS = (0.5, 0.7, 0.85, 0.92)
-KS = (1, 10, 20)
+KS = (1, 10)          # k=20 dropped (25 Oct): the stack-controller, 92%-load, k=20 smoke cell ran 26+ min with no result (1.1 GB
+                       # and climbing) before the task was killed externally; a plausibly pathological cell (no locality
+                       # awareness + very large transfers + near-overload), not worth the risk for a map that already has 1 and 10
 FAMS = ("F1", "F2")
 CTRLS = {"ours": ("nosim", {}), "stack": ("hpa", dict(rebal_rule="jsq"))}
 SEED = 1

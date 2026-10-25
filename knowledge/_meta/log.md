@@ -508,3 +508,7 @@ author: llm
 ## [2026-10-25] experiment | move-gain probe (Phase 0, check 3): dispersion-scaled margin killed
 - dfps/o3s.py: gain_log added to rebalance_step (one line, gated by churn["log_gain"]), no cost when off.
 - 8 runs (F1/F2 x 50/70/85/92% load, k=1, ours only): mean gain 7-11s (50%) to 11-15s (92%), rising not collapsing; median stable 5.4-6.7s; near-zero-gain share flat 4-6% at every load. Candidate killed per its own pre-registered criterion. Full table and reasoning in [[novelty-register]].
+
+## [2026-10-25] experiment | P3 scaling probe: family-dependent curve, not a universal law
+- 28 runs (output/data-analysis/p3_scaling_probe.py), rho=0.85, k in {0.5,2,3,5,7,10}, seed-2 noise check at k=3,5.
+- Delta-gap(k) monotone in k for both families (pass); cross-family validation fails (F1 climbs earlier/faster than F2, family gap 15-22 pts, above the 2-10 pt noise floor). tau tracks Delta-gap within family (r=0.98/0.84) but not between. Full table and verdict in [[workflow-aware-decision-rules]] and [[novelty-register]].

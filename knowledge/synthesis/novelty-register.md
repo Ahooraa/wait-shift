@@ -88,3 +88,14 @@ because its RELATIVE (shortest-queue) criterion runs out of a gap to exceed, not
 there -- our ABSOLUTE (finish-time) criterion keeps finding real improvements at every load. The 16-18% ping-pong share at
 92% load (operating_envelope.py) is consistent with this: repeat moves of the same task carry the same large-gain
 statistics on average, so it looks like correct re-optimization under shifting conditions, not wasted churn.
+
+## P3 scaling probe: result -- family-dependent curve, not a universal law (25 Oct)
+28 runs (output/data-analysis/p3_scaling_probe.py), rho=0.85, k in {0.5,2,3,5,7,10} (k=1,10 cross-checked against the
+existing envelope grid), seed-2 repeats at k=3,5 for a noise floor (~2-10 points). Delta-gap(k)=gap(k)-gap(k=1) is
+monotonically increasing in k for both families (within noise) -- the core claim survives. But the family-invariance
+claim from the coarse 2-point (k=1,10) starting data does not: F1 (Azure) climbs earlier and faster than F2 (Huawei)
+across the middle of the range (family gap 15-22 points at k=2-7, well above the noise floor), converging only near the
+two extremes. tau (measured transfer share) tracks Delta-gap tightly within each family (r=0.98 F1, r=0.84 F2) but not
+between them (2.2x different Delta-gap at matched Delta-tau) -- tau explains the within-family shape, not the
+between-family magnitude. Reported as P3's result: two related, monotone, tau-correlated-within-family curves, not one
+predictive law. Full numbers in [[workflow-aware-decision-rules]].

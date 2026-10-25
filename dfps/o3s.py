@@ -16,8 +16,8 @@ import heapq
 import numpy as np
 from .solution import IDLE
 
-from .controllers import (affinity_greedy_placement, affinity_placement_v2, kmedian_placement, origin_weights,
-                          proportional_counts, queue_aware_placement, faaspr_placement)
+from .controllers import (affinity_greedy_placement, affinity_placement_v2, demand_points, kmedian_placement, origin_weights,
+                          proportional_counts, queue_aware_placement, faaspr_placement, placement_cost)
 from .d3 import candidates, kendall_tau_b
 from .traces import function_rates, workflow_rates
 
@@ -278,6 +278,84 @@ class O3SimAdjuster:
         # rule ablation (2026-10-22): utilisation target, backlog-clearing horizon, placement ("random" = no data affinity)
         self.util_cap = float(self.churn.get("util_cap", 0.8))
         self.clear_s = float(self.churn.get("clear_s", self.clear_s))
+        self.staleness_log = []                           # (now, mismatch) if churn["log_staleness"]: diagnostic, 2026-10-25
+        self.calib_log = []                               # (now, proxy_mismatch, true_mismatch) if churn["calibrate_placement"]
+        self._calib_left = int(self.churn.get("calibrate_placement_n", 15))
+        self._calib_tick = 0
+
+    def _staleness(self, sim):
+        """Diagnostic (2026-10-25): mismatch between the LIVE layout and what sizing would choose if re-solved right now from the
+        controller's own blind window rates (same formula as bottleneck_first_placement's demand/need, no placement run -- cheap).
+        Returns sum|live - ideal| / slots, in [0, ~2]. Logged at the move-period cadence (self.next_sa) between re-layouts, to see
+        whether drift grows steadily (a fixed period is already about right) or in bursts (an event-triggered period could help)."""
+        mu = np.array([f.exec_time for f in sim.sc.functions])
+        wf_rate = workflow_rates(sim.sc, sim.now, sim.now + self.horizon)
+        lam_f = np.zeros(len(sim.sc.functions))
+        for w, r in zip(sim.sc.workflows, wf_rate):
+            for t_ in range(w.n):
+                lam_f[w.ft[t_]] += r
+        demand = lam_f * mu + backlog_per_function(sim) * mu / self.clear_s
+        S = int(sim.sc.ecc.sum())
+        need = np.maximum(1, np.ceil(demand / self.util_cap).astype(int))
+        need = proportional_counts(demand, S) if need.sum() > S else proportional_counts(demand, S, floor=need)
+        live = sim.cnt.sum(axis=1)
+        return float(np.abs(live - need).sum()) / S
+
+    def _placement_mismatch(self, sim):
+        """Diagnostic (2026-10-25): cheap, no-solve companion to `_staleness` -- that one only sees per-function COUNTS; this one
+        sees whether the live containers sit on the right NODES. For each function, rank nodes by locality attractiveness to
+        current demand (the same demand_points used by queue_aware_placement, reduced to a single attraction score per node via
+        the soft-routing kernel W = exp(-hops/tau)); a function's live containers are 'misplaced' if they sit outside its own
+        top-n_f(f) nodes by that ranking. Ignores the capacity/queueing interaction between functions (a real incremental solve
+        would resolve contention for the same good node), so this is a lower bound on placement staleness, not the full cost.
+        Returns the share of all live containers that are misplaced by this ranking, in [0, 1]."""
+        sc = sim.sc
+        wf_rate = workflow_rates(sc, sim.now, sim.now + self.horizon)
+        o_w = origin_weights(self.past_arrivals(sim), sim.N)
+        dem = demand_points(sc, wf_rate, sim.cnt.T, o_w=o_w, origin_weight=1.0)         # [F, N]
+        W = np.exp(-sc.network.h.astype(float) / 1.0)
+        attract = dem @ W.T                                                             # [F, N]
+        mis, tot = 0, 0
+        for f in range(len(sc.functions)):
+            live = sim.cnt[f]
+            n_live = int(live.sum())
+            if n_live == 0:
+                continue
+            top = set(np.argsort(-attract[f])[:n_live].tolist())
+            mis += sum(int(live[k]) for k in range(sim.N) if k not in top)
+            tot += n_live
+        return float(mis) / max(tot, 1)
+
+    def _queue_tail(self, sim):
+        """Loss proxy for the TAIL, not the mean (2026-10-25): the 95th percentile of current (node, function) queue lengths.
+        Backlog (sum of queue lengths) is mean-ish and can move opposite to P99 -- the no-moves pair showed routing improving
+        the mean while P99 stayed 7.9x worse -- so the staleness-to-loss check should also be run against this, and the
+        trigger (if built) should key on whichever of the two the check supports, stated explicitly, not backlog by default."""
+        lens = [len(sim.queue[k][f]) for k in range(sim.N) for f in range(sim.F)]
+        return float(np.percentile(lens, 95)) if lens else 0.0
+
+    def _true_placement_mismatch(self, sim):
+        """Calibration only (2026-10-25), budget-limited (self._calib_left, default 15 calls per run): solves a FRESH
+        placement for the live per-function counts (cur=zeros, so full freedom, same capacity) and scores both the live and
+        the fresh layout with `placement_cost` (the real transfer+queueing objective). Returns (proxy, true) where true =
+        (cost_live - cost_fresh) / cost_fresh, so `_placement_mismatch`'s cheap no-solve proxy can be checked against it. A
+        real solve per call, so this is for a short calibration run, never for the main staleness_log path."""
+        sc = sim.sc
+        wf_rate = workflow_rates(sc, sim.now, sim.now + self.horizon)
+        lam_f = np.zeros(len(sc.functions))
+        for w, r in zip(sc.workflows, wf_rate):
+            for t_ in range(w.n):
+                lam_f[w.ft[t_]] += r
+        mu = np.array([f.exec_time for f in sc.functions])
+        demand = lam_f * mu + backlog_per_function(sim) * mu / self.clear_s
+        o_w = origin_weights(self.past_arrivals(sim), sim.N)
+        n_f = sim.cnt.sum(axis=1).astype(int)
+        n_f = np.maximum(1, n_f)
+        X_fresh = queue_aware_placement(sc, rates=wf_rate, counts=n_f, cur=np.zeros((sim.N, len(sc.functions)), dtype=int),
+                                        o_w=o_w, origin_weight=1.0, busy=demand, tau=1.0)
+        cost_live = placement_cost(sc, sim.cnt.T, rates=wf_rate, o_w=o_w, origin_weight=1.0, busy=demand, tau=1.0)
+        cost_fresh = placement_cost(sc, X_fresh, rates=wf_rate, o_w=o_w, origin_weight=1.0, busy=demand, tau=1.0)
+        return float((cost_live - cost_fresh) / max(cost_fresh, 1e-9))
 
     def forecast(self, sim):
         """Blind forecast = persistence: the arrivals seen in the last L = min(horizon, now) seconds are repeated forward
@@ -312,7 +390,7 @@ class O3SimAdjuster:
             return dict(faaspr=True, rng=self.rng)
         if p == "qaware":
             kw = dict(qaware=True, origin_weight=float(self.churn.get("origin_weight", 1.0)), tau=float(self.churn.get("tau", 1.0)),
-                      queue_term=bool(self.churn.get("queue_term", True)))
+                      queue_term=bool(self.churn.get("queue_term", True)), affinity=bool(self.churn.get("affinity", True)))
         elif p == "kmedian":
             kw = dict(kmedian=True, epoch=self.epoch, origin_weight=float(self.churn.get("origin_weight", 1.0)),
                       incremental=bool(self.churn.get("incremental", True)), improve=int(self.churn.get("improve", 300)))
@@ -687,6 +765,17 @@ class O3SimAdjuster:
             # of waiting one B* period (4 s Azure, 8 s Huawei), so queued work reaches the new layout immediately
         if sim.now + 1e-9 >= self.next_sa:
             self.next_sa += self.period
+            if self.churn.get("log_staleness"):
+                pm = self._placement_mismatch(sim)
+                self.staleness_log.append((sim.now, self._staleness(sim), pm,
+                                           float(backlog_per_function(sim).sum()), self._queue_tail(sim)))
+            if self.churn.get("calibrate_placement") and self._calib_left > 0:
+                # spread the (expensive, real-solve) calibration calls evenly over the run instead of front-loading them
+                stride = max(1, int((sim.duration / self.period) / int(self.churn.get("calibrate_placement_n", 15))))
+                self._calib_tick += 1
+                if self._calib_tick % stride == 0:
+                    self._calib_left -= 1
+                    self.calib_log.append((sim.now, self._placement_mismatch(sim), self._true_placement_mismatch(sim)))
             if self.churn.get("fast"):
                 self.fast_step(sim)                                     # triggered emergency capacity fix from a short window
             if self.churn.get("fine"):

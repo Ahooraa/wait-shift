@@ -481,3 +481,8 @@ author: llm
 
 ## [2026-10-25] query | lambda x T proposal checked; interaction by load computed from the existing 2x2
 - Old 2x2 (18 cases): interaction -0.21 / -0.66 / -0.80 at 50 / 70 / 85% load; -0.87 Azure, -0.24 Huawei. Hypothesis of substitution through staleness contradicted by the layout-age data. Recorded in [[novelty-register]].
+
+## [2026-10-25] code | staleness and data-aware-planning diagnostics built, thresholds pre-registered
+- dfps/controllers.py: demand_points/queue_aware_placement take affinity=True/False (drop the workflow-partner term, keep origin + capacity + queueing). dfps/o3s.py: O3SimAdjuster._staleness (count-mismatch vs ideal sizing, no solve) and _placement_mismatch (no-solve locality lower bound: share of live containers outside their function's own attraction-ranked top nodes); logged every move tick as (t, count_mismatch, placement_mismatch, backlog) when churn["log_staleness"]. place_kwargs passes churn["affinity"] through for placement="qaware".
+- output/data-analysis/staleness_probe.py (6 dev cases, 50/70/85% load) and affinity_probe.py (mix + chain12, k in {1,10}) written; smoke tests (short windows) confirm both run; full runs not yet queued.
+- Pre-registered thresholds for both in [[workflow-aware-decision-rules]], written before any full-length result: D1 needs bursty drift (CV>1) AND mismatch predicting backlog (corr>0.3) AND a real cold-start saving over 30s cadence; D2's interesting outcome is a SMALL loss at k=10 despite the 9-14% ceiling (current term capturing little headroom), not a large loss (term already load-bearing) or a flat result (direction dead).

@@ -1,0 +1,26 @@
+P99 completion latency; 'ours better by' = (other - ours) / other per scenario, mean with 95% bootstrap interval
+
+mix 70%    k= 1 n=4 transfer share 33.0% | P99 ours   127.3 | vs stack:  +15.2% (+10 to +19) | vs kstack:  +22.2% (+20 to +26) | vs bstar:  +78.4% (+70 to +87)
+                 cold starts: ours 1408 stack 1284 kstack 8496 bstar 11212 | parked: ours 1 stack 0 kstack 0 bstar 0
+mix 70%    k= 4 n=4 transfer share 66.0% | P99 ours   178.4 | vs stack:  +40.4% (+37 to +44) | vs kstack:  +56.4% (+50 to +63) | vs bstar:  +74.2% (+65 to +83)
+                 cold starts: ours 1394 stack 1284 kstack 8497 bstar 10950 | parked: ours 0 stack 0 kstack 2 bstar 41
+mix 70%    k=10 n=4 transfer share 82.7% | P99 ours   265.8 | vs stack:  +52.2% (+50 to +55) | vs kstack:  +69.0% (+61 to +76) | vs bstar:  +67.2% (+57 to +76)
+                 cold starts: ours 1349 stack 1284 kstack 8497 bstar 10665 | parked: ours 2 stack 5 kstack 1001 bstar 21
+mix 85%    k= 1 n=4 transfer share 33.0% | P99 ours   165.5 | vs stack:  +16.5% (+11 to +26) | vs kstack:  +26.2% (+20 to +33) | vs bstar:  +82.3% (+75 to +89)
+                 cold starts: ours 1418 stack 1243 kstack 8546 bstar 10651 | parked: ours 0 stack 0 kstack 0 bstar 237
+mix 85%    k= 4 n=4 transfer share 66.0% | P99 ours   229.6 | vs stack:  +40.8% (+34 to +47) | vs kstack:  +58.0% (+50 to +66) | vs bstar:  +76.7% (+67 to +84)
+                 cold starts: ours 1367 stack 1243 kstack 8546 bstar 10306 | parked: ours 0 stack 19 kstack 1364 bstar 478
+mix 85%    k=10 n=4 transfer share 82.7% | P99 ours   343.9 | vs stack:  +48.1% (+45 to +51) | vs kstack:  +65.5% (+58 to +71) | vs bstar:  +68.5% (+58 to +78)
+                 cold starts: ours 1303 stack 1243 kstack 8548 bstar 10338 | parked: ours 7 stack 169 kstack 11896 bstar 1234
+chain12    k= 1 n=2 transfer share 34.0% | P99 ours   239.6 | vs stack:  +11.5% (+11 to +12) | vs kstack:  +25.4% (+23 to +27) | vs bstar:  +77.3% (+74 to +80)
+                 cold starts: ours 1023 stack 996 kstack 9096 bstar 11098 | parked: ours 0 stack 0 kstack 48 bstar 134
+chain12    k=10 n=2 transfer share 83.6% | P99 ours   509.8 | vs stack:  +41.2% (+36 to +46) | vs kstack:  +50.8% (+51 to +51) | vs bstar:  +57.8% (+55 to +60)
+                 cold starts: ours 978 stack 996 kstack 9096 bstar 10610 | parked: ours 7 stack 180 kstack 17846 bstar 282
+layered12  k= 1 n=2 transfer share 30.9% | P99 ours   150.0 | vs stack:  +83.4% (+83 to +84) | vs kstack:  +76.1% (+74 to +79) | vs bstar:  +87.7% (+86 to +89)
+                 cold starts: ours 1066 stack 952 kstack 9011 bstar 11340 | parked: ours 2 stack 196 kstack 5063 bstar 670
+layered12  k=10 n=2 transfer share 83.3% | P99 ours  1051.1 | vs stack:  +28.2% (+27 to +30) | vs kstack:  +40.4% (+36 to +45) | vs bstar:  +52.4% (+47 to +58)
+                 cold starts: ours 962 stack 952 kstack 9014 bstar 12424 | parked: ours 150 stack 206 kstack 2854 bstar 750
+wide16     k= 1 n=2 transfer share 32.5% | P99 ours   151.3 | vs stack:  +38.3% (+33 to +44) | vs kstack:  +62.6% (+57 to +68) | vs bstar:  +77.3% (+74 to +81)
+                 cold starts: ours 991 stack 877 kstack 9882 bstar 9903 | parked: ours 0 stack 0 kstack 1080 bstar 1811
+wide16     k=10 n=2 transfer share 84.2% | P99 ours   388.2 | vs stack:  +64.9% (+64 to +66) | vs kstack:  +78.3% (+78 to +79) | vs bstar:  +81.6% (+81 to +83)
+                 cold starts: ours 925 stack 877 kstack 9884 bstar 10590 | parked: ours 36 stack 118 kstack 6595 bstar 7572

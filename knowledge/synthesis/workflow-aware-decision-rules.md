@@ -55,3 +55,58 @@ Data scale k = 10 is complete for all five groups; k = 1 lacks mix 70% so far.
 
 R3 (random-placement stack at least 10% worse than the stack with our placement at k = 10): fires in every group (about 50% worse in mix 70%), but the random-placement stack also re-randomises the layout every minute (about 8,500 cold starts against about 1,300), so this measures churn as much as data-obliviousness and is not a clean test of critical-path placement.
 Consequence: re-binding of descendants is NOT built (fracture exists, local edges fall from 47% to 26% in mix 70%, but its first-hop transfer cost is small against the tail). Slack-aware ordering passes its threshold but has published precedents (see above). Final numbers to be recomputed when the pilot completes.
+
+## Pre-registered thresholds for the two diagnostics of 25 Oct (written before any full-length run; smoke tests only confirmed the scripts run), revised after a review caught three readability risks
+
+### D1 -- layout staleness probe (output/data-analysis/staleness_probe.py)
+Logs, every move tick, FOUR series: count mismatch (sizing only, `_staleness`), placement mismatch (a no-solve lower bound on
+locality staleness, `_placement_mismatch`), backlog (a MEAN-ish loss proxy), and the 95th percentile of current queue lengths
+(a TAIL loss proxy, `_queue_tail`) -- added because this system's mean and P99 diverge (the no-moves pair: routing improved
+the mean 23% while P99 stayed 7.9x worse), so a trigger tuned to backlog could do nothing for P99. Six development cases,
+50/70/85% load, Azure + Huawei.
+
+Build an event-triggered re-layout (fire on mismatch crossing a threshold, not a fixed clock) only if ALL THREE hold:
+1. **Bursty, not steady drift, read by FAMILY, not an absolute bar:** Azure (F1) is the known-steadier trace, Huawei (F2) the
+   known-bursty one; CV of within-epoch increments must be notably higher for F2 than F1 (the three-vs-three cases already
+   give this comparison for free). An absolute "CV > 1" bar has no reference point and is not used.
+2. **Mismatch predicts loss -- state which proxy, backlog or tail, supports it, and use only that one downstream:**
+   corr(mismatch, next-tick backlog) > 0.3 OR corr(mismatch, next-tick tail) > 0.3, in at least 4 of 6 cases, for the count OR
+   placement mismatch series. If only backlog correlates, a trigger may be built but is not justified as a P99 fix.
+3. **Cold starts are a real cost to save -- the exact numbers (hard50 six cases, knowledge/_meta/log.md 23 Oct):** 60 s =
+   1,409 cold starts; 30 s = 1,526 (+8.3%, +117) for P99 +9.2% (+1 to +19); 15 s = 1,647 (+16.9%, +238) for P99 +9.4% (-2 to
+   +21, no further gain over 30 s). The trigger's target is matching the 30 s P99 gain for FEWER than 1,526 cold starts --
+   not merely beating 60 s's 1,409. If a threshold trigger cannot be shown offline (replay of the logged series) to
+   approximate this, do not build it.
+If condition 1 or 2 fails, the fixed 60 s period is already close to right and the direction is closed.
+
+**Calibration caveat (`_placement_mismatch` is a LOWER bound):** it ignores cross-function capacity contention (a real
+re-solve would fight over the same good node), so a FAILED correlation for the placement series alone is inconclusive, not
+necessarily a true null -- the instrument may be too weak to see a real effect. `staleness_probe.py calibrate` checks this
+once: one case, 15 points, correlating the cheap proxy against `_true_placement_mismatch` (a real solve via
+`queue_aware_placement` + `placement_cost`, both new in dfps/controllers.py and dfps/o3s.py). Run `calibrate` before
+trusting a null on the placement-mismatch series specifically; the count-mismatch series needs no such calibration (it is
+computed exactly, not approximated).
+
+4-point pilot of `calibrate` (25 Oct, F1 70% s1, 150 s window, too few points for a correlation verdict): proxy 0.16-0.38,
+true -0.23 to +0.34, same order of magnitude, no NaN/inf -- the mechanics work. `_true_placement_mismatch`'s "fresh" layout
+is itself a greedy rebuild (`queue_aware_placement` from scratch), not a guaranteed optimum, so `true` can be negative (the
+live layout scored cheaper than the fresh greedy solve); read a near-zero or negative `true` as "live is about as good as a
+fresh greedy rebuild", not as "no staleness". The real 15-point, full-length `calibrate` run is queued.
+
+### D2 -- data-aware planning ablation (output/data-analysis/affinity_probe.py)
+NOT a clean placement-objective ablation (see the script's docstring): it changes the plans the move rule is priced against,
+so it ablates planning as a whole.
+
+- **Current term is load-bearing, no further work:** ours_noaff >= 3% worse at k = 10 (near the 9-14% re-binding/co-location
+  ceilings bounds_run.py measured) AND <= 1% worse at k = 1, in a majority of scenarios.
+- **Direction reopens with evidence (the result to watch for):** ours_noaff is SMALL (well under the ceiling, e.g. 2-4%)
+  worse at k = 10 despite the 9-14% ceiling existing -- the current heuristic is capturing little of the available headroom.
+  This is the only outcome that would justify building a better data-aware placement term.
+- **Direction closes cleanly:** flat (<1%) at both k = 1 and k = 10.
+
+Also reported per cell: moves/request (`n_moved / n_completed`) for `ours` vs `ours_noaff`. If affinity-off changes which
+moves the finish-time rule accepts (a different move count), a P99 difference could be move-mediated rather than
+planning-mediated, and that must be said explicitly rather than attributed to placement alone.
+
+Smoke-test numbers from either script are NOT findings and must not be read as preliminary results; they only confirm the
+code runs and produces plausible magnitudes.

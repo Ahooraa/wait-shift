@@ -248,13 +248,16 @@ def transport_placement(sc, rates=None, counts=None, cur=None, keep_weight=1.0, 
     return X
 
 
-def demand_points(sc, rates, cur, o_w=None, origin_weight=1.0):
+def demand_points(sc, rates, cur, o_w=None, origin_weight=1.0, affinity=True):
     """Per function, the weighted demand points its containers have to be close to, in MB/s of state that must travel.
 
     For function f: every node holding a workflow partner g, carrying aff[f, g] of state per second (spread over g's hosts),
     plus -- for a root task -- the request origins, carrying the workflow's input volume per second. This turns placement into
     a weighted k-median: f's containers are facilities, and what a layout costs is sum over demand points of
     weight x hops(demand point -> NEAREST container of f). Partner positions are read from the reference layout `cur`.
+    `affinity=False` (diagnostic, 2026-10-25): drop the workflow-partner term, keep only the origin term -- placement no
+    longer pulls a function toward its producers/consumers, only toward where requests start. Used to test whether the
+    locality term matters for P99 as data size grows (data-oblivious placement that still respects capacity).
     Returns dem[F, N] in MB/s."""
     N, F = sc.network.ne, len(sc.functions)
     rates = expected_workflow_rates(sc) if rates is None else np.asarray(rates, dtype=float)
@@ -262,11 +265,12 @@ def demand_points(sc, rates, cur, o_w=None, origin_weight=1.0):
     aff = np.zeros((F, F))
     dem = np.zeros((F, N))
     for w, r in zip(sc.workflows, rates):
-        for (u, v), size in w.ss.items():
-            a, b = w.ft[u], w.ft[v]
-            if a != b:
-                aff[a, b] += r * size
-                aff[b, a] += r * size
+        if affinity:
+            for (u, v), size in w.ss.items():
+                a, b = w.ft[u], w.ft[v]
+                if a != b:
+                    aff[a, b] += r * size
+                    aff[b, a] += r * size
         if origin_weight and o_w is not None:
             for t in w.roots:
                 dem[w.ft[t]] += origin_weight * r * w.input_size * np.asarray(o_w, dtype=float)
@@ -284,7 +288,7 @@ def _cover_gain(dem_f, h, cur_min):
 
 
 def queue_aware_placement(sc, rates=None, counts=None, cur=None, o_w=None, origin_weight=1.0, busy=None, tau=1.0,
-                          queue_term=True, util_clip=0.97):
+                          queue_term=True, util_clip=0.97, affinity=True):
     """Capacity- and queue-aware incremental placement (2026-10-23): the k-median of `kmedian_placement` with a cost that
     knows containers have finite capacity.
 
@@ -320,7 +324,7 @@ def queue_aware_placement(sc, rates=None, counts=None, cur=None, o_w=None, origi
     assert n_f.sum() <= S and (n_f >= 1).all()
     cur = np.zeros((N, F), dtype=int) if cur is None else np.asarray(cur, dtype=int)
     ref = cur if cur.any() else np.ones((N, F), dtype=int)
-    dem = demand_points(sc, rates, ref, o_w=o_w, origin_weight=origin_weight)
+    dem = demand_points(sc, rates, ref, o_w=o_w, origin_weight=origin_weight, affinity=affinity)
     busy = (0.8 * n_f.astype(float)) if busy is None else np.asarray(busy, dtype=float)
     ss = [s for w in sc.workflows for s in w.ss.values()]
     t_hop = sc.network.epd + (float(np.mean(ss)) if ss else 30.0) / sc.network.bw       # seconds per hop for a typical state
@@ -396,6 +400,49 @@ def queue_aware_placement(sc, rates=None, counts=None, cur=None, o_w=None, origi
             dirty.add(bf)
     assert (X.sum(axis=1) <= ecc).all() and (X.sum(axis=0) == n_f).all()
     return X
+
+
+def placement_cost(sc, X, rates=None, o_w=None, origin_weight=1.0, busy=None, tau=1.0, queue_term=True, util_clip=0.97,
+                   affinity=True):
+    """Score an arbitrary layout X [N, F] with `queue_aware_placement`'s own cost formula (transfer + queueing, seconds per
+    second, summed over functions), without constructing anything (diagnostic calibration, 2026-10-25). Same preamble as
+    queue_aware_placement, duplicated rather than shared so that function is never at risk from this diagnostic helper."""
+    N, F = sc.network.ne, len(sc.functions)
+    rates = expected_workflow_rates(sc) if rates is None else np.asarray(rates, dtype=float)
+    mu = np.array([f.exec_time for f in sc.functions])
+    h = sc.network.h.astype(float)
+    X = np.asarray(X, dtype=int)
+    ref = X if X.any() else np.ones((N, F), dtype=int)
+    dem = demand_points(sc, rates, ref, o_w=o_w, origin_weight=origin_weight, affinity=affinity)
+    n_f = X.sum(axis=0)
+    busy = (0.8 * n_f.astype(float)) if busy is None else np.asarray(busy, dtype=float)
+    ss = [s for w in sc.workflows for s in w.ss.values()]
+    t_hop = sc.network.epd + (float(np.mean(ss)) if ss else 30.0) / sc.network.bw
+    W = np.exp(-h / float(tau))
+    B = W * h
+    total = 0.0
+    for f in range(F):
+        w = dem[f].copy()
+        if w.sum() <= 0:
+            w = np.ones(N)
+        r = (busy[f] / mu[f]) * w / w.sum()
+        active = np.flatnonzero(r > 0)
+        if active.size == 0:
+            continue
+        ra, Wa, Ba = r[active], W[active], B[active]
+        c = X[:, f].astype(float)
+        Sd = np.maximum(c[None, :] @ Wa.T, 1e-12)
+        transfer = float(((c[None, :] @ Ba.T) / Sd * ra[None, :]).sum()) * t_hop
+        cost = transfer
+        if queue_term:
+            T = (1.0 / Sd) * ra[None, :] @ Wa
+            u = mu[f] * T
+            lam = c[None, :] * T
+            uc = np.minimum(u, util_clip)
+            wait = mu[f] * uc / (1.0 - uc) + 100.0 * mu[f] * np.maximum(0.0, u - util_clip)
+            cost += float((lam * wait).sum())
+        total += cost
+    return total
 
 
 def _nearest_two(h, hosts):

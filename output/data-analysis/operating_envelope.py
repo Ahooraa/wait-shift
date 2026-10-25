@@ -117,7 +117,11 @@ def run(workers):
     RUNS.mkdir(parents=True, exist_ok=True)
     jobs = [(f, r, k, c) for r in LOADS for k in KS for f in FAMS for c in CTRLS]
     jobs = [j for j in jobs if not (RUNS / f"{tag(j[0], j[1], j[2])}.{j[3]}.json").exists()]
-    jobs.sort(key=lambda j: (-j[1], j[2]))              # heaviest (highest load, then highest k) first
+    # interleave by load so concurrent workers don't all run 92%-load jobs at once (92% with no admission can grow a large
+    # backlog -- a smoke test of one such cell reached 1.1 GB working set in 140 s of simulated time; sorting heaviest-first
+    # would put every high-memory cell on the critical path simultaneously)
+    by_load = {rho: [j for j in jobs if j[1] == rho] for rho in LOADS}
+    jobs = [j for group in zip(*by_load.values()) for j in group]
     print(f"{len(jobs)} runs", flush=True)
     with ProcessPoolExecutor(workers) as ex:
         for r in ex.map(one, jobs):
@@ -129,8 +133,9 @@ def analyze():
     for f in RUNS.glob("*.json"):
         x = json.loads(f.read_text())
         rows[(x["fam"], x["rho"], x["k"], x["ctrl"])] = x
-    print("%-4s %5s %3s | %8s %8s %7s | %6s %6s | %6s %6s | %5s %5s | %6s %6s" % (
-        "fam", "load", "k", "ours P99", "stack P99", "gain", "cold_o", "cold_s", "mv/r_o", "mv/r_s", "pp_o", "pp_s", "unfin_o", "unfin_s"))
+    print("%-4s %5s %3s | %8s %8s %7s | %6s %6s | %6s %6s | %5s %5s | %-15s %-15s" % (
+        "fam", "load", "k", "ours P99", "stack P99", "gain", "cold_o", "cold_s", "mv/r_o", "mv/r_s", "pp_o", "pp_s",
+        "completed/arrived_o", "completed/arrived_s"))
     for fam in FAMS:
         for rho in LOADS:
             for k in KS:
@@ -145,9 +150,14 @@ def analyze():
                 mv_b = rb["n_moved"] / max(1, rb["n_completed"])
                 pp_a = da.get("all_pingpong", float("nan")) / max(da.get("all_moved_tasks", 1e-9), 1e-9) if da else float("nan")
                 pp_b = db.get("all_pingpong", float("nan")) / max(db.get("all_moved_tasks", 1e-9), 1e-9) if db else float("nan")
-                print("%-4s %5.2f %3d | %8.1f %8.1f %+6.1f%% | %6d %6d | %6.2f %6.2f | %4.0f%% %4.0f%% | %6d %6d" % (
+                ca = "%d/%d (%.1f%%)" % (ra["n_completed"], ra["n_arrived"], 100 * ra["n_completed"] / max(ra["n_arrived"], 1))
+                cb = "%d/%d (%.1f%%)" % (rb["n_completed"], rb["n_arrived"], 100 * rb["n_completed"] / max(rb["n_arrived"], 1))
+                print("%-4s %5.2f %3d | %8.1f %8.1f %+6.1f%% | %6d %6d | %6.2f %6.2f | %4.0f%% %4.0f%% | %-15s %-15s" % (
                     fam, rho, k, ra["p99_makespan"], rb["p99_makespan"], gain, ra["cold_starts"], rb["cold_starts"],
-                    mv_a, mv_b, 100 * pp_a, 100 * pp_b, ra["n_unfinished"], rb["n_unfinished"]))
+                    mv_a, mv_b, 100 * pp_a, 100 * pp_b, ca, cb))
+                if ra["n_unfinished"] or rb["n_unfinished"]:
+                    print("   ! censored: unfinished ours=%d stack=%d -- P99 at this cell excludes them (a lower bound on the real tail)" % (
+                        ra["n_unfinished"], rb["n_unfinished"]))
 
 
 if __name__ == "__main__":

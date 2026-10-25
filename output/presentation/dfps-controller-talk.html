@@ -507,7 +507,7 @@ td.r, th.r { text-align: right; }
   </table></div>
   <div class="cols">
     <p><b>Why.</b> The old rule's constant rebuilding removed functions from nodes all the time and forced waiting requests to move. It redistributed queues as a side effect. A stable layout loses that.</p>
-    <p><b>Lesson.</b> Transfer distance did not predict P99. Waiting requests did. With explicit, uncapped request moves the P99 is equal and cold starts fall by 68%.</p>
+    <p><b>Lesson.</b> Transfer distance did not predict P99. Waiting requests did. With moves uncapped, placement quality has no detectable P99 effect (paired +0.2%, 95% interval −1% to +1%, incremental better in 8 of 18 cases) despite 3.1× fewer cold starts (1,396 vs 4,386). Placement and moves are substitutes for P99: once moves are uncapped, a far worse placement costs nothing there, only in churn. This is also why FaaSPR's placement ties us on P99 (slide 22) while using 4.9× the cold starts.</p>
   </div>
   <p class="metric"><b>Metric:</b> P99 completion latency (seconds), 18 development cases, B* off, only the placement rule differs. Cold starts and reroutes are the unlimited-moves columns.</p>
   <div class="say">This is the finding that led to mechanism 3. The offline distance score said the new placement was clearly better, but P99 got worse. We measured why: the old rule was accidentally moving queued requests around. Once we give requests an explicit, uncapped way to move, the new placement matches the old one's P99 with a third of the cold starts.</div>

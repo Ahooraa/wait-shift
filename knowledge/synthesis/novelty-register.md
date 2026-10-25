@@ -48,3 +48,21 @@ diagnosed (trace or ablation) -> nearest work read -> gap stated in one sentence
 - The substitution-through-staleness hypothesis (aggressive moves allow a longer period) is contradicted by the layout-age test: with moves on, a layout applied 60/120/300 s late costs +44/+113/+370% P99, i.e. moves do not repair a stale layout.
 - Free check on the existing 2x2 (old settings: affinity placement, cap 300; 18 cases): the interaction (log scale, negative = more reduction than the product) is -0.21 at 50% load, -0.66 at 70%, -0.80 at 85%, and -0.87 on Azure against -0.24 on Huawei. It grows with load, the signature of a queueing nonlinearity (each fix lowers effective utilisation and P99 diverges near saturation) plus the capacity-versus-queue complementarity. To be recomputed on the FROZEN-1 grid whose interaction is -1.30.
 - Decision: do not run a 60-90 run lambda x T grid. Run the planned lambda sweep as a sensitivity row; extend the load axis (60/78/92%) as part of the operating envelope. Pre-set null: optimal T unchanged between lambda 0.5, 1 and 2 within +-2%.
+
+## Placement x moves substitution (25 Oct) -- the one durable result from the interaction-hunt thread
+"With moves uncapped, placement quality has no detectable P99 effect: 140.3 vs 141.0 s (paired +0.2%, 95% interval -1% to
++1%, 8/18 wins) despite 3.1x fewer cold starts (1,396 vs 4,386)." This is the SAFE form: we do not have a moves-off x
+placement cell (fp_route_nm/ours_nm vary the dispatcher with the SAME placement, not placement with moves off), so
+"substitutes" (a cross-derivative claim) is not established, only "no detectable P99 effect with moves on" is. Ties three
+findings together: why FaaSPR's placement ties us on P99 despite 4.9x the cold starts (moves absorb the churn); why the
+random-placement stack's comparison was uninterpretable (not moves-matched against a controlled baseline); the general
+division of labour (placement -> cold starts, moves -> P99, see [[baseline-matrix]]). In the deck, slide 18.
+
+## Interaction-hunt thread closed (25 Oct)
+Checked a proposed "sizing enables moves via a free slot" mechanism against the code: WRONG for the fixed-budget controller
+(proportional_counts always fills every slot; a move needs storage space at the destination, not an empty container --
+dfps/sim.py relocate()/`_reroute`). The elastic-mode version (a real free-slot concept) was checked for a free analysis path:
+el50/65/80 (output/data-analysis/elastic_sweep.py) all use rebal_max=10**9 (unlimited moves), so there is no moves-off arm
+and no free analysis. Given the review's own prior (saturation-family, a third saturation result adds nothing) and the cost
+(20 new runs), this is not built. No further interaction hunting; the existing re-layout x moves interaction (-0.21 to -0.80
+by load) stands as the project's one interaction finding.

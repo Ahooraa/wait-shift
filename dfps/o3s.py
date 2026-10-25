@@ -281,6 +281,7 @@ class O3SimAdjuster:
         self.staleness_log = []                           # (now, mismatch) if churn["log_staleness"]: diagnostic, 2026-10-25
         self.calib_log = []                               # (now, proxy_mismatch, true_mismatch) if churn["calibrate_placement"]
         self.gain_log = []                                # (now, gain_s) per accepted finish-time move, if churn["log_gain"] -- 2026-10-25
+        self.lambda_log = []                              # (now, cur_parts, [(k2, parts)], accepted_k2) per evaluated decision, if churn["log_lambda_components"] -- 2026-10-26
         self._calib_left = int(self.churn.get("calibrate_placement_n", 15))
         self._calib_tick = 0
 
@@ -665,6 +666,8 @@ class O3SimAdjuster:
             return self._queue_balance(sim, sol, rule, max_moves or self.churn.get("rebal_max", 10 ** 9))
         qs = sorted(((len(sim.queue[k][f]), f, k) for k in range(sim.N) for f in range(sim.F) if sim.queue[k][f]), reverse=True)
         moved, cap = 0, max_moves or self.churn.get("rebal_max", 10 ** 9)
+        lam = self.churn.get("lam", 1.0)                        # 2026-10-26, lambda-sweep probe; default 1.0 == unweighted (original rule)
+        log_lam = self.churn.get("log_lambda_components")
         for _, f, k in qs:
             hosts = [int(x) for x in np.flatnonzero(sol.cnt[f]) if int(x) != k]
             if not hosts:
@@ -672,14 +675,22 @@ class O3SimAdjuster:
             for rq in reversed(list(sol.queue(f, k))):
                 if moved >= cap:
                     break
-                a0 = sol.aet(rq, k)
+                a0 = sol.aet(rq, k, lam=lam)
                 best = None
+                cand_log = []
                 for k2 in hosts:
                     if sol.free[k2] < rq.total:
                         continue
-                    a = sol.aet(rq, k2)
+                    a = sol.aet(rq, k2, lam=lam)
+                    if log_lam:
+                        cand_log.append((k2, sol.aet(rq, k2, parts=True)))
                     if a < a0 and (best is None or a < best[0]):
                         best = (a, k2)
+                if log_lam and cand_log:
+                    # every evaluated decision point, current node's parts + every candidate's parts, lam=1 decomposition
+                    # (the lambda probe's Gate 0 re-scores these offline for hypothetical lam' without re-simulating)
+                    self.lambda_log.append((round(sim.now, 2), sol.aet(rq, k, parts=True), cand_log,
+                                             best[1] if best is not None else None))
                 if best is None:
                     break                                               # requests further ahead wait less: stop this queue
                 if self.churn.get("log_gain"):

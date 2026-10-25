@@ -244,3 +244,52 @@ state size at rho=0.85, strongly correlated with transfer share within each fami
 family-invariant, so P3 is reported as two related but distinct curves (one per family) with a shared qualitative shape
 (monotone, tau-correlated within family), not as a single predictive law. Weaker than the "best sentence" framing from
 the design discussion, but a decisive, honest result rather than a null -- see [[novelty-register]].
+
+## Lambda sweep: does the downstream-transfer weight in the move rule need tuning? (pre-registered 26 Oct)
+
+The move rule's finish-time estimate (dfps/solution.py:Sol.aet) is `inp + service_estimate + out`, where `out` is the
+downstream-transfer term (state transfer to children's planned nodes) -- unweighted (coefficient 1, "lam=1.0") by
+construction, never tested against any other weight. `lam` is now a parameter: `Sol.aet(run, k, lam=1.0, parts=False)`
+weights only `out`; default 1.0 reproduces every existing result exactly (verified: F1/k=5/seed=1 rerun with the new code
+reproduces event_hash aa370d50526c77edd8a5ba6e21658c3c, p99=237.12909634478277, bit for bit). `aet()` is called from three
+places (o3s.py's rebalance_step aet rule -- what this sweep targets; sa.py's SimulatedAnnealing, used by the B* baseline;
+sim.py's storage-exhaustion _reroute fallback); `lam` is threaded only through rebalance_step's churn["lam"], so the other
+two callers are unaffected by construction, not by discipline.
+
+**Gate 0 (free, re-scoring, no simulated λ' decisions, k=5 added to every stage of this sweep per instruction):**
+output/data-analysis/lambda_probe.py logs, at every evaluated move decision (not just accepted moves), the lam=1.0
+decomposition (inp, service_estimate, out) of the current node and every evaluated candidate (O3SimAdjuster.lambda_log,
+churn["log_lambda_components"]). 6 runs: k in {1, 5, 10} x {F1, F2}, seed 1, controller "ours", full duration. Offline,
+for each hypothetical lam' in {0, 0.5, 2}, recompute `inp + service + lam'*out` for the current node and every logged
+candidate, take the argmin, and compare the chosen action (stay, or move to a specific node) against the lam=1.0 action
+actually taken. Flip rate = fraction of decisions where the chosen action changes. Caveat, stated now: this ignores how a
+flipped decision would change later queue state, so it is a sensitivity diagnostic, not a P99 estimate -- it only decides
+whether to spend runs on Gate 1.
+
+- **Flip rate < 5%** between lam=0 and lam=2 (max contrast), at every k -> axis is dead, close it, no further runs.
+- **5-15%** -> marginal; run the full matrix at seed 1 only (reduced).
+- **> 15%** at k=10 in at least one family -> the axis binds; run the full seeded matrix (Gate 1).
+
+**Gate 1 (family-dependent optimum, only if Gate 0 passes):** matrix lam in {0, 0.5, 1, 2} x k in {1, 5, 10} x {F1, F2} x
+seed in {1, 2} = 48 cells; reuse existing lam=1 "ours" results where the scenario/seed match exactly (k=1 seed1, k=5
+seed1+seed2, k=10 seed1 -- 8 cells, re-verified by the reproducibility check above, not re-run blind); ~40 new runs.
+Fixed: rho=0.85, admission off, storage scaled, standard mix. Primary metric: paired per-case Delta-P99(lam) = P99(lam) -
+P99(lam=1), same scenario/seed -- never raw cross-cell P99 (the project's own noise floor from seed replicates, ~2-10
+points, is large enough to manufacture a spurious optimum from absolute comparisons alone). Passes if the best lam for F1
+differs from F2's by more than the paired seed-1/seed-2 noise floor, at k=10. Fails (one constant lam serves both
+families) if the optima agree within noise.
+
+**Gate 2 (usable control signal, only if Gate 1 passes):** does the realized/predicted move-gain ratio (gain_log,
+already instrumented 25 Oct) separate lam values with non-overlapping bootstrap CIs? Fails if within-lam spread exceeds
+across-lam spread -- the premise (family-dependent optimum) would exist with no exploitable control signal, reported but
+not built.
+
+**Outcome map:** Gate 0 fails -> close lam axis, adaptive-lam mechanism dead, zero further runs. Gate 1 fails -> lam
+matters overall but one retuned constant serves both families -- report as an engineering tuning finding, not a novel
+mechanism. Gate 1 passes, Gate 2 fails -> the premise exists (family-dependent optimum) but no usable control signal ->
+report, do not build. Both pass -> build a minimal adaptive-lam rule, one ablation row.
+
+**Logged per run, beyond P99:** mean, p90 (mean/tail divergence has misled this project before -- see the dispersion-
+margin and interaction-hunt threads); moves/request, cold starts, ping-pong share (already free from the trace);
+realized-vs-predicted gain at move-accept time (gain_log); lam, k, family, seed in every result file's metadata and
+filename (a run whose lam is not recorded in the filename is a run that cannot be told apart from another later).

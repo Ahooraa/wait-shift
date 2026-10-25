@@ -106,15 +106,24 @@ class Sol:
             heapq.heappush(heap, heapq.heappop(heap) + mu)
         return heap[0] + mu
 
-    def aet(self, run, k, ahead=None):
+    def aet(self, run, k, ahead=None, lam=1.0, parts=False):
+        """lam (2026-10-26, default 1.0 == original behaviour) weights the downstream-transfer term only ("out" below), not
+        the input transfer or the service estimate -- the lambda-sweep probe's object of study. Every caller except
+        O3SimAdjuster.rebalance_step's aet rule uses the default and is therefore unaffected (dfps/sa.py's SimulatedAnnealing,
+        dfps/sim.py's _reroute storage fallback). parts=True returns (inp, service_estimate, out) instead of their lam-weighted
+        sum, for the lambda probe's offline re-scoring (dfps/diagnostics.py does not touch this -- it's a separate, narrower
+        decomposition than summarize()'s trace-based one)."""
         net, wf = self.net, run.req.wf
         loc = self.node_of(run)
         inp = sum(net.stt(s, loc, k) for s in run.sizes)                     # input states to e_k (A-30: summed)
         if ahead is None:
             q = self.queue(run.f, k)
             ahead = q.index(run) if run in q else len(q)
+        svc = self.service_estimate(run.f, k, ahead)
         out = sum(net.stt(wf.ss[(run.task, c)], k, run.req.plan[c]) for c in wf.children[run.task])
-        return inp + self.service_estimate(run.f, k, ahead) + out
+        if parts:
+            return inp, svc, out
+        return inp + svc + lam * out
 
     def total_size(self, run):
         return run.total

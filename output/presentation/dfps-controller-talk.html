@@ -830,6 +830,34 @@ td.r, th.r { text-align: right; }
   <div class="say">This is the envelope result: a map, not a new mechanism. It explains why the gap over the stack isn't constant — it's largest exactly where the stack's own rule structurally breaks down under saturation. Good slide for "why does a simple rule nearly tie you at 70% load but lose badly at 92%?"</div>
 </section>
 
+<!-- 30b · P3 scaling probe -->
+<section class="slide">
+  <div class="bar"><span>5 · Results</span><span>data-intensity scaling</span></div>
+  <h2>More state size buys a bigger advantage — but Azure and Huawei buy it at different rates, not on one shared curve</h2>
+  <p style="font-size:14px">28 runs, ρ=0.85, data scale k from 0.5× to 10×, both families. Pre-registered before running: knowledge/synthesis/workflow-aware-decision-rules.md.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>k</th><th class="r">Δgap, F1 (Azure)</th><th class="r">Δgap, F2 (Huawei)</th><th class="r">family gap</th></tr></thead>
+    <tbody>
+      <tr><td>0.5</td><td class="r">+10.5</td><td class="r">+2.6</td><td class="r">7.9</td></tr>
+      <tr><td>1 (baseline)</td><td class="r">0</td><td class="r">0</td><td class="r">0</td></tr>
+      <tr><td>2</td><td class="r">+15.0</td><td class="r">+0.5</td><td class="r">14.5</td></tr>
+      <tr><td>3</td><td class="r">+22.5</td><td class="r">+5.2</td><td class="r">17.3</td></tr>
+      <tr><td>5</td><td class="r">+29.4</td><td class="r">+9.6</td><td class="r">19.8</td></tr>
+      <tr><td>7</td><td class="r">+35.3</td><td class="r">+13.1</td><td class="r">22.2</td></tr>
+      <tr><td><b>10</b></td><td class="r best">+39.0</td><td class="r best">+29.6*</td><td class="r">9.4*</td></tr>
+    </tbody>
+  </table></div>
+  <div class="cols">
+    <div class="why"><p><b>Why the gap isn't one curve:</b> Δgap/Δτ (the advantage bought per unit of measured transfer-share increase) <b>declines 43%</b> for Azure as k rises from 2 to 10, but <b>rises 13×</b> for Huawei over the same range — opposite trends. Transfer share (τ) tracks each family's own curve well (both monotone, both tau-correlated), but it cannot be the one variable that explains the gap between families, since it moves the two families in opposite directions.</p></div>
+    <ul style="font-size:14px">
+      <li>Below k=1 both families dip rather than rise (F1: +10.5 at k=0.5 vs 0 at k=1) — monotone for k≥1, not across the whole range.</li>
+      <li>*The k=10 "near-convergence" (family gap 9.4, inside the ~2–10 point noise floor from seed replicates at k=3,5) rests on a single seed at k=10 — not yet confirmed with a second seed.</li>
+    </ul>
+  </div>
+  <p class="metric"><b>Metric:</b> Δgap(k) = P99 gain over the stack at state-size k, minus the gain at k=1. Noise floor from seed-1-vs-seed-2 repeats at k=3,5: 2.2–10.3 points.</p>
+  <div class="say">The honest version of the data-intensity story: not a universal scaling law, but a real, monotone, family-specific effect, with transfer share as a within-family (not between-family) explanation. Good slide for "does this scale predictably with workload?" — answer: predictably within a traffic family, not across families from one formula.</div>
+</section>
+
 <!-- 27 · conclusion -->
 <section class="slide">
   <div class="bar"><span>5 · Results</span><span>conclusions and next steps</span></div>

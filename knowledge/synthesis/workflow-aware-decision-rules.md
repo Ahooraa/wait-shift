@@ -131,3 +131,21 @@ code runs and produces plausible magnitudes.
 | chain12 | 10 | 484.5 | 491.2 | +1.4% | 1042/1067 | 3.85/4.17 |
 
 mix-70% k=10 reads "load-bearing" (large loss without affinity); mix-85% k=10 is NEGATIVE (noaff better); chain12 k=10 is the pre-registered "interesting middle row" (+1.4% loss despite the 10.6% re-binding ceiling measured for that exact scenario in bounds_run.py -- the current heuristic captures little of a real, large ceiling there). Cold starts flat in every row (confirms this is not churn-mediated); moves/request consistently higher without affinity in every row (planning changes which moves the finish-time rule accepts, so part of any P99 difference is move-mediated, as pre-registered). Single seed per scenario -- noisy, especially the negative mix-85% row. Not closed; chain12 is the one cell worth a second seed before any decision.
+
+## Bounds table complete, all 6 scenarios (25 Oct, bounds_run.py; layered12 took ~4.7h wall time, the densest shape)
+
+| Scenario | k | base P99 | slack (conservative/generous) | perfect co-location | perfect re-binding |
+|---|---|---|---|---|---|
+| chain12 | 10 | 485 | -4.9% / -11.4% | -13.9% | -10.6% |
+| layered12 | 10 | 1016 | -0.7% / -2.7% | -0.9% | -0.4% |
+| mix (Azure) | 10 | 346 | -6.9% / -22.0% | -9.2% | -7.4% |
+| mix (Huawei) | 10 | 242 | -4.8% / -12.0% | -9.1% | -7.0% |
+| wide16 | 10 | 363 | -2.4% / -12.6% | -2.5% | -2.1% |
+| mix (Azure) | 1 | 158 | -1.8% / -8.6% | -2.8% | -2.7% |
+
+All six replay exactly (error 0.0). Pattern: ceilings are large for simple, serial structure (chain12) and shrink toward
+zero for wide, dense structure (layered12 has the SMALLEST ceilings of any shape, smaller even than wide16, despite having
+the densest cross-layer edges and the largest off-critical-path wait share measured in the earlier diagnostic, 41.7%). A
+dense DAG has many parallel near-critical paths; fixing the one nominal critical path barely moves P99 because the tail is
+set by the slowest of several comparable paths, not a single fixable one. This reinforces the R1/R2/D1/D2 pattern: single
+workflow-aware fixes have the least room exactly where a workflow has the most structure to exploit.

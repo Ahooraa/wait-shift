@@ -82,6 +82,7 @@ def summarize(sim):
         rec = dict(soj=t_done - t_arr, exec=ex, wait_unmoved=wait_u, wait_moved=wait_m, transfer=tra, edges=n_e,
                    fractured=n_frac / max(n_e, 1), local_plan=n_loc_plan / max(n_e, 1), local_final=n_loc_final / max(n_e, 1),
                    extra_first_hop=extra, moved_tasks=sum(1 for x in T if T[x][8] > 0) / wf.n, moves=sum(T[x][8] for x in T) / wf.n,
+                   pingpong=sum(1 for x in T if T[x][8] >= 2) / wf.n,       # share of tasks moved MORE THAN ONCE (2026-10-25)
                    wait_off_path=(wait_all - wait_crit), wait_on_path=wait_crit, join_gap=float(np.mean(joins)) if joins else 0.0,
                    tasks=wf.n)
         acc["all"].append(rec)

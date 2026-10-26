@@ -104,7 +104,10 @@ predictive law. Full numbers in [[workflow-aware-decision-rules]].
 Gate 0 (6 free re-scoring runs) found the move rule's downstream-transfer weight (lam, =1.0 by construction, never
 tested) binds strongly (flip rate 16-34%, vs a 15% bar). Gate 1 (48-cell matrix) found a real, large, U-shaped
 lam-P99 curve -- lam=0.5 beats lam=1 in 9/12 complete cells, growing from +-3pts at k=1 to -7..-47pts at k=10 -- but the
-SAME lam=0.5 wins for both traffic families at every k=10 cell tested, so there is no cross-family split to adapt to.
-Verdict: lam=1 is a measurably wrong default (engineering fix, worth correcting), not a novel mechanism (nothing to
-build). Closes this thread the same way six workflow-aware candidates and the dispersion-margin candidate closed before
-it -- a real, disclosed, non-mechanism finding. Full tables in [[workflow-aware-decision-rules]].
+SAME value wins for both traffic families at every k=10 cell tested, so there is no cross-family split to adapt to.
+A refinement sweep (lam in {0.25, 0.75} at k=10, 8 runs) moved the recommended constant again: 3 of 4 cells minimize at
+lam~0.25, not 0.5, and lam=0.75 flips sign in 2 of 4 cells (a small penalty, not an improvement) -- still the same
+value across both families, so the no-mechanism verdict stands, only the retuned number changes (0.5 -> ~0.25).
+Verdict: lam=1 is a measurably wrong default (engineering fix, worth correcting to ~0.25), not a novel mechanism
+(nothing to build). Closes this thread the same way six workflow-aware candidates and the dispersion-margin candidate
+closed before it -- a real, disclosed, non-mechanism finding. Full tables in [[workflow-aware-decision-rules]].

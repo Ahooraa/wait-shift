@@ -518,3 +518,7 @@ author: llm
 
 ## [2026-10-26] experiment | lambda sweep Gate 1: default weight wrong, no adaptive mechanism
 - 48-cell matrix (output/data-analysis/lambda_gate1_probe.py). lam=0.5 beats lam=1 in 9/12 cells, effect grows sharply with k (+-3pts at k=1, -7 to -47pts at k=10 vs lam=1; lam=2 is much worse, +18 to +38pts at k=10). Gate 1 fails: both families want the same lam=0.5 at k=10, no family-dependent split. Verdict: engineering tuning fix (lam~0.5 is a better default), not a novel adaptive mechanism. Refinement sweep (lam in {0.25,0.75}, k=10) running to locate the minimum more precisely. Full tables in [[workflow-aware-decision-rules]] and [[novelty-register]].
+
+## [2026-10-26] data | lambda sweep refinement, k=10 (8 runs)
+- lam in {0.25, 0.75} added either side of 0.5 (output/data-analysis/lambda_refine_probe.py). Revised minimum: 3 of 4 cells minimize at lam~0.25, not 0.5; lam=0.75 flips to a small penalty in 2/4 cells (F1 s2 +0.2, F2 s1 +5.8) -- a sign flip the coarser Gate-1 grid could not see. lam=0.25 never crosses zero across all four cells (sum -77.4 vs -73.6 at lam=0.5), the more robust single constant.
+- Does not reopen Gate 1's cross-family verdict (lam=0.25 still wins for both families) -- only moves the recommended retuned constant from ~0.5 to ~0.25. Full table in [[workflow-aware-decision-rules]]; novelty-register updated.

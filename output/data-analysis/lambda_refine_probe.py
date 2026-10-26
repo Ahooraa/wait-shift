@@ -32,8 +32,8 @@ def analyze():
     base = {}
     for fam in g1.FAMS:
         for seed in g1.SEEDS:
-            f = g1.existing_lam1(fam, K, seed)
-            base[(fam, seed)] = json.loads(f.read_text())["result"]["p99_makespan"] if f else None
+            f = g1.existing_lam1(fam, K, seed) or (g1.RUNS / f"{g1.tag(fam, K, seed, 1.0)}.json")
+            base[(fam, seed)] = json.loads(f.read_text())["result"]["p99_makespan"] if f.exists() else None
     print("%-3s %4s | %7s %7s %7s %7s %7s %7s" % ("fam", "seed", "d@0", "d@0.25", "d@0.5", "d@0.75", "d@1", "d@2"))
     for fam in g1.FAMS:
         for seed in g1.SEEDS:

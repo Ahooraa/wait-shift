@@ -353,10 +353,28 @@ families, with the benefit growing sharply at larger state sizes (k=10: -7 to -4
 +18 to +38 point penalty for going the other way to lam=2). No adaptive-lambda mechanism is built -- there is no
 cross-family tension to exploit. This closes the thread as a tuning fix, not a contribution.
 
-**Refinement (in progress):** lam in {0.25, 0.75} at k=10 (where the curve is steepest), both families, both seeds, to
-locate the minimum more precisely between 0 and 1 (output/data-analysis/lambda_refine_probe.py).
+**Refinement, result (26 Oct, 8 runs):** lam in {0.25, 0.75} at k=10, both families, both seeds
+(output/data-analysis/lambda_refine_probe.py), added either side of lam=0.5 to locate the minimum more precisely.
+
+| fam | seed | d@0  | d@0.25 | d@0.5  | d@0.75 | d@2   |
+|-----|------|------|--------|--------|--------|-------|
+| F1  | 1    | -2.8 | -7.4   | **-15.3** | -13.8 | +38.0 |
+| F1  | 2    | -0.6 | **-10.1** | -7.3 | +0.2 | +17.2 |
+| F2  | 1    | +3.6 | **-7.5** | -3.7 | +5.8 | +22.2 |
+| F2  | 2    | -31.6| **-52.4**| -47.3 | -45.7 | +21.9 |
+
+(bold = per-cell minimum; all deltas are P99 vs the lam=1 baseline, same scenario/seed.)
+
+**Revised verdict: the minimum sits closer to lam~0.25, not lam=0.5.** 3 of 4 cells minimize at lam=0.25; only F1/seed1
+prefers 0.5. lam=0.75 is the side of the curve that is unsafe to round to: it still helps F1/seed1 (-13.8) but goes
+essentially flat for F1/seed2 (+0.2) and turns into a small penalty for F2/seed1 (+5.8) -- a sign flip the coarser Gate 1
+grid ({0, 0.5, 1, 2}) could not see. lam=0.25 never crosses zero across all four cells and has the better aggregate
+(-77.4 summed vs -73.6 at lam=0.5), making it the more robust single constant, not just the sharper one.
+
+This does not reopen Gate 1's cross-family verdict -- lam=0.25 is still better for BOTH families, so there is still no
+adaptive-lambda mechanism to build. It only moves the recommended retuned constant from lam~0.5 to lam~0.25.
 
 **Caveat (restated):** paired per-case Delta-P99, single seed per (fam,k,lam) except the two reused k=5 cells -- the
-magnitude of the effect varies a lot seed to seed (F2 k=10: -3.7 vs -47.3) even though the sign and the best-lam choice
-are consistent. Treat the magnitude as uncertain, the direction and the "0.5 beats 1, which beats 2" ordering as the
-load-bearing claim.
+magnitude of the effect varies a lot seed to seed (F2 k=10: -3.7 to -52.4) even though the sign and the best-lam
+ordering (0.25 better than 0.5 better than 1 better than 2) are consistent. Treat the magnitude as uncertain, the
+direction and ordering as the load-bearing claim.

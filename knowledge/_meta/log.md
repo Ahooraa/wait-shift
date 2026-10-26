@@ -530,3 +530,6 @@ author: llm
 ## [2026-10-26] decision (user) | lambda sweep stop-decision reversed; seed-expansion launched
 - User reversed the "stop refining" call (same day, see entry above) and asked to run the more-seeds-at-k=10 experiment instead of more lam values. output/data-analysis/lambda_seeds_probe.py added: seeds 3-10 x lam in {0,0.25,0.5,0.75,1,2} x {F1,F2}, k=10 (reuses lambda_gate1_probe.one(), same RUNS dir/schema). 95 runs launched detached (PID 1157, 6 workers, log /tmp/lambda_seeds_batch.out), ~305s/run observed on smoke test.
 - Goal: resolve whether lam=0.25 genuinely beats lam=0.5 (pooled ~5-point difference seen at n=2) once n~10 seeds/cell are available, against the previously-estimated sigma ~45 noise floor.
+
+## [2026-10-26] data | baseline-matrix updated with the final_ablation.py result (was stale)
+- results/fx.txt (completed 24 Oct, 18 dev cases) had landed but baseline-matrix.md still said "re-running" / "earlier result on older controller". Updated with final numbers: HPA +2.3% (12/18 wins, HPA keeps ~98% of our gain), Fifer +32.1% (16/18, 4.4x our cold starts), Kraken +6.2% (13/18), jsq +11.3% (18/18), steal +35.2% (18/18, widest margin), textbook stack (hpa+jsq) +14.2% (18/18). All still gain 32-60% over best-existing (B*/RL/RL_CAL) despite losing to FROZEN-2.

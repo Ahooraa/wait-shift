@@ -37,9 +37,9 @@ Our controller = a re-layout every 60 s (sizing + incremental soft-routing place
 
 | Method | Reference | Role | Status |
 |---|---|---|---|
-| HPA-style: containers = ceil(load / 0.8), no backlog term | Kubernetes HPA, Knative | run (ablation) | On the final controller: re-running (`final_ablation.py`, results/fx.txt). Earlier result on the older controller: 3.6% worse |
-| Fifer-style: backlog containers only if drain time exceeds a cold start | [[gunasekaran-2020-fifer]] | run (ablation) | as above; earlier 70.9% worse; LSTM part not used |
-| Kraken-style: DAG weights (connectivity + commonality, cap 0.25) | [[bhasi-2021-kraken]] | run (ablation) | as above; earlier 5.4% worse; cap value is ours (not given in the paper) |
+| HPA-style: containers = ceil(load / 0.8), no backlog term | Kubernetes HPA, Knative | run (ablation) | **Final controller result (24 Oct, results/fx.txt, 18 dev cases):** FROZEN-2 better by +2.3% (CI +1 to +4), wins 12/18; HPA still gains +59.0% over best-existing (ref ours +60.0%). Weakest-binding swap: HPA keeps ~98% of our gain |
+| Fifer-style: backlog containers only if drain time exceeds a cold start | [[gunasekaran-2020-fifer]] | run (ablation) | FROZEN-2 better by +32.1% (CI +18 to +47), wins 16/18; Fifer still gains +32.2% over best-existing. Cold starts 5,648 vs ours 1,282 (4.4x) -- Fifer's under-provisioning shows up as churn, not just P99 |
+| Kraken-style: DAG weights (connectivity + commonality, cap 0.25) | [[bhasi-2021-kraken]] | run (ablation) | FROZEN-2 better by +6.2% (CI +2 to +11), wins 13/18; Kraken still gains +58.0% over best-existing. Cap value is ours (not given in the paper) |
 | Rate oracle / simulation-scored layouts (foresight) | own | run (ablation) | plain rule reached 97-121% of their result |
 | FRAP-DWS (Wang et al., IEEE Trans. Computers 2026) | own notes | cite only | per function, no workflows, no placement; no fair comparison possible |
 | Xanadu (cascading cold starts, speculative deployment) | [[daw-2020-xanadu]] | cite only | targets cold-start cascades, not a capacity re-layout |
@@ -68,8 +68,8 @@ Our controller = a re-layout every 60 s (sizing + incremental soft-routing place
 |---|---|---|---|
 | Finish-time move rule (ours; B*'s own AET estimate) | B*, Eq. 8 | the method | no cap, every 4 s and right after a re-layout |
 | No request moves | own | ablation | 2x2: 1,022 s vs 130 s (geometric-mean P99) |
-| Join-shortest-queue moves | textbook rule | run (ablation) | final-controller re-run in progress; earlier 9.0% worse |
-| Work stealing | textbook rule (Blumofe-Leiserson style) | run (ablation) | as above; earlier 28.6% worse |
+| Join-shortest-queue moves | textbook rule | run (ablation) | **Final controller result (24 Oct, results/fx.txt):** FROZEN-2 better by +11.3% (CI +9 to +13), wins 18/18; jsq still gains +54.2% over best-existing (ref ours +60.0%) |
+| Work stealing | textbook rule (Blumofe-Leiserson style) | run (ablation) | FROZEN-2 better by +35.2% (CI +27 to +44), wins 18/18; steal still gains +40.6% over best-existing. The widest FROZEN-2 margin of any swap-in here -- a relative queue-length rule alone misses the most |
 | Move caps 100 / 300 / 1000 / none | own | ablation | +55.9 / +70.5 / +77.5 / +77.9% over B* at 85% load |
 | **Hermod** | Kaffes, Yadwadkar, Kozyrakis, SoCC 2022 | **candidate to run**, otherwise cite and contrast | early binding plus processor sharing per worker; consolidates at low load. Not a queue-migration scheme, so it contrasts with ours; a faithful port to our model is a real piece of work |
 | **FaaSPR routing** (multi-stage LP over routing paths, load capped at 0.9 of instance capacity, paths chosen by weighted random per invocation) | [[jia-2025-faaspr]] | **candidate to run** as a dispatcher replacement (dispatcher test) | the real alternative to mechanism 3: it prevents imbalance by routing arrivals in proportion to capacity, we repair it by moving what is already waiting. Needs a port (scipy LP per re-layout). Reported ablation: routing contributes most (avg latency -55.00% vs FaaSFlow) |
@@ -109,5 +109,5 @@ Findings:
 - Decide whether Hermod is run (port to our model) or cited and contrasted.
 - Decide which of the edge DAG schedulers (Lei AUHS, Liao EGAT, Liu Sdser, Ma OPTS, Tian SFSM) can be run fairly; none has been run so far.
 - Add the "sizing without incremental placement" ablation.
-- Re-run the sizing, shortest-queue, stealing and textbook-stack ablations on the final controller (in progress) and update the deck.
+- Sizing, shortest-queue, stealing and textbook-stack ablations on the final controller: **done** (24 Oct, results/fx.txt; numbers recorded in sections 2 and 4 above -- textbook `stack` itself, HPA sizing + jsq moves combined: FROZEN-2 better by +14.2%, CI +12 to +17, wins 18/18, stack still gains +52.9% over best-existing). Deck not yet updated with these.
 - Run the systematic search before any novelty claim goes into a paper.

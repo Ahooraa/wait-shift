@@ -105,9 +105,13 @@ Gate 0 (6 free re-scoring runs) found the move rule's downstream-transfer weight
 tested) binds strongly (flip rate 16-34%, vs a 15% bar). Gate 1 (48-cell matrix) found a real, large, U-shaped
 lam-P99 curve -- lam=0.5 beats lam=1 in 9/12 complete cells, growing from +-3pts at k=1 to -7..-47pts at k=10 -- but the
 SAME value wins for both traffic families at every k=10 cell tested, so there is no cross-family split to adapt to.
-A refinement sweep (lam in {0.25, 0.75} at k=10, 8 runs) moved the recommended constant again: 3 of 4 cells minimize at
-lam~0.25, not 0.5, and lam=0.75 flips sign in 2 of 4 cells (a small penalty, not an improvement) -- still the same
-value across both families, so the no-mechanism verdict stands, only the retuned number changes (0.5 -> ~0.25).
-Verdict: lam=1 is a measurably wrong default (engineering fix, worth correcting to ~0.25), not a novel mechanism
+A refinement sweep (lam in {0.25, 0.75} at k=10, 8 runs) located the plateau more precisely but not a sharp minimum:
+3 of 4 cells favor lam~0.25 over 0.5, and lam=0.75 flips sign in 2 of 4 cells (a small penalty, not an improvement) --
+still the same ordering across both families, so the no-mechanism verdict stands. Decision (26 Oct): stop refining --
+the 0.25-vs-0.5 gap (~5 points pooled) is inside the seed-to-seed noise floor (seed swings of tens of points); pinning
+it tighter would cost ~10 seeds/cell for a payoff capped at ~1 point of P99. The plateau itself (lam in [0.25, 0.5]
+all comparably better than lam=1) is the finding, not a specific optimal constant.
+Verdict: lam=1 is a measurably wrong default (engineering fix: retune lam into [0.25, 0.5]), not a novel mechanism
 (nothing to build). Closes this thread the same way six workflow-aware candidates and the dispersion-margin candidate
-closed before it -- a real, disclosed, non-mechanism finding. Full tables in [[workflow-aware-decision-rules]].
+closed before it -- a real, disclosed, non-mechanism finding. Full tables and the analysis-script provenance note
+(fix commit cfd36e3) in [[workflow-aware-decision-rules]].

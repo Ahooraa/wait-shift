@@ -378,3 +378,26 @@ adaptive-lambda mechanism to build. It only moves the recommended retuned consta
 magnitude of the effect varies a lot seed to seed (F2 k=10: -3.7 to -52.4) even though the sign and the best-lam
 ordering (0.25 better than 0.5 better than 1 better than 2) are consistent. Treat the magnitude as uncertain, the
 direction and ordering as the load-bearing claim.
+
+**Pipeline provenance (26 Oct):** `lambda_refine_probe.py::analyze()`'s baseline lookup was edited mid-run, commit
+cfd36e3, AFTER the 8 refinement runs had already been launched but BEFORE this table was produced. Original code
+read the lam=1 baseline only via `lambda_gate1_probe.existing_lam1()` (which resolves a fixed map of k=1/k=5 cells
+reused from `results/envelope/` and `results/p3_scaling/`); that map has no entry for (k=10, seed=2), so F1/F2
+seed=2 silently fell out of the table (`continue`'d on `b is None`) and only the two seed=1 rows printed. The fix
+adds a fallback: `g1.existing_lam1(...) or (g1.RUNS / tag(fam, K, seed, 1.0))` -- i.e. when the fixed map has no
+entry, read the lam=1.0 cell that Gate 1 actually ran fresh into `results/lambda_gate1/` for that (k, seed). This
+is the SAME lam=1 result Gate 1 already reported (no new simulation, no change to any P99 number) -- the fix only
+widens what `analyze()` is willing to read as a baseline, so the seed-2 rows above are reproducible from the
+Gate-1 data already on disk, but only with the post-cfd36e3 version of the script. Running the pre-fix version
+reproduces just the F1/seed1 and F2/seed1 rows.
+
+**Decision (26 Oct): stop refining lam here.** Two seeds x six lam values is enough to show the curve has an
+interior plateau below 1 (lam in roughly [0.25, 0.5] all beat lam=1 by a wide, consistent margin); it is not enough
+to pin the minimum tighter than that. The per-cell noise floor is large (seed-to-seed swings of tens of points, e.g.
+F2 k=10 sigma on the order of 45 at lam=0.5 across the two seeds already logged) against a 0.25-vs-0.5 difference of
+about 5 points in the pooled sum -- resolving that difference properly would need on the order of n~10 seeds per
+cell (roughly 40 more runs for marginal gain), for a payoff capped at about 1 point of P99 either way. The plateau
+itself is the finding: the move rule is not sensitive to the exact constant once lam is below 1, so further seeds
+spent narrowing lam=0.25 vs lam=0.5 would not change the engineering recommendation ("retune lam downward from 1,
+anywhere in [0.25, 0.5] is a comparable, large improvement for both families"). No further lam-value or lam-seed
+runs are planned for this thread.

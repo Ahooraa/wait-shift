@@ -533,3 +533,8 @@ author: llm
 
 ## [2026-10-26] data | baseline-matrix updated with the final_ablation.py result (was stale)
 - results/fx.txt (completed 24 Oct, 18 dev cases) had landed but baseline-matrix.md still said "re-running" / "earlier result on older controller". Updated with final numbers: HPA +2.3% (12/18 wins, HPA keeps ~98% of our gain), Fifer +32.1% (16/18, 4.4x our cold starts), Kraken +6.2% (13/18), jsq +11.3% (18/18), steal +35.2% (18/18, widest margin), textbook stack (hpa+jsq) +14.2% (18/18). All still gain 32-60% over best-existing (B*/RL/RL_CAL) despite losing to FROZEN-2.
+
+## [2026-10-26] task | FaaSPR: smoke-tested, metrics aligned to the paper's own, load x state-size grid launched
+- Smoke test (F1 r0.7 s1, 140s): fp_place and fp_route healthy (fp_route: 12.6% task-level storage-repair fallback, unplanned 0.3%). fp_both NOT sane yet: 47.5% of requests unplanned (storage-feasibility interaction between FaaSPR's own placement and routing, not seen in either alone) -- held back, not run at scale.
+- User asked to check FaaSPR's own reported metrics (read from knowledge/sources/jia-2025-faaspr.md, already ingested): average latency, P99, resource consumption -- not just our P99 headline. faaspr_sweep.py grid_analyze() now reports all three (avg_makespan, p99_makespan, mean_containers as the resource-consumption proxy).
+- output/data-analysis/faaspr_sweep.py extended with a load x state-size grid (grid_run/grid_analyze): ours/fp_place/fp_route x F1/F2 x rho in {0.5,0.7,0.85} x k in {1,5,10} x seed=1 (54 runs), rebuilding scenarios via p3_scaling_probe.build generalised over rho, rather than reusing fixed-k D1 pickles. Launched detached (PID 1345, 3 workers), followed automatically by the original fixed-k dev grid (fp_place/fp_route, 36 runs).

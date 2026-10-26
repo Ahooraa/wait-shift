@@ -391,7 +391,12 @@ widens what `analyze()` is willing to read as a baseline, so the seed-2 rows abo
 Gate-1 data already on disk, but only with the post-cfd36e3 version of the script. Running the pre-fix version
 reproduces just the F1/seed1 and F2/seed1 rows.
 
-**Decision (26 Oct): stop refining lam here.** Two seeds x six lam values is enough to show the curve has an
+**Decision (26 Oct), REVERSED (26 Oct, same day, user):** the stop-refining call below was overturned -- the user
+asked to run the additional-seeds experiment despite the cost/payoff argument. Proceeding with seeds 3-10 at k=10,
+all 6 lam values, both families (output/data-analysis/lambda_seeds_probe.py; see result entry below once it lands).
+The reasoning that follows was the basis for the (overturned) stop decision and is kept for the record.
+
+**Original decision (26 Oct, superseded above): stop refining lam here.** Two seeds x six lam values is enough to show the curve has an
 interior plateau below 1 (lam in roughly [0.25, 0.5] all beat lam=1 by a wide, consistent margin); it is not enough
 to pin the minimum tighter than that. The per-cell noise floor is large (seed-to-seed swings of tens of points, e.g.
 F2 k=10 sigma on the order of 45 at lam=0.5 across the two seeds already logged) against a 0.25-vs-0.5 difference of

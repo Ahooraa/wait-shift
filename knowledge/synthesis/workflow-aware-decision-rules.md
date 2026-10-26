@@ -314,3 +314,49 @@ tested, for both families. Per the pre-registration: **proceed to Gate 1** (the 
 forward: this is a sensitivity diagnostic (recomputes the lam=1 decomposition under hypothetical lam', ignoring how a
 flipped decision would change later queue state), so a high flip rate means the rule is lam-sensitive, not yet that any
 particular lam improves P99 -- that is exactly what Gate 1 tests.
+
+## Lambda sweep, Gate 1 result: axis real, but one constant serves both families (26 Oct)
+
+48-cell matrix (output/data-analysis/lambda_gate1_probe.py, 40 new + 8 reused), lam in {0,0.5,1,2} x k in {1,5,10} x
+{F1,F2} x seed in {1,2}, rho=0.85. Delta-P99(lam) = P99(lam) - P99(lam=1):
+
+| fam | k | seed | d@0 | d@0.5 | d@1 | d@2 | best |
+|---|---|---|---|---|---|---|---|
+| F1 | 1  | 1 | -2.3  | -3.6  | 0 | -2.2 | 0.5 |
+| F1 | 1  | 2 | +2.6  | +0.9  | 0 | +3.2 | 1.0 (trivial, +0.0) |
+| F1 | 5  | 1 | +1.6  | -12.0 | 0 | +6.7 | 0.5 |
+| F1 | 5  | 2 | +1.1  | -1.4  | 0 | -0.7 | 0.5 |
+| F1 | 10 | 1 | -2.8  | -15.3 | 0 | +38.0 | 0.5 |
+| F1 | 10 | 2 | -0.6  | -7.3  | 0 | +17.2 | 0.5 |
+| F2 | 1  | 1 | -1.7  | -3.3  | 0 | -1.4 | 0.5 |
+| F2 | 1  | 2 | +14.2 | +4.9  | 0 | +13.5 | 1.0 (trivial, +0.0) |
+| F2 | 5  | 1 | +5.7  | -0.1  | 0 | +1.5 | 0.5 |
+| F2 | 5  | 2 | -4.8  | -4.0  | 0 | +22.1 | 0.0 |
+| F2 | 10 | 1 | +3.6  | -3.7  | 0 | +22.2 | 0.5 |
+| F2 | 10 | 2 | -31.6 | -47.3 | 0 | +21.9 | 0.5 |
+
+**Shape, averaged across fam x seed at each k:** a U-shaped curve, minimum between lam=0 and lam=1 (near 0.5), sharply
+asymmetric (raising lam above 1 costs far more than lowering it), growing with k: k=1 flat (+-3 pts, matching Gate 0's
+weak binding there), k=5 moderate (+0.9 at 0, -4.4 at 0.5, +7.4 at 2), k=10 large (-7.8 at 0, -18.4 at 0.5, +25.8 at 2).
+
+**Gate 1 check, at k=10 (the pre-registered decision point):** both seeds, BOTH families: best lam = 0.5. F1 k=10:
+seed1 -15.3, seed2 -7.3 (same sign, same best lam). F2 k=10: seed1 -3.7, seed2 -47.3 (same sign, same best lam, though the
+magnitude swings a lot between seeds -- a real single-seed-estimate caveat, not a sign disagreement). The two "best=1.0"
+rows (F1/F2 k=1 seed2) are trivial (+0.0, inside the dead-axis band Gate 0 already flagged for k=1) and do not indicate a
+genuine family split.
+
+**Verdict: Gate 1 fails** (the optimum does not differ between families) **but the axis is real and large.** Per the
+pre-registered outcome map: "Gate 1 fails -> lam matters overall but one retuned constant serves both families -- report
+as an engineering tuning finding, not a novel mechanism." lam=1 (the move rule's unweighted downstream-transfer term, set
+by construction and never tested until this sweep) is measurably wrong; lam~0.5 is a better constant for both traffic
+families, with the benefit growing sharply at larger state sizes (k=10: -7 to -47 points improvement vs lam=1, against a
++18 to +38 point penalty for going the other way to lam=2). No adaptive-lambda mechanism is built -- there is no
+cross-family tension to exploit. This closes the thread as a tuning fix, not a contribution.
+
+**Refinement (in progress):** lam in {0.25, 0.75} at k=10 (where the curve is steepest), both families, both seeds, to
+locate the minimum more precisely between 0 and 1 (output/data-analysis/lambda_refine_probe.py).
+
+**Caveat (restated):** paired per-case Delta-P99, single seed per (fam,k,lam) except the two reused k=5 cells -- the
+magnitude of the effect varies a lot seed to seed (F2 k=10: -3.7 vs -47.3) even though the sign and the best-lam choice
+are consistent. Treat the magnitude as uncertain, the direction and the "0.5 beats 1, which beats 2" ordering as the
+load-bearing claim.

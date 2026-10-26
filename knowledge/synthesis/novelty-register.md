@@ -99,3 +99,12 @@ two extremes. tau (measured transfer share) tracks Delta-gap tightly within each
 between them (2.2x different Delta-gap at matched Delta-tau) -- tau explains the within-family shape, not the
 between-family magnitude. Reported as P3's result: two related, monotone, tau-correlated-within-family curves, not one
 predictive law. Full numbers in [[workflow-aware-decision-rules]].
+
+## Lambda sweep: default weight is measurably wrong, but no adaptive mechanism (26 Oct)
+Gate 0 (6 free re-scoring runs) found the move rule's downstream-transfer weight (lam, =1.0 by construction, never
+tested) binds strongly (flip rate 16-34%, vs a 15% bar). Gate 1 (48-cell matrix) found a real, large, U-shaped
+lam-P99 curve -- lam=0.5 beats lam=1 in 9/12 complete cells, growing from +-3pts at k=1 to -7..-47pts at k=10 -- but the
+SAME lam=0.5 wins for both traffic families at every k=10 cell tested, so there is no cross-family split to adapt to.
+Verdict: lam=1 is a measurably wrong default (engineering fix, worth correcting), not a novel mechanism (nothing to
+build). Closes this thread the same way six workflow-aware candidates and the dispersion-margin candidate closed before
+it -- a real, disclosed, non-mechanism finding. Full tables in [[workflow-aware-decision-rules]].

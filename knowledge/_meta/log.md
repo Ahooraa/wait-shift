@@ -515,3 +515,6 @@ author: llm
 
 ## [2026-10-26] experiment | lambda sweep Gate 0: axis binds, proceeding to Gate 1
 - 6 runs (output/data-analysis/lambda_probe.py), k in {1,5,10} x {F1,F2}, seed 1, free re-scoring of 165k-205k logged decisions per cell. Flip rate 16-34% at lam=0, well above the 15% threshold at k=10 for both families (26.1%/30.4%). Gate 0 passes decisively; launching the 48-cell Gate 1 matrix. Full table in [[workflow-aware-decision-rules]].
+
+## [2026-10-26] experiment | lambda sweep Gate 1: default weight wrong, no adaptive mechanism
+- 48-cell matrix (output/data-analysis/lambda_gate1_probe.py). lam=0.5 beats lam=1 in 9/12 cells, effect grows sharply with k (+-3pts at k=1, -7 to -47pts at k=10 vs lam=1; lam=2 is much worse, +18 to +38pts at k=10). Gate 1 fails: both families want the same lam=0.5 at k=10, no family-dependent split. Verdict: engineering tuning fix (lam~0.5 is a better default), not a novel adaptive mechanism. Refinement sweep (lam in {0.25,0.75}, k=10) running to locate the minimum more precisely. Full tables in [[workflow-aware-decision-rules]] and [[novelty-register]].

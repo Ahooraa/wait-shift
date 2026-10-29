@@ -1,0 +1,112 @@
+
+=== f3_R: R vs terms_off on f3, seeds [1, 2, 3] (change in %, per seed then mean) ===
+  P99 sojourn            base     243.97  R     241.11   s1   -1.1%  s2   -3.3%  s3   +0.3%   mean   -1.3%
+  P90 sojourn            base     157.52  R     156.62   s1   +1.2%  s2   -1.0%  s3   -1.5%   mean   -0.4%
+  mean sojourn           base      74.49  R      74.21   s1   +0.2%  s2   -0.6%  s3   -0.7%   mean   -0.3%
+  join desync on path    base      11.21  R      11.32   s1   +2.1%  s2   -0.5%  s3   +1.4%   mean   +1.0%
+  extra first-hop        base       6.03  R       7.08   s1  +22.4%  s2  +11.1%  s3  +17.4%   mean  +17.0%
+  extra hop on path      base       3.60  R       3.47   s1   +0.2%  s2   -5.1%  s3   -5.4%   mean   -3.4%
+  transfer MB x hops     base    1061.61  R    1122.23   s1   +7.0%  s2   +3.3%  s3   +6.4%   mean   +5.5%
+  relocated MB           base 10264214.45  R 10103405.88   s1   +1.4%  s2   -2.2%  s3   -4.6%   mean   -1.8%
+  moves                  base   68942.33  R   68375.67   s1   +1.2%  s2   -1.7%  s3   -2.0%   mean   -0.8%
+  wait of moved (path)   base      21.01  R      20.88   s1   +0.4%  s2   -1.3%  s3   -0.9%   mean   -0.6%
+  backlog mean           base     740.40  R     725.38   s1   -2.2%  s2   -2.6%  s3   -1.5%   mean   -2.1%
+  backlog p95            base    1522.33  R    1537.57   s1   -2.0%  s2   +3.0%  s3   +1.3%   mean   +0.8%
+  decisions [baseline ] evaluated   663573  rule accepts  30.5%  plain rule accepts  30.5%  vetoed (plain yes, rule no)   0.0% of plain accepts  added (rule yes, plain no)      0  same dest  202249 other dest      0  downstream s added by accepted moves    391581
+  decisions [R        ] evaluated   667416  rule accepts  30.1%  plain rule accepts  32.1%  vetoed (plain yes, rule no)  11.7% of plain accepts  added (rule yes, plain no)  11437  same dest  178167 other dest  11173  downstream s added by accepted moves    461253
+
+=== heavy_R: R vs terms_off on heavy, seeds [1, 2, 3] (change in %, per seed then mean) ===
+  P99 sojourn            base     360.16  R     361.13   s1   -1.5%  s2   -0.4%  s3   +2.2%   mean   +0.1%
+  P90 sojourn            base     258.55  R     260.68   s1   -0.3%  s2   -0.5%  s3   +3.2%   mean   +0.8%
+  mean sojourn           base     184.11  R     185.19   s1   -0.0%  s2   -0.2%  s3   +1.9%   mean   +0.6%
+  join desync on path    base      30.42  R      31.42   s1   +4.0%  s2   +2.0%  s3   +3.8%   mean   +3.3%
+  extra first-hop        base      14.20  R      15.44   s1   +9.6%  s2   +9.5%  s3   +7.3%   mean   +8.8%
+  extra hop on path      base       9.21  R       8.33   s1  -11.9%  s2  -10.4%  s3   -7.0%   mean   -9.8%
+  transfer MB x hops     base    3115.00  R    3162.31   s1   +1.2%  s2   +1.4%  s3   +2.0%   mean   +1.5%
+  relocated MB           base 11863076.70  R 12061687.06   s1   +2.0%  s2   +1.9%  s3   +1.2%   mean   +1.7%
+  moves                  base   45857.33  R   46099.67   s1   +1.8%  s2   +1.0%  s3   -1.0%   mean   +0.6%
+  wait of moved (path)   base      39.24  R      40.07   s1   +2.3%  s2   +0.4%  s3   +3.4%   mean   +2.1%
+  backlog mean           base     920.68  R     926.11   s1   +1.8%  s2   -1.8%  s3   +1.6%   mean   +0.5%
+  backlog p95            base    1311.03  R    1312.38   s1   -3.6%  s2   +2.4%  s3   +1.7%   mean   +0.1%
+  decisions [baseline ] evaluated   701599  rule accepts  18.4%  plain rule accepts  18.4%  vetoed (plain yes, rule no)   0.0% of plain accepts  added (rule yes, plain no)      0  same dest  129056 other dest      0  downstream s added by accepted moves    476939
+  decisions [R        ] evaluated   700775  rule accepts  18.5%  plain rule accepts  20.5%  vetoed (plain yes, rule no)  17.9% of plain accepts  added (rule yes, plain no)  12245  same dest  111975 other dest   5623  downstream s added by accepted moves    527932
+
+=== diamond_J: J vs terms_off on diamond, seeds [1, 2, 3] (change in %, per seed then mean) ===
+  P99 sojourn            base      98.45  J      98.26   s1   +1.2%  s2   -2.2%  s3   +0.4%   mean   -0.2%
+  P90 sojourn            base      65.38  J      65.39   s1   +0.8%  s2   -1.6%  s3   +0.8%   mean   +0.0%
+  mean sojourn           base      41.50  J      41.51   s1   +0.0%  s2   -0.8%  s3   +0.8%   mean   +0.0%
+  join desync on path    base      12.00  J      12.02   s1   -0.4%  s2   -1.2%  s3   +2.1%   mean   +0.2%
+  extra first-hop        base       4.91  J       4.84   s1   -1.5%  s2   -0.5%  s3   -2.1%   mean   -1.4%
+  extra hop on path      base       1.78  J       1.74   s1   -1.3%  s2   -1.7%  s3   -3.9%   mean   -2.3%
+  transfer MB x hops     base     422.01  J     421.36   s1   -0.4%  s2   -0.1%  s3   +0.1%   mean   -0.1%
+  relocated MB           base 3689287.72  J 3687826.44   s1   -0.1%  s2   +0.0%  s3   +0.0%   mean   -0.0%
+  moves                  base   94567.67  J   94677.00   s1   -0.1%  s2   +0.4%  s3   -0.0%   mean   +0.1%
+  wait of moved (path)   base      10.82  J      10.92   s1   +0.8%  s2   -1.4%  s3   +3.1%   mean   +0.8%
+  backlog mean           base     370.17  J     376.00   s1   +5.2%  s2   -1.6%  s3   +1.4%   mean   +1.7%
+  backlog p95            base     711.33  J     732.55   s1   +2.8%  s2   -1.9%  s3   +5.0%   mean   +2.0%
+  decisions [baseline ] evaluated   481888  rule accepts  58.5%  plain rule accepts  58.5%  vetoed (plain yes, rule no)   0.0% of plain accepts  added (rule yes, plain no)      0  same dest  281916 other dest      0  downstream s added by accepted moves    358719
+  decisions [J        ] evaluated   304505  rule accepts  92.7%  plain rule accepts  92.6%  vetoed (plain yes, rule no)   0.0% of plain accepts  added (rule yes, plain no)    412  same dest  281413 other dest    495  downstream s added by accepted moves    353712
+
+=== grid_J: J vs terms_off on grid, seeds [1, 2, 3] (change in %, per seed then mean) ===
+  P99 sojourn            base     151.70  J     151.03   s1   +3.6%  s2   -2.3%  s3   -1.9%   mean   -0.2%
+  P90 sojourn            base     113.26  J     113.27   s1   +1.8%  s2   -0.7%  s3   -0.7%   mean   +0.1%
+  mean sojourn           base      73.71  J      73.56   s1   +0.6%  s2   -0.4%  s3   -0.7%   mean   -0.2%
+  join desync on path    base      34.27  J      34.03   s1   +0.4%  s2   -0.5%  s3   -1.9%   mean   -0.7%
+  extra first-hop        base       5.76  J       5.43   s1   -5.5%  s2   -8.0%  s3   -0.7%   mean   -4.7%
+  extra hop on path      base       0.89  J       0.85   s1   -0.7%  s2   -9.3%  s3   -3.3%   mean   -4.4%
+  transfer MB x hops     base    2136.30  J    2127.81   s1   -0.5%  s2   +0.2%  s3   -0.8%   mean   -0.4%
+  relocated MB           base 6006631.48  J 6022072.78   s1   +0.2%  s2   -0.5%  s3   +1.2%   mean   +0.3%
+  moves                  base   77824.33  J   77791.67   s1   -0.2%  s2   -0.0%  s3   +0.1%   mean   -0.0%
+  wait of moved (path)   base      24.64  J      24.66   s1   +2.8%  s2   -1.4%  s3   -0.6%   mean   +0.3%
+  backlog mean           base     487.65  J     493.28   s1   +3.2%  s2   -3.1%  s3   +2.7%   mean   +0.9%
+  backlog p95            base     928.80  J     936.27   s1   +3.4%  s2   -2.2%  s3   +1.0%   mean   +0.7%
+  decisions [baseline ] evaluated   555361  rule accepts  41.5%  plain rule accepts  41.5%  vetoed (plain yes, rule no)   0.0% of plain accepts  added (rule yes, plain no)      0  same dest  230385 other dest      0  downstream s added by accepted moves    190789
+  decisions [J        ] evaluated   256238  rule accepts  89.8%  plain rule accepts  89.6%  vetoed (plain yes, rule no)   0.0% of plain accepts  added (rule yes, plain no)    603  same dest  228771 other dest    814  downstream s added by accepted moves    180192
+
+=== composite_UR: UR vs U on composite, seeds [1, 2, 3] (change in %, per seed then mean) ===
+  P99 sojourn            base     156.95  UR     157.83   s1   -1.6%  s2   +1.4%  s3   +1.8%   mean   +0.6%
+  P90 sojourn            base     120.04  UR     119.30   s1   -0.2%  s2   -0.5%  s3   -1.1%   mean   -0.6%
+  mean sojourn           base      86.47  UR      85.85   s1   -0.2%  s2   -0.7%  s3   -1.3%   mean   -0.7%
+  join desync on path    base      13.71  UR      13.83   s1   -0.6%  s2   +2.8%  s3   +0.4%   mean   +0.9%
+  extra first-hop        base       7.11  UR       7.37   s1   +3.7%  s2   +5.5%  s3   +1.6%   mean   +3.6%
+  extra hop on path      base       3.99  UR       3.58   s1  -12.8%  s2   -7.3%  s3  -11.0%   mean  -10.4%
+  transfer MB x hops     base     820.09  UR     831.03   s1   +2.1%  s2   +1.5%  s3   +0.5%   mean   +1.3%
+  relocated MB           base 2953711.40  UR 2916405.62   s1   -0.9%  s2   -2.2%  s3   -0.8%   mean   -1.3%
+  moves                  base   89283.00  UR   88852.67   s1   -0.5%  s2   -0.4%  s3   -0.6%   mean   -0.5%
+  wait of moved (path)   base      19.88  UR      19.37   s1   -2.0%  s2   -2.4%  s3   -3.3%   mean   -2.5%
+  backlog mean           base     291.35  UR     291.37   s1   +1.0%  s2   -0.2%  s3   -0.7%   mean   +0.0%
+  backlog p95            base     482.33  UR     463.98   s1   -3.2%  s2   +0.6%  s3   -6.4%   mean   -3.0%
+  decisions [baseline ] evaluated   278087  rule accepts  94.9%  plain rule accepts  94.9%  vetoed (plain yes, rule no)   0.0% of plain accepts  added (rule yes, plain no)      0  same dest  263951 other dest      0  downstream s added by accepted moves    261122
+  decisions [UR       ] evaluated   276637  rule accepts  95.0%  plain rule accepts  93.2%  vetoed (plain yes, rule no)   1.0% of plain accepts  added (rule yes, plain no)   7394  same dest  245749 other dest   9679  downstream s added by accepted moves    271261
+
+=== heavy_J: J vs terms_off on heavy, seeds [1, 2, 3] (change in %, per seed then mean) ===
+  P99 sojourn            base     360.16  J     344.72   s1   -2.2%  s2   -1.9%  s3   -7.8%   mean   -3.9%
+  P90 sojourn            base     258.55  J     257.43   s1   -1.2%  s2   -0.8%  s3   +0.6%   mean   -0.5%
+  mean sojourn           base     184.11  J     184.12   s1   -0.5%  s2   -0.0%  s3   +0.5%   mean   -0.0%
+  join desync on path    base      30.42  J      30.11   s1   -0.5%  s2   -0.2%  s3   -2.3%   mean   -1.0%
+  extra first-hop        base      14.20  J      13.80   s1   -4.7%  s2   +0.0%  s3   -4.2%   mean   -2.9%
+  extra hop on path      base       9.21  J       9.05   s1   -2.7%  s2   -2.7%  s3   +0.0%   mean   -1.8%
+  transfer MB x hops     base    3115.00  J    3087.80   s1   -1.4%  s2   -1.2%  s3   +0.0%   mean   -0.9%
+  relocated MB           base 11863076.70  J 11975853.85   s1   -0.1%  s2   +1.7%  s3   +1.2%   mean   +0.9%
+  moves                  base   45857.33  J   45874.33   s1   -1.0%  s2   +1.4%  s3   -0.4%   mean   +0.0%
+  wait of moved (path)   base      39.24  J      39.54   s1   +0.2%  s2   +1.8%  s3   +0.3%   mean   +0.8%
+  backlog mean           base     920.68  J     899.24   s1   -2.7%  s2   -3.4%  s3   -1.1%   mean   -2.4%
+  backlog p95            base    1311.03  J    1301.08   s1   -4.7%  s2   +1.0%  s3   +1.4%   mean   -0.7%
+  decisions [baseline ] evaluated   701599  rule accepts  18.4%  plain rule accepts  18.4%  vetoed (plain yes, rule no)   0.0% of plain accepts  added (rule yes, plain no)      0  same dest  129056 other dest      0  downstream s added by accepted moves    476939
+  decisions [J        ] evaluated   149612  rule accepts  86.5%  plain rule accepts  86.3%  vetoed (plain yes, rule no)   0.0% of plain accepts  added (rule yes, plain no)    357  same dest  128822 other dest    207  downstream s added by accepted moves    464587
+
+=== composite_J: J vs terms_off on composite, seeds [1, 2, 3] (change in %, per seed then mean) ===
+  P99 sojourn            base     161.23  J     157.75   s1   -1.9%  s2   -2.0%  s3   -2.6%   mean   -2.2%
+  P90 sojourn            base     120.89  J     120.21   s1   -0.4%  s2   -0.3%  s3   -1.0%   mean   -0.6%
+  mean sojourn           base      86.68  J      86.32   s1   -0.2%  s2   +0.2%  s3   -1.2%   mean   -0.4%
+  join desync on path    base      13.80  J      13.60   s1   -2.6%  s2   -1.4%  s3   -0.4%   mean   -1.5%
+  extra first-hop        base       7.22  J       7.12   s1   -1.6%  s2   +1.2%  s3   -3.5%   mean   -1.3%
+  extra hop on path      base       4.06  J       3.99   s1   -2.6%  s2   +0.5%  s3   -3.1%   mean   -1.7%
+  transfer MB x hops     base     824.88  J     821.99   s1   -0.1%  s2   +0.5%  s3   -1.4%   mean   -0.3%
+  relocated MB           base 2931947.21  J 2945135.94   s1   +0.2%  s2   +1.1%  s3   +0.0%   mean   +0.5%
+  moves                  base   89220.67  J   89314.00   s1   +0.4%  s2   +0.4%  s3   -0.4%   mean   +0.1%
+  wait of moved (path)   base      19.82  J      19.67   s1   -1.3%  s2   +2.7%  s3   -3.1%   mean   -0.6%
+  backlog mean           base     295.31  J     291.07   s1   -1.7%  s2   +1.9%  s3   -3.6%   mean   -1.1%
+  backlog p95            base     477.68  J     471.03   s1   -1.6%  s2   +1.3%  s3   -2.6%   mean   -1.0%
+  decisions [baseline ] evaluated   424359  rule accepts  62.1%  plain rule accepts  62.1%  vetoed (plain yes, rule no)   0.0% of plain accepts  added (rule yes, plain no)      0  same dest  263720 other dest      0  downstream s added by accepted moves    264106
+  decisions [J        ] evaluated   277606  rule accepts  95.1%  plain rule accepts  95.1%  vetoed (plain yes, rule no)   0.0% of plain accepts  added (rule yes, plain no)    207  same dest  263605 other dest    311  downstream s added by accepted moves    261034

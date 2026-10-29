@@ -50,7 +50,7 @@ class Sim:
     def __init__(self, sc, X, adjuster=None, interval=None, seed=0, fst_variant="prose", k_best=10, n_trees=5,
                  lam_window=5, lam_update=1.0, duration=None, warmup=30.0, drain_factor=20.0, use_source=True, debug=False,
                  allow_empty=False, admission=None, exec_sampler=None, slo_factor=3.0, match_objective="sum", retry_min_interval=0.0, retry_max_attempts=None, lam_source=None, record_requests=False,
-                 move_cost=1.0, elastic=False, dispatcher=None, trace=False):
+                 move_cost=1.0, elastic=False, dispatcher=None, trace=False, queue_priority=None):
         from .constants import PAPER
         self.sc, self.net = sc, sc.network
         self.N, self.F = self.net.ne, len(sc.functions)
@@ -70,6 +70,10 @@ class Sim:
         # dispatcher: callable(sim, request) -> {task: node} or None; None = DFPS's graph pattern matching (see dfps/dispatchers.py)
         self.dispatcher = dispatcher
         self.trace = {"tasks": [], "reqs": []} if trace else None      # per-task trace of in-window requests (dfps/diagnostics.py)
+        self.soj_log = {}                                              # workflow id -> sojourn of every completed request (online per-type median)
+        # queue_priority (2026-10-28): callable(sim, run) -> sortable key; an idle instance starts the waiting run with the largest
+        # key (ties: the oldest). None = FIFO, the original behaviour. See dfps/dispatch_priority.py.
+        self.queue_priority = queue_priority
         # --- Task 7 extensions (all default to the DFPS behaviour; see output/data-analysis/sim/DECISION.md)
         # waiting-list retries: 0.0 = after every task completion (original behaviour, A-24); > 0 = at most once per that many
         # simulated seconds (a request still gets placed as soon as room appears, delayed by at most the interval)
@@ -104,7 +108,7 @@ class Sim:
         self.lam = np.zeros((self.F, self.N))
         self._fst_cache, self.waiting, self.active = {}, deque(), 0
         for k in range(self.N):
-            if X[k].sum() > sc.ecc[k]:
+            if float((X[k] * sc.fw).sum()) > sc.ecc[k] + 1e-9:
                 raise ValueError(f"placement exceeds ecc_{k}")
             for f in range(self.F):
                 for _ in range(int(X[k, f])):
@@ -116,6 +120,10 @@ class Sim:
         # metrics (measured in [warmup, duration], D: makespan of requests that ARRIVE in the window)
         self.makespans, self.n_arrived, self.cold_starts, self.busy_time, self.n_unfinished = [], 0, 0, 0.0, 0
         self.cold_starts_total, self.n_rerouted, self.n_adjust, self.n_moved = 0, 0, 0, 0
+        # reconfiguration cost, dim. 1 (problem-scope.md S6, "bytes re-transferred"): input-state MB moved by relocate()
+        # (every request move, whether a deliberate Sol.aet move or a forced D-6/A-25 reroute -- both funnel through it).
+        # Windowed the same way as cold_starts/cold_starts_total (dim. 2): _mb is [warmup, duration] only, _total is all-time.
+        self.mb_relocated, self.mb_relocated_total = 0.0, 0.0
         self.rid = itertools.count()
         self.win = {}                                    # in-window requests not yet finished: id -> arrival time
         for t, wid, origin in sc.arrivals:
@@ -314,6 +322,9 @@ class Sim:
         run.node = k_new
         run.n_moves += 1
         self.n_moved += 1
+        self.mb_relocated_total += run.total
+        if self.in_window(self.now):
+            self.mb_relocated += run.total
         self._at(self.now + delay, "enqueue", run, k_new)
 
     def _ev_enqueue(self, run, k, c):
@@ -327,13 +338,23 @@ class Sim:
             if not q:
                 return
             if ins.state == IDLE and ins.swap_to is None:
-                self._start(ins, q.popleft())
+                if self.queue_priority is None:
+                    self._start(ins, q.popleft())
+                else:
+                    run = max(q, key=lambda r: self.queue_priority(self, r))   # max() keeps the first (oldest) among ties
+                    self.n_priority_overrides = getattr(self, "n_priority_overrides", 0) + (run is not q[0])
+                    if hasattr(self.queue_priority, "won"):
+                        self.queue_priority.won(self, run)
+                    q.remove(run)
+                    self._start(ins, run)
 
     def _start(self, ins, run):
         mu = self.exec_time[run.f]
         s = float(self.rng.exponential(mu)) if self.exec_sampler is None else float(self.exec_sampler(run.f, self.rng))
         ins.state, ins.run, ins.busy_until = BUSY, run, self.now + s
         run.t_start = self.now
+        if self.queue_priority is not None and hasattr(self.queue_priority, "on_start"):
+            self.queue_priority.on_start(self, run)
         lo, hi = max(self.now, self.warmup), min(self.now + s, self.duration)
         if hi > lo:
             self.busy_time += hi - lo
@@ -351,6 +372,7 @@ class Sim:
         r.left -= 1
         if r.left == 0:
             r.t_done = self.now
+            self.soj_log.setdefault(wf.id, []).append(self.now - r.t_arr)
             if self.trace is not None and self.in_window(r.t_arr):
                 self.trace["reqs"].append((r.id, wf.id, r.t_arr, self.now))
             self.active -= 1
@@ -422,10 +444,14 @@ class Sim:
     def n_slots_used(self, k):
         return sum(len(self.inst[k][g]) for g in range(self.F))
 
+    def weighted_used(self, k):
+        """Capacity used on node k, in sc.fw units (== n_slots_used when fw is all-ones)."""
+        return sum(len(self.inst[k][g]) * self.sc.fw[g] for g in range(self.F))
+
     def add_instance(self, k, f):
         """Start a new (cold) instance of f in a free slot of node k. Returns False if the node has no free slot (a slot is
         occupied until a busy instance marked for removal has finished its run)."""
-        if self.n_slots_used(k) >= self.sc.ecc[k]:
+        if self.weighted_used(k) + self.sc.fw[f] > self.sc.ecc[k] + 1e-9:
             self.n_add_blocked += 1
             return False
         self._acct()
@@ -514,10 +540,11 @@ class Sim:
         """Move the live system to placement X [N, F] (row sums must equal ecc): 1-for-1 replacements per node, then reroute
         requests queued at (f, k) pairs that no longer hold f (they would otherwise never be served). Used by oracles."""
         X = np.asarray(X, dtype=int)
+        used = X.dot(self.sc.fw)                                   # weighted row sums (== X.sum(axis=1) when fw is all-ones)
         if self.elastic:                                          # slots may stay empty: row sums only have to fit
-            assert (X.sum(axis=1) <= self.sc.ecc).all() and (X.sum(axis=0) >= 1).all()
+            assert (used <= self.sc.ecc + 1e-9).all() and (X.sum(axis=0) >= 1).all()
         else:
-            assert (X.sum(axis=1) == self.sc.ecc).all() and (X.sum(axis=0) >= 1).all()
+            assert (np.abs(used - self.sc.ecc) <= 1e-9).all() and (X.sum(axis=0) >= 1).all()
         for k in range(self.N):
             d = X[k] - self.cnt[:, k]
             if not d.any():
@@ -556,6 +583,9 @@ class Sim:
                     utilization=float(self.busy_time / (self.sc.ecc.sum() * cap_t)),
                     cold_starts=int(self.cold_starts), cold_starts_total=int(self.cold_starts_total),
                     n_adjust=self.n_adjust, n_moved=self.n_moved, n_rerouted=self.n_rerouted,
+                    # reconfiguration cost (problem-scope.md S6): a 2D vector reported alongside P99, never optimised
+                    # directly -- dim. 1 is mb_relocated (this), dim. 2 is cold_starts (above).
+                    mb_relocated=float(self.mb_relocated), mb_relocated_total=float(self.mb_relocated_total),
                     **self._extended_results(ms, cap_t))
 
     def _extended_results(self, ms, cap_t):
@@ -576,11 +606,11 @@ class Sim:
     def check_invariants(self):
         """Capacity (D-7), storage and bookkeeping invariants; raises AssertionError."""
         for k in range(self.N):
-            total = sum(len(self.inst[k][f]) for f in range(self.F))
+            total = self.weighted_used(k)
             if self.elastic:
-                assert total <= self.sc.ecc[k], f"node {k}: {total} instances > ecc {self.sc.ecc[k]}"
+                assert total <= self.sc.ecc[k] + 1e-9, f"node {k}: {total} weighted capacity > ecc {self.sc.ecc[k]}"
             else:
-                assert total == self.sc.ecc[k], f"node {k}: {total} instances != ecc {self.sc.ecc[k]} (D-7)"
+                assert abs(total - self.sc.ecc[k]) <= 1e-9, f"node {k}: {total} weighted capacity != ecc {self.sc.ecc[k]} (D-7)"
             assert self.storage_used[k] <= self.esc[k] + 1e-6, f"node {k}: storage overflow"
             for f in range(self.F):
                 n_final = sum(1 for i in self.inst[k][f] if i.swap_to is None) + \

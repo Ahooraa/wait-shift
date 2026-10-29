@@ -1,0 +1,107 @@
+=== A. per family: worst 10% (>= family P90) vs the rest -- mean per request (s) ===
+
+[chain] types [0, 5, 7, 9, 14]  requests 7847  P90 96.3s  P99 153.3s  share of pooled-P99 tail 1.5%
+                        soj           exec   wait_unmoved     wait_moved       transfer extra_hop_on_p join_desync_on moves_per_task returns_per_ta onward_per_tas
+  worst10            122.60          40.68          15.31          39.80          26.81           8.61           0.00           0.75           0.05           0.21
+  rest                38.64          16.65           3.92          10.29           7.79           1.74           0.00           0.54           0.02           0.13
+  delta               83.96          24.03          11.39          29.51          19.02           6.87           0.00           0.21           0.02           0.08
+  where the extra sojourn of the worst 10% comes from (shares of delta-sojourn): exec 29%, wait_unmoved 14%, wait_moved 35%, transfer 23%;  of which fracture extra-hop 8%, join desync (overlaps waits/transfer) 0%
+
+[fan-in] types [2, 10, 11, 13]  requests 5171  P90 80.4s  P99 121.0s  share of pooled-P99 tail 0.5%
+                        soj           exec   wait_unmoved     wait_moved       transfer extra_hop_on_p join_desync_on moves_per_task returns_per_ta onward_per_tas
+  worst10             97.49          27.74          17.20          35.48          17.06           5.16          29.29           0.75           0.08           0.23
+  rest                48.63          16.45           9.85          10.52          11.81           1.70          13.78           0.36           0.02           0.07
+  delta               48.86          11.29           7.34          24.97           5.25           3.46          15.51           0.39           0.06           0.16
+  where the extra sojourn of the worst 10% comes from (shares of delta-sojourn): exec 23%, wait_unmoved 15%, wait_moved 51%, transfer 11%;  of which fracture extra-hop 7%, join desync (overlaps waits/transfer) 32%
+
+[fan-out] types [12]  requests 1020  P90 57.8s  P99 87.5s  share of pooled-P99 tail 0.0%
+                        soj           exec   wait_unmoved     wait_moved       transfer extra_hop_on_p join_desync_on moves_per_task returns_per_ta onward_per_tas
+  worst10             69.52          13.03          13.79          22.19          20.50           2.40           0.00           0.67           0.04           0.16
+  rest                33.77           8.16           7.12           6.72          11.77           0.48           0.00           0.31           0.01           0.04
+  delta               35.76           4.88           6.67          15.47           8.74           1.92           0.00           0.35           0.03           0.11
+  where the extra sojourn of the worst 10% comes from (shares of delta-sojourn): exec 14%, wait_unmoved 19%, wait_moved 43%, transfer 24%;  of which fracture extra-hop 5%, join desync (overlaps waits/transfer) 0%
+
+[fork-join] types [1, 3, 4, 6, 8]  requests 6263  P90 178.1s  P99 238.4s  share of pooled-P99 tail 98.0%
+                        soj           exec   wait_unmoved     wait_moved       transfer extra_hop_on_p join_desync_on moves_per_task returns_per_ta onward_per_tas
+  worst10            205.60          66.11          28.91          75.69          34.88          17.65          46.33           0.77           0.07           0.20
+  rest                98.95          34.56          17.76          26.68          19.95           4.31          21.06           0.46           0.04           0.09
+  delta              106.64          31.55          11.16          49.01          14.94          13.34          25.27           0.30           0.03           0.11
+  where the extra sojourn of the worst 10% comes from (shares of delta-sojourn): exec 30%, wait_unmoved 10%, wait_moved 46%, transfer 14%;  of which fracture extra-hop 13%, join desync (overlaps waits/transfer) 24%
+
+=== B. per workflow type: what grows most in the type's own worst 10% (delta vs rest, s) ===
+   wid family       n    CP    MB    P90   dSoj  dWaitU  dWaitM  dTrans  dExHop  dDesync  dMoves   dRet
+     9 chain        2   6.0   186   36.8   25.6     4.8    11.4     5.8     3.9      0.0    0.50   0.02
+     5 chain        2  11.5   320   50.4   33.7     3.9    13.2     2.5     0.4      0.0    0.54   0.05
+     7 chain        2  15.8   129   71.6   54.9     5.2    35.7     2.4     1.1      0.0    0.71   0.09
+    14 chain        3  26.1   611   81.8   51.7     2.0    21.5     5.2     3.9      0.0    0.62   0.05
+     0 chain        7  35.5   773  146.8   63.3     4.3    35.4     8.8     6.5      0.0    0.30   0.03
+     2 fan-in       3  13.1   313   75.4   51.6     1.9    35.4     3.2     1.2     36.0    0.81   0.13
+    10 fan-in       7  14.6  1070   78.0   45.1    14.4    17.6     4.2     3.5     15.4    0.22   0.02
+    11 fan-in       5  17.3   703   75.4   36.7     2.9    17.1     7.2     2.5     14.2    0.32   0.04
+    13 fan-in       5  22.4   767   98.4   64.5     8.6    38.3     6.7     5.4      8.1    0.42   0.10
+    12 fan-out      3   8.5   496   57.8   35.8     6.7    15.5     8.7     1.9      0.0    0.35   0.03
+     8 fork-join   19  18.4  5714  123.2   51.1     8.0    34.8     2.6     0.9     21.8    0.21   0.03
+     4 fork-join    5  21.4   901   98.8   51.7     7.7    23.7    10.6     6.0      7.7    0.44   0.06
+     3 fork-join    4  21.9   885   95.9   51.3     2.5    29.1     4.1     1.5      6.7    0.57   0.14
+     1 fork-join   10  26.3  1684  139.5   68.2     2.8    54.9     2.7     2.3      7.8    0.30   0.08
+     6 fork-join   16  53.7  3234  203.8   83.5     6.7    51.0    12.0    10.6     17.2    0.30   0.03
+
+=== C. moves per family: ex-ante vs conditioned on the family's worst 10% (P90) ===
+  [chain]
+    ex-ante, first                                       n= 10055 real  +6.88s  net  +4.88s  harmful 37.3%
+    ex-ante, return                                      n=   681 real  +5.42s  net  +7.16s  harmful 30.5%
+    ex-ante, onward                                      n=  3115 real  +5.99s  net  +5.30s  harmful 39.3%
+    P90-conditioned: tasks of worst-10% requests         n=  3036 real  +4.77s  net  +2.60s  harmful 44.1%
+    P90-conditioned: ... on their critical path          n=  3036 real  +4.77s  net  +2.60s  harmful 44.1%
+    contrast: critical-path tasks of the other 90%       n=  9427 real  +7.25s  net  +5.94s  harmful 35.3%
+    ex-ante, predicted gain/mu in [0, 0.25)              n=  1156 real  -1.66s  net  -1.62s  harmful 59.9%
+    ex-ante, predicted gain/mu in [0.25, 0.5)            n=  2114 real  +1.72s  net  +0.25s  harmful 52.9%
+    ex-ante, predicted gain/mu in [0.5, 1000000000.0)    n= 10413 real  +8.52s  net  +6.74s  harmful 31.9%
+  [fan-in]
+    ex-ante, first                                       n=  8149 real  +5.87s  net  +3.74s  harmful 39.2%
+    ex-ante, return                                      n=   847 real  +3.19s  net  +6.44s  harmful 27.5%
+    ex-ante, onward                                      n=  2233 real  +5.06s  net  +4.47s  harmful 36.1%
+    P90-conditioned: tasks of worst-10% requests         n=  1840 real  +1.03s  net  -0.96s  harmful 50.2%
+    P90-conditioned: ... on their critical path          n=  1409 real  -0.96s  net  -2.81s  harmful 54.9%
+    contrast: critical-path tasks of the other 90%       n=  5794 real  +5.97s  net  +4.63s  harmful 38.4%
+    ex-ante, predicted gain/mu in [0, 0.25)              n=   853 real  -0.81s  net  +0.61s  harmful 46.4%
+    ex-ante, predicted gain/mu in [0.25, 0.5)            n=  1884 real  +1.81s  net  +1.69s  harmful 43.9%
+    ex-ante, predicted gain/mu in [0.5, 1000000000.0)    n=  7970 real  +7.44s  net  +4.88s  harmful 36.2%
+  [fan-out]
+    ex-ante, first                                       n=   914 real  +3.29s  net  +2.08s  harmful 42.6%
+    ex-ante, return                                      n=    51 real  +1.71s  net  +2.76s  harmful 39.2%
+    ex-ante, onward                                      n=   175 real  +1.75s  net  +1.18s  harmful 41.7%
+    P90-conditioned: tasks of worst-10% requests         n=   196 real  +0.66s  net  -1.56s  harmful 55.1%
+    P90-conditioned: ... on their critical path          n=   162 real  -0.21s  net  -2.89s  harmful 59.3%
+    contrast: critical-path tasks of the other 90%       n=   643 real  +3.62s  net  +2.67s  harmful 42.5%
+    ex-ante, predicted gain/mu in [0, 0.25)              n=   422 real  +0.50s  net  +0.63s  harmful 49.8%
+    ex-ante, predicted gain/mu in [0.25, 0.5)            n=    29 real  -1.94s  net  -1.64s  harmful 69.0%
+    ex-ante, predicted gain/mu in [0.5, 1000000000.0)    n=   677 real  +4.80s  net  +2.89s  harmful 36.6%
+  [fork-join]
+    ex-ante, first                                       n= 29875 real  +6.23s  net  +3.83s  harmful 41.2%
+    ex-ante, return                                      n=  3427 real  +4.46s  net  +6.92s  harmful 28.7%
+    ex-ante, onward                                      n=  8660 real  +4.15s  net  +3.03s  harmful 42.9%
+    P90-conditioned: tasks of worst-10% requests         n=  7288 real  +4.77s  net  +1.64s  harmful 47.3%
+    P90-conditioned: ... on their critical path          n=  4229 real  +2.92s  net  -0.51s  harmful 51.1%
+    contrast: critical-path tasks of the other 90%       n= 15368 real  +4.15s  net  +2.19s  harmful 44.9%
+    ex-ante, predicted gain/mu in [0, 0.25)              n=  5042 real  -0.79s  net  -0.58s  harmful 52.5%
+    ex-ante, predicted gain/mu in [0.25, 0.5)            n=  5905 real  +2.01s  net  +1.30s  harmful 48.0%
+    ex-ante, predicted gain/mu in [0.5, 1000000000.0)    n= 29411 real  +7.84s  net  +4.92s  harmful 37.9%
+
+=== D. urgency candidates vs being on the critical path of a request in its OWN family's worst 10% ===
+  candidate                  pooled      chain     fan-in    fan-out  fork-join
+  req_slack                   0.620      0.530      0.716      0.760      0.639
+  local_slack                 0.757      0.842      0.775      0.760      0.790
+  local_slack_over_cp         0.692      0.729      0.764      0.760      0.682
+  lag                         0.748      0.842      0.763      0.753      0.786
+  lag_over_cp                 0.680      0.729      0.750      0.753      0.671
+  neg_projected_soj           0.775      0.910      0.793      0.760      0.858
+
+=== E. length-bias check: target = on the critical path of a request in its own WORKFLOW TYPE's worst 10% ===
+  candidate                              pooled      chain     fan-in    fan-out  fork-join
+  req_slack                               0.714      0.683      0.778      0.760      0.710
+  neg_projected_soj (absolute s)          0.628      0.650      0.788      0.760      0.691
+  projected_soj / type median             0.749      0.710      0.793      0.760      0.736
+  local_slack_over_cp                     0.710      0.700      0.794      0.760      0.698
+
+written output\data-analysis\results\penalty_stepA\family_result.json

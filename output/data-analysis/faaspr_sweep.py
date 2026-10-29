@@ -50,10 +50,20 @@ CASES = [(f, r, s) for f in ("F1", "F2") for r in d.RHOS for s in (1, 2, 3)]
 # rho x k combinations the rest of the project already uses (d.RHOS; k=1,5,10 as in the lambda/P3 probes), so results are
 # comparable to the envelope/P3/lambda grids. "ours" (plain nosim, no FaaSPR) is rebuilt fresh in the same grid rather than
 # reused from a different script's reference files, so the comparison never crosses a scenario-construction boundary.
+#
+# fp_both added 2026-10-26 (18 more cells): originally deferred because FaaSPR placement + FaaSPR routing together deadlocked
+# on a storage-interaction bug (FaaSPRRouter's repair step had no fallback host once a consolidated function's single host
+# saturated -- faaspr_both_diag.py confirmed it empirically, n_unplanned 2410/2252). Fixed with a minimum-replication floor in
+# dfps/controllers.py::faaspr_placement (adaptation #5 in its docstring); the grid now includes it as a genuine "whole ported
+# design" comparison point alongside the two single-mechanism rows.
 GRID_KS = (1, 5, 10)
 GRID_SEEDS = (1,)
 GRID_CASES = [(f, r, k, s) for f in ("F1", "F2") for r in d.RHOS for k in GRID_KS for s in GRID_SEEDS]
-GRID_VARIANTS = {"ours": ("nosim", {}, False), "fp_place": ("nosim", dict(placement="faaspr"), False), "fp_route": ("nosim", {}, True)}
+GRID_VARIANTS = {"ours": ("nosim", dict(lam=0.5), False), "fp_place": ("nosim", dict(placement="faaspr", lam=0.5), False),
+                  "fp_route": ("nosim", dict(lam=0.5), True), "fp_both": ("nosim", dict(placement="faaspr", lam=0.5), True)}
+# lam=0.5 (2026-10-26, user decision) on every row that keeps our request moves: fp_place/fp_route/fp_both swap one FaaSPR component
+# into our controller and keep our moves, so lam is our parameter there too; leaving them at 1.0 made each row differ from "ours" in
+# two components. The dev-grid VARIANTS below are left at lam=1.0 on purpose: their reference (nl_fz2_60) is also lam=1.0.
 GRID_RUNS = ROOT / "results" / "faaspr_grid"
 VARIANTS = {   # name -> (sizing cand mode, churn changes, FaaSPR routing?)
     "fp_place": ("nosim", dict(placement="faaspr"), False),
@@ -191,7 +201,7 @@ def grid_analyze():
                         continue
                     print("%-3s %5s %3d %-9s | %8.1f %8.1f %10.2f |" % (
                         fam, rho, k, "ours", ours[M], ours["avg_makespan"], ours["mean_containers"]))
-                    for v in ("fp_place", "fp_route"):
+                    for v in ("fp_place", "fp_route", "fp_both"):
                         r = row(fam, rho, k, seed, v)
                         if r is None:
                             continue

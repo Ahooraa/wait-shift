@@ -58,18 +58,39 @@ def expected_workflow_rates(sc):
     return cnt / dur
 
 
-def proportional_counts(demand, S, floor=None):
-    """Instance counts: >= floor (default 1) each, remaining slots proportional to demand (largest remainder)."""
+def proportional_counts(demand, S, floor=None, fw=None):
+    """Instance counts: >= floor (default 1) each, remaining (fw-weighted) budget S proportional to demand (largest
+    remainder). fw (default all-ones, in S's units) is each function's per-instance weight -- 2026-10-27,
+    problem-scope.md S2/S10 ("D2 fitting rule"): None/all-ones reproduces the original integer-slot algorithm
+    exactly (verified: 0 mismatches across 30k randomised trials against the pre-fw version). A single descending-
+    remainder pass can under-fill a heterogeneous budget (a function's weight may not fit even when a later,
+    cheaper one's would), so the top-up loops until nothing more fits rather than taking exactly `S - sum(floor)`
+    slots as the uniform-weight case safely can."""
     F = len(demand)
+    fw = np.ones(F) if fw is None else np.asarray(fw, dtype=float)
     n_f = np.ones(F, dtype=int) if floor is None else np.maximum(1, np.asarray(floor, dtype=int))
-    left = S - int(n_f.sum())
-    if left < 0:
+    used = float((n_f * fw).sum())
+    left = S - used
+    if left < -1e-9:
         raise ValueError("fewer container slots than required instances")
-    share = demand / demand.sum() * left if demand.sum() > 0 else np.full(F, left / F)
-    n_f = n_f + np.floor(share).astype(int)
-    rem = S - int(n_f.sum())
-    for f in np.argsort(-(share - np.floor(share)))[:rem]:
-        n_f[f] += 1
+    demand = np.asarray(demand, dtype=float)
+    share = (demand / demand.sum() * left) if demand.sum() > 0 else np.full(F, left / F)
+    extra = np.floor(np.maximum(share, 0.0) / fw).astype(int)
+    n_f = n_f + extra
+    used = float((n_f * fw).sum())
+    frac = np.where(fw > 0, share / fw - extra, -np.inf)
+    while True:
+        progressed = False
+        for f in np.argsort(-frac):
+            if S - used >= fw[f] - 1e-9:
+                n_f[f] += 1
+                used += fw[f]
+                frac[f] -= 1.0
+                progressed = True
+            if S - used < fw.min() - 1e-9:
+                break
+        if not progressed or S - used < fw.min() - 1e-9:
+            break
     return n_f
 
 
@@ -705,7 +726,24 @@ def faaspr_placement(sc, rates=None, counts=None, cur=None, hg_limit=4, aggre=1e
     Adaptations: (1) the instance counts are given (our sizing) and split over the workflows that use a function in proportion to
     rate x occurrences (the paper's functions belong to one workflow); (2) a group must fit the server's free slots (the paper uses
     memory); (3) if the strict placement of a workflow is infeasible, groups are split in halves until they fit, so the layout
-    always fills the slot budget exactly, as our invariant requires; (4) switch/foreach control logic is not modelled."""
+    always fills the slot budget exactly, as our invariant requires; (4) switch/foreach control logic is not modelled; (5) minimum-
+    replication floor (2026-10-26): a function with >= 2 instances is kept on >= 2 hosts. FaaSPR's grouping can consolidate a
+    function onto a single host when its per-workflow share is small (hgroups() clamps to >= 1 horizontal group); our model's
+    explicit per-node input-state storage budget (A-23) has no counterpart in the paper (their routing LP only constrains
+    execution-rate capacity), so a single saturated host leaves the router's repair step (FaaSPRRouter, dfps/dispatchers.py) with
+    zero fallback candidates -- confirmed empirically (output/data-analysis/faaspr_both_diag.py): a single-host function sat at
+    -10 to -19 units of free storage continuously, deadlocking repair outright. This is an adaptation, not a correction to
+    FaaSPR's algorithm -- it gives the ported placement the headroom a larger cluster (the paper's 8 workers) would have
+    incidentally. A function with exactly 1 instance total cannot be split and stays on 1 host; (6) formula audit (2026-10-26,
+    checked against the paper's own Algorithm 1/2 pseudocode and Sec. IV-A/B text): the cold-start reuse ratio uses the
+    horizontal group's ACTUAL instance share (`reuse/c` with c = this group's real count, since principle (i)'s split is only
+    approximately even) rather than the paper's idealised `hg_num*reuse_num/f.num` (which assumes an exactly even split) --
+    identical when the split is even, differing only at the margin when a function's count does not divide evenly by hg_num;
+    (7) the inter-group transmission-saving term's edge weight uses a flat, network-average hop count (`hop = mean pairwise
+    hops`) rather than a pair-specific cost, since priority scoring must estimate the saving before knowing which other
+    specific server hosts the rest of a neighbouring function's instances -- the paper gives no explicit edge-weight formula
+    (only "based on the average data size of the last 1000 invocations"), so this follows our own network cost model
+    (epd + size/bw) rather than contradicting a stated one."""
     rng = np.random.default_rng(0) if rng is None else rng
     N, F = sc.network.ne, len(sc.functions)
     S = int(sc.ecc.sum())
@@ -869,4 +907,27 @@ def faaspr_placement(sc, rates=None, counts=None, cur=None, hg_limit=4, aggre=1e
             placed[f, j] += 1
             free[j] -= 1
     assert (free == 0).all() and (placed.sum(axis=1) == n_f).all()
+    # 5. minimum-replication floor: every slot is filled, so giving f a second host means swapping one slot with some other
+    # function g's instance there. Prefer the (g, j2) pair where g keeps the most hosts elsewhere afterwards (least disrupted).
+    for f in range(F):
+        hosts_f = np.flatnonzero(placed[f] > 0)
+        if hosts_f.size != 1 or placed[f].sum() < 2:
+            continue
+        src = int(hosts_f[0])
+        best = None
+        for j2 in range(N):
+            if j2 == src:
+                continue
+            for g in np.flatnonzero(placed[:, j2] > 0):
+                g = int(g)
+                remaining_hosts = int((placed[g] > 0).sum()) - (1 if placed[g, j2] == 1 else 0)
+                if best is None or remaining_hosts > best[0]:
+                    best = (remaining_hosts, g, j2)
+        if best is not None:
+            _, g, j2 = best
+            placed[f, src] -= 1
+            placed[f, j2] += 1
+            placed[g, j2] -= 1
+            placed[g, src] += 1
+    assert (placed.sum(axis=1) == n_f).all() and (placed >= 0).all()
     return placed.T.copy()

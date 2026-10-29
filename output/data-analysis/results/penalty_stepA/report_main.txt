@@ -1,0 +1,89 @@
+requests 20301  p99 211.4  p95 161.1  moves logged 70430
+
+=== 0. tail membership by workflow size ===
+n_tasks      AUC(tail)=0.892  rho(sojourn)=+0.737  rho(sojourn/CP)=+0.190
+crit_path_s  AUC(tail)=0.934  rho(sojourn)=+0.710  rho(sojourn/CP)=-0.160
+state_MB     AUC(tail)=0.890  rho(sojourn)=+0.716  rho(sojourn/CP)=+0.162
+n_joins      AUC(tail)=0.692  rho(sojourn)=+0.475  rho(sojourn/CP)=+0.232
+  CP    6.0-  14.6s: share of requests 0.27  share of tail 0.00  median stretch 3.33
+  CP   14.6-  18.4s: share of requests 0.29  share of tail 0.00  median stretch 3.07
+  CP   18.4-  26.1s: share of requests 0.31  share of tail 0.00  median stretch 2.57
+  CP   26.1-  53.7s: share of requests 0.34  share of tail 1.00  median stretch 2.60
+
+=== 1. fracturing (extra first-hop cost) ===
+edges 133729; extra == dh*(epd+size/bw) exactly: max abs err 3.55e-15  (the dimension is size x hops, no fit needed)
+[all] extra/req 5.12s, of which on realised critical path 3.23s (0.632)
+     by cause of the parent's (last) move: {'none': 0.0, 'rebal': 5.06, 'reroute': 0.05, 'orphan': 0.01}
+     on-path part by cause:                {'none': 0.0, 'rebal': 3.19, 'reroute': 0.04, 'orphan': 0.0}
+[tail] extra/req 44.42s, of which on realised critical path 20.78s (0.468)
+     by cause of the parent's (last) move: {'none': 0.0, 'rebal': 43.44, 'reroute': 0.84, 'orphan': 0.15}
+     on-path part by cause:                {'none': 0.0, 'rebal': 19.89, 'reroute': 0.74, 'orphan': 0.15}
+moved-parent edges 37327: P(on path) = 0.513;  AUC predicting on-path: -structural float of child 0.753, size 0.420, n_tasks 0.262
+  child float     0-1e-09 : edges  26410  P(on path) 0.637
+  child float 1e-09-5     : edges   8577  P(on path) 0.192
+  child float     5-20    : edges   2340  P(on path) 0.288
+
+=== 2. join gap: raw gap vs structural imbalance vs desync cost ===
+[all] joins 22432: raw gap 16.89s = structural 3.23s + ...; desync cost 15.04s (on critical path: 18.49s); share of on-path desync where a sibling had ALREADY delivered while the late parent waited: 0.876
+[tail] joins 201: raw gap 53.25s = structural 5.8s + ...; desync cost 50.39s (on critical path: 50.39s); share of on-path desync where a sibling had ALREADY delivered while the late parent waited: 0.991
+rho(desync, x): late parent's own wait +0.499, its moves +0.385, its fracture extra +0.192, structural gap +0.225
+
+=== 3. urgency: online slack signals vs realised slack / tail-criticality ===
+req_slack            rho(realised slack)=+0.202  AUC(on path)=0.600  AUC(on path of a tail request)=0.647
+local_slack          rho(realised slack)=+0.104  AUC(on path)=0.576  AUC(on path of a tail request)=0.841
+local_slack_over_cp  rho(realised slack)=+0.163  AUC(on path)=0.599  AUC(on path of a tail request)=0.737
+lag                  rho(realised slack)=+0.040  AUC(on path)=0.540  AUC(on path of a tail request)=0.840
+lag_over_cp          rho(realised slack)=+0.108  AUC(on path)=0.565  AUC(on path of a tail request)=0.728
+neg_projected_soj    rho(realised slack)=-0.042  AUC(on path)=0.505  AUC(on path of a tail request)=0.906
+neg_rem              rho(realised slack)=-0.167  AUC(on path)=0.419  AUC(on path of a tail request)=0.651
+join_lag (defined for 6.4% of tasks) rho=+0.003 AUC(on path)=0.506  vs local_slack on the same subset 0.484
+
+=== 4. moves: kinds of re-move and whether they paid off ===
+moves by source: {'rebal': 68890, 'orphan': 149, 'reroute': 1391}
+re-moves (n>=2nd move of a run): {('rebal', 'onward'): 14320, ('rebal', 'return'): 5087, ('orphan', 'onward'): 39, ('reroute', 'onward'): 92, ('reroute', 'return'): 29, ('orphan', 'return'): 10}
+rebalance moves, realised start-time gain vs the queue neighbours that stayed:
+  first move                                     n= 49483 cf= 48993 pred  +7.31s real  +6.25s (med  +4.27, lb -3.78) net-of-fracture  +3.99s harmful 40.1%
+  re-move (any)                                  n= 19407 cf= 19189 pred  +5.36s real  +4.58s (med  +3.07, lb -5.92) net-of-fracture  +4.54s harmful 37.9%
+  re-move, RETURN to a node it left              n=  5087 cf=  5006 pred  +3.83s real  +4.35s (med  +3.29, lb -5.98) net-of-fracture  +6.83s harmful 28.9%
+  re-move, onward to a new node                  n= 14320 cf= 14183 pred  +5.89s real  +4.67s (med  +2.97, lb -5.9) net-of-fracture  +3.73s harmful 41.0%
+  re-move after a FORCED move                    n=   445 cf=   442 pred  +5.60s real  +5.86s (med  +3.73, lb -5.22) net-of-fracture  +4.73s harmful 40.5%
+  re-move, placement changed since last move     n=   405 cf=   404 pred +10.49s real  +7.69s (med  +2.87, lb -7.28) net-of-fracture  +8.04s harmful 37.6%
+  re-move, nothing changed, prev move voluntary  n= 18559 cf= 18345 pred  +5.24s real  +4.49s (med  +3.06, lb -5.91) net-of-fracture  +4.46s harmful 37.8%
+  re-move within one period (2.0s)               n=  1239 cf=  1231 pred  +5.09s real  +7.14s (med  +4.42, lb -2.36) net-of-fracture  +6.61s harmful 28.2%
+  re-move after > one period                     n= 18168 cf= 17958 pred  +5.37s real  +4.41s (med  +2.90, lb -6.14) net-of-fracture  +4.40s harmful 38.5%
+  re-move across the regime shift                n=   189 cf=   188 pred  +5.72s real  +5.91s (med  +4.62, lb -5.01) net-of-fracture  +6.33s harmful 35.6%
+  first move, task on a TAIL request's critical path n=   908 cf=   895 pred +10.01s real  +3.44s (med  +2.87, lb -8.07) net-of-fracture  -2.32s harmful 54.9%
+  re-move, task on a TAIL request's critical path n=   724 cf=   713 pred  +5.29s real  -2.11s (med  -0.08, lb -11.69) net-of-fracture  -2.52s harmful 53.6%
+    ... of which RETURN                          n=   205 cf=   203 pred  +3.67s real  -0.70s (med  +1.53, lb -8.38) net-of-fracture  +2.28s harmful 39.4%
+  any move, 1-1 moved to the same pool in the step n= 52680 cf= 52081 pred  +5.75s real  +5.25s (med  +3.67, lb -4.21) net-of-fracture  +3.75s harmful 40.0%
+  any move, 2-4 moved to the same pool in the step n= 15969 cf= 15861 pred  +9.89s real  +7.36s (med  +5.06, lb -4.72) net-of-fracture  +5.28s harmful 37.7%
+  any move, 5-15 moved to the same pool in the step n=   241 cf=   240 pred +19.17s real +17.74s (med +11.81, lb -2.36) net-of-fracture +15.57s harmful 26.3%
+  any move, 16-1000000 moved to the same pool in the step n=     0 (no counterfactual)
+rho(AET over-estimate of the gain, x): {'pred_gain': 0.081, 'herd': 0.076, 'qlen_new/cnt_new': -0.083, 'delay(transfer)': 0.177, 'n_prev_moves': -0.009, 'pos/cnt_old': 0.064}
+  predicted gain    0-2    s: n= 12106 realised mean   +0.10s harmful 50.1%
+  predicted gain    2-5    s: n= 16438 realised mean   +2.85s harmful 37.2%
+  predicted gain    5-10   s: n= 21614 realised mean   +5.71s harmful 28.5%
+  predicted gain   10-30   s: n= 15123 realised mean  +13.28s harmful 17.9%
+  predicted gain   30-1000000000.0s: n=   595 realised mean  +37.15s harmful 6.2%
+
+=== 5. ex-ante: moves by workflow size class; margin and fracture-weight dimensions ===
+workflow class 'large' = critical path >= 26.1s (the class holding the whole tail)
+  large workflows, first                         n= 27629 cf= 27629 pred  +7.57s real  +6.50s (med  +4.35, lb -3.99) net-of-fracture  +3.58s harmful 41.9%
+  large workflows, return                        n=  2938 cf=  2938 pred  +3.89s real  +4.66s (med  +3.54, lb -5.64) net-of-fracture  +7.23s harmful 27.6%
+  large workflows, onward                        n=  8048 cf=  8048 pred  +5.83s real  +4.52s (med  +3.03, lb -6.15) net-of-fracture  +3.33s harmful 42.4%
+    large: mean state moved 175.3 MB, mean extra first-hop out cost per move 2.14s
+  small workflows, first                         n= 21364 cf= 21364 pred  +6.97s real  +5.93s (med  +4.16, lb -3.54) net-of-fracture  +4.53s harmful 37.7%
+  small workflows, return                        n=  2068 cf=  2068 pred  +3.75s real  +3.90s (med  +2.95, lb -6.44) net-of-fracture  +6.26s harmful 30.7%
+  small workflows, onward                        n=  6135 cf=  6135 pred  +5.97s real  +4.87s (med  +2.94, lb -5.57) net-of-fracture  +4.27s harmful 39.2%
+    small: mean state moved 164.7 MB, mean extra first-hop out cost per move 0.97s
+which normalisation of the predicted gain best separates moves that really helped (AUC): {'pred_gain_s': 0.653, 'pred_gain/mu': 0.656, 'pred_gain/(mu/cnt_new)': 0.661, 'pred_gain/(mu/sqrt(cnt_new))': 0.664}
+which weight on the downstream transfer best separates net-beneficial moves (AUC): {'lam=0.0': 0.575, 'lam=0.25': 0.614, 'lam=0.5': 0.657, 'lam=0.75': 0.687, 'lam=1.0': 0.699}
+   large: {'lam=0.0': 0.569, 'lam=0.5': 0.651, 'lam=1.0': 0.696}
+   small: {'lam=0.0': 0.586, 'lam=0.5': 0.666, 'lam=1.0': 0.703}
+  predicted gain / mu_f    0-0.25 : n=  7473 realised  -0.85s harmful(wait) 54.5%
+  predicted gain / mu_f 0.25-0.5  : n=  9932 realised  +1.90s harmful(wait) 43.2%
+  predicted gain / mu_f  0.5-1    : n= 19575 realised  +4.59s harmful(wait) 31.9%
+  predicted gain / mu_f    1-2    : n= 18382 realised  +7.56s harmful(wait) 26.3%
+  predicted gain / mu_f    2-1000000000.0: n= 10514 realised +14.55s harmful(wait) 15.5%
+
+written output/data-analysis/results/penalty_stepA/stepA_result.json

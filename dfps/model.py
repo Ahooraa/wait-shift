@@ -51,7 +51,17 @@ class Scenario:
     functions: list
     workflows: list
     network: object
-    ecc: np.ndarray        # container capacity per edge node
+    ecc: np.ndarray        # container capacity per edge node (capacity units; GB-equivalent once fw is heterogeneous)
     esc: np.ndarray        # storage capacity per edge node (MB)
     arrivals: list         # (time_s, workflow_id, origin_node), sorted by time
     meta: dict = field(default_factory=dict)
+    # 2026-10-27 (problem-scope.md S2, "Containers"): per-function container resource weight w_f, in the same units
+    # as ecc. None/all-ones reproduces DFPS's uniform-slot model exactly (every existing scenario and placement
+    # algorithm implicitly assumes this); a heterogeneous fw turns ecc's row-sum constraint into a continuous
+    # knapsack. Defaulted here, not generated yet -- the weight distribution shape is still open (problem-scope.md
+    # S10, "Container-weight distribution shape").
+    fw: np.ndarray = None  # per-function container weight; None -> all-ones in __post_init__
+
+    def __post_init__(self):
+        if self.fw is None:
+            self.fw = np.ones(len(self.functions))

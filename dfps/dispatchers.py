@@ -73,7 +73,113 @@ def random_node(sim, r):
     return _plan_tasks(sim, r, choose)
 
 
-DISPATCHERS = {"greedy_eft": greedy_eft, "locality": locality, "jsq": jsq, "random": random_node}
+class RoundRobin:
+    """Round Robin, a baseline of Liang et al. (Future Internet 18:265, 2026, Sec. 5.1.4): tasks go to nodes "in a cyclic manner without
+    considering workflow structure or resource heterogeneity". Port: the cycle runs over the nodes that hold a container of the task's
+    function (the fixed slot budget), with one pointer per function."""
+
+    def __init__(self):
+        self.ptr = {}
+
+    def __call__(self, sim, r):
+        def choose(sim, f, t, ks, src):
+            i = self.ptr.get(f, 0)
+            self.ptr[f] = i + 1
+            return ks[i % len(ks)]
+        return _plan_tasks(sim, r, choose)
+
+
+def resource_fit(sim, r):
+    """Greedy Resource-Fit (Liang et al. 2026, Sec. 5.1.4): "the feasible node that provides the best local fit according to available
+    capacity and estimated execution cost". Port: smallest start-time estimate FST of the function there (queueing included), ignoring
+    data transfer; no node prices in our model, so the cost part is constant. Ties: more containers of the function, then lower index."""
+    def choose(sim, f, t, ks, src):
+        return ks[int(np.lexsort((-sim.cnt[f, ks], sim.fst_vec(f)[ks]))[0])]
+    return _plan_tasks(sim, r, choose)
+
+
+def heft_like(sim, r):
+    """HEFT-like (Liang et al. 2026, Sec. 5.1.4, after Topcuoglu et al. 2002): tasks in decreasing upward rank, each to the node with
+    the earliest estimated finish time. rank_u(t) = w_t + max_s (c_ts + rank_u(s)) with w_t = mean exec time and c_ts = state size / bw x
+    mean hop count. EFT_k = max(avail_k, max_p(EFT_p + stt(p -> k))) + w_t, avail_k = now + FST plus the work this plan already put on k
+    (HEFT's processor-availability update). Unlike greedy_eft it takes the max of data-ready and node-ready times, not their sum."""
+    wf = r.wf
+    net, mu = sim.net, sim.exec_time
+    hbar = float(net.h[np.triu_indices(net.ne, 1)].mean()) if net.ne > 1 else 0.0
+    rank = [0.0] * wf.n
+    children = [[] for _ in range(wf.n)]
+    for t in range(wf.n):
+        for p in wf.parents[t]:
+            children[p].append(t)
+    for t in reversed(range(wf.n)):                         # indices are topological, so children are ranked first
+        rank[t] = mu[wf.ft[t]] + max((wf.ss[(t, s)] / net.bw * hbar + rank[s] for s in children[t]), default=0.0)
+    order = sorted(range(wf.n), key=lambda t: (-rank[t], t))  # decreasing rank_u is a valid topological order
+    free = sim.esc - sim.storage_used
+    extra = {}                                              # (f, k) -> work this plan has already assigned there
+    plan, eft = {}, {}
+    for t in order:
+        f = wf.ft[t]
+        ks = np.flatnonzero((sim.cnt[f] > 0) & (free >= wf.input_total(t) - 1e-9))
+        if ks.size == 0:
+            return None
+        if wf.parents[t]:
+            ready = np.max([eft[p] + net.h[plan[p], ks] * (net.epd + wf.ss[(p, t)] / net.bw) for p in wf.parents[t]], axis=0)
+        else:
+            ready = net.h[r.origin, ks] * (net.epd + wf.input_size / net.bw)
+        avail = sim.fst_vec(f)[ks] + np.array([extra.get((f, int(k)), 0.0) for k in ks]) / sim.cnt[f, ks]
+        fin = np.maximum(avail, ready) + mu[f]
+        i = int(np.argmin(fin))
+        k = int(ks[i])
+        plan[t], eft[t] = k, float(fin[i])
+        extra[(f, k)] = extra.get((f, k), 0.0) + mu[f]
+        free[k] -= wf.input_total(t)
+    return plan
+
+
+class GraphAware:
+    """Graph-Aware Scheduling, Liang et al. (Future Internet 18:265, 2026, Sec. 4, Eqs. 15-24), ported to our model. Each task, in
+    topological order, goes to argmax_j s_ij over the feasible nodes, with
+        s_ij = -alpha * l~exec_ij - beta * l~comm_ij - gamma * l~cost_ij + eta * delta_ij           (Eq. 21)
+    and the resource state updated after every assignment (Psi, Eq. 24). Port-fidelity caveats (also in the run script):
+      (1) eta = 0, delta dropped: the paper never specifies its encoders f_w, f_r or the fixed weights of g (Eq. 20), and its own Sec. 5.6
+          finds eta "has only a limited effect".
+      (2) gamma = 0: our nodes have no price, so l_cost = rho_j * c_i is the same on every candidate and drops out.
+      (3) l_exec = c_i / u_j "augmented with queueing delay" (Eq. 15) -> FST of the function on the node + its exec time (nodes are
+          homogeneous here, so the c_i / u_j part is constant); Psi adds the work this plan already placed on (f, k) / containers.
+          Psi is per plan: a planned task becomes visible to other requests only when it enqueues (the simulator's own state).
+      (4) l_comm (Eq. 16): sum over predecessors on other nodes of d_ki / b + lambda_lat * tau. Ours is store-and-forward per hop,
+          hops x (epd + d / bw), with lambda_lat = 1; epd = 0 (DFPS assumption), so the latency term vanishes.
+      (5) normalisation "within the current scheduling instance" (Sec. 4.3, Eq. 20) -> min-max over the candidate set of each decision.
+      (6) the paper gives no default coefficients ("fixed default values chosen a priori", Sec. 5.1.6); alpha = 1 and beta is chosen
+          on development cases (its Sec. 5.6 range is 0.2-1.1)."""
+
+    def __init__(self, alpha=1.0, beta=1.0, gamma=0.0, eta=0.0):
+        assert gamma == 0.0 and eta == 0.0, "cost and correction terms are not modelled (caveats 1-2)"
+        self.alpha, self.beta = float(alpha), float(beta)
+
+    @staticmethod
+    def _norm(x):
+        lo, hi = float(x.min()), float(x.max())
+        return np.zeros_like(x) if hi - lo <= 1e-12 else (x - lo) / (hi - lo)
+
+    def __call__(self, sim, r):
+        extra = {}
+
+        def choose(sim, f, t, ks, src):
+            occ = np.array([extra.get((f, int(k)), 0.0) for k in ks]) / sim.cnt[f, ks]
+            l_exec = sim.fst_vec(f)[ks] + occ + sim.exec_time[f]
+            l_comm = _transfer(sim, ks, src)
+            s = -self.alpha * self._norm(l_exec) - self.beta * self._norm(l_comm)
+            k = int(ks[int(np.argmax(s))])
+            extra[(f, k)] = extra.get((f, k), 0.0) + sim.exec_time[f]
+            return k
+        return _plan_tasks(sim, r, choose)
+
+
+# Comm.-Cost-Aware Greedy (Liang et al. 2026, Sec. 5.1.4: "local execution suitability, predecessor communication penalty, and execution
+# cost") is exactly greedy_eft here: FST + transfer, in seconds, with no node prices.
+DISPATCHERS = {"greedy_eft": greedy_eft, "locality": locality, "jsq": jsq, "random": random_node, "resource_fit": resource_fit,
+               "heft_like": heft_like, "ccag": greedy_eft}
 
 
 class FaaSPRRouter:
@@ -91,7 +197,13 @@ class FaaSPRRouter:
     where the paper solves one LP per workflow; (3) the threshold is relative to each workflow's best path (theta x minimum latency);
     (4) the request's origin node is not used (as in the paper); (5) if the LP cannot cover the rate, the uncovered part is a slack
     (penalised) and requests still draw from the frequencies found; (6) a task whose drawn node lacks free storage (the paper has no per-node storage limit) is re-assigned alone to the
-    cheapest hosting node with free storage; the share of requests routed exactly by the LP path is reported (n_pure)."""
+    cheapest hosting node with free storage; the share of requests routed exactly by the LP path is reported (n_pure); (7)
+    formula audit (2026-10-26, checked against the paper's own Sec. V-B/C/D text, Constraints 1-3 and the LP objective): no
+    correctness deviations found in the LP constraints (execution-frequency, instance-capacity alpha*P_ij/t_i, and the
+    latency-threshold cutoff) or the multi-stage binary search for the smallest feasible threshold -- all match the paper's
+    formulas exactly. One addition with no paper counterpart: when a workflow's solved frequencies are all ~zero (can happen
+    with our sampled, non-exhaustive path set -- the paper's exhaustive enumeration does not need this), we fall back to a
+    uniform distribution over paths within 1.3x of that workflow's best latency, rather than leaving it unroutable."""
 
     THETAS = (1.0, 1.15, 1.3, 1.6, 2.0, 3.0, 6.0, np.inf)
 
@@ -104,6 +216,7 @@ class FaaSPRRouter:
         self.n_solves, self.n_fallback, self.n_slack, self.theta_used, self.solve_ms = 0, 0, 0, [], []
         self.n_pure, self.n_repaired_req, self.n_repaired_tasks, self.n_unplanned = 0, 0, 0, 0   # requests routed exactly by the LP path / repaired / not plannable
         self.slack_frac = []                                                                      # uncovered share of the rate per solve
+        self.on_unplanned = None                        # optional debug hook(sim, r, t, f) called when a task cannot be repaired (2026-10-26)
 
     # ---------------------------------------------------------------- path generation
     def _latency(self, sim, wf, nodes):
@@ -246,6 +359,8 @@ class FaaSPRRouter:
                 ks = np.flatnonzero((sim.cnt[f] > 0) & (free >= need))
                 if ks.size == 0:
                     self.n_unplanned += 1
+                    if self.on_unplanned is not None:
+                        self.on_unplanned(sim, r, t, f)
                     return None                                    # no feasible node: the request waits, as with any dispatcher
                 if wf.parents[t]:
                     c = sum(net.h[plan[p], ks] * (net.epd + wf.ss[(p, t)] / net.bw) for p in wf.parents[t])

@@ -98,21 +98,36 @@ def apply_hold_floor(need, floor, demand, util_cap):
     return out
 
 
-def bottleneck_first_placement(sim, lam_f, horizon, util_cap=0.8, wf_rate=None, rng=None, place=None, elastic=False, hold_floor=None):
-    """Hot functions first: enough instances to keep utilisation <= util_cap for the upcoming load plus the work needed to clear
-    the current backlog within the horizon; remaining slots proportional to that demand; nodes by data affinity.
-    `place`: None = the published affinity rule; a dict = `affinity_placement_v2` keyword arguments (keep / origin / softmin)."""
+def bottleneck_first_placement(sim, lam_f, horizon, util_cap=0.8, wf_rate=None, rng=None, place=None, elastic=False,
+                                hold_floor=None, sizing_cache=None):
+    """Hot functions first: enough instances to keep utilisation <= util_cap for the upcoming load (lam_f, the oracle
+    rate -- an exogenous property of the scenario's trace, never of this sim's own queues: problem-scope.md S3,
+    "the autoscaler is an input, not a contribution"); remaining (fw-weighted) budget proportional to that demand;
+    nodes by data affinity. `place`: None = the published affinity rule; a dict = `affinity_placement_v2` keyword
+    arguments (keep / origin / softmin).
+    2026-10-27 fix: `demand` used to add backlog_per_function(sim) * mu / horizon -- the system's OWN observed queue
+    backlog, which differs by placement quality (worse placement -> more backlog -> more containers reallocated to
+    compensate). That fed each variant's placement quality back into its own sizing, diluting the exact signal the
+    FaaSPR comparison measures (live in this function, shared by all four variants via cand_mode="nosim"). Removed;
+    `demand` is now a pure function of the trace. `sizing_cache`: an optional dict shared across several Sim runs of
+    the SAME scenario+seed -- makes "the same schedule, replayed identically to every system" literal rather than
+    merely incidental to the formula's purity: whichever variant reaches a given sim time first computes it, every
+    later one at that same time reuses the cached array."""
     sc = sim.sc
     mu = np.array([f.exec_time for f in sc.functions])
-    demand = lam_f * mu + backlog_per_function(sim) * mu / horizon      # busy slots needed
-    S = int(sc.ecc.sum())
-    need = np.ceil(demand / util_cap).astype(int)
-    need = np.maximum(1, need)
-    if need.sum() > S:                                                  # cannot satisfy everyone: shrink proportionally
-        need = proportional_counts(demand, S)
-    elif not elastic:
-        need = proportional_counts(demand, S, floor=need)               # fixed budget: leftover slots follow demand
-    # elastic: the sizing rule's own count is the answer; slots beyond it stay empty (no container, no cost)
+    demand = lam_f * mu                                                 # exogenous: oracle rate x nominal exec time only
+    key = round(sim.now, 6) if sizing_cache is not None else None
+    need = sizing_cache.get(key) if key is not None else None
+    if need is None:
+        S = float(sc.ecc.sum())
+        need = np.maximum(1, np.ceil(demand / util_cap).astype(int))
+        if float(need @ sc.fw) > S:                                     # cannot satisfy everyone: shrink proportionally
+            need = proportional_counts(demand, S, fw=sc.fw)
+        elif not elastic:
+            need = proportional_counts(demand, S, floor=need, fw=sc.fw)  # fixed budget: leftover follows demand
+        # elastic: the sizing rule's own count is the answer; slots beyond it stay empty (no container, no cost)
+        if key is not None:
+            sizing_cache[key] = need
     if hold_floor is not None and (np.asarray(hold_floor) > need).any():
         need = apply_hold_floor(need, hold_floor, demand, util_cap)
     rates = np.maximum(workflow_rates(sc, sim.now, sim.now + horizon) if wf_rate is None else wf_rate, 1e-9)
@@ -244,7 +259,7 @@ def half_way(cur, target):
 
 
 class O3SimAdjuster:
-    def __init__(self, inner, period, epoch=30.0, horizon=30.0, K=8, margin=0.02, seed=0, tau_checks=0, warmup=60.0, blind=False, future=None, cand_mode="full", churn=None):
+    def __init__(self, inner, period, epoch=30.0, horizon=30.0, K=8, margin=0.02, seed=0, tau_checks=0, warmup=60.0, blind=False, future=None, cand_mode="full", churn=None, sizing_cache=None):
         self.inner, self.period = inner, float(period)
         self.epoch, self.horizon, self.K, self.margin = float(epoch), float(horizon), int(K), float(margin)
         self.next_interval = float(min(period, epoch))
@@ -273,6 +288,11 @@ class O3SimAdjuster:
         self.churn.update(churn or {})
         self._times, self._last_fast, self.fast_log = None, -1e9, []
         self.hold, self._burstiness = {}, 0.0
+        # sizing_cache (2026-10-27 fix, problem-scope.md S3/S6): an optional dict shared across several Sim runs of the
+        # SAME scenario+seed (e.g. the FaaSPR-comparison variants). bottleneck_first_placement's target counts are now
+        # a pure function of the scenario/trace (no backlog term -- see its docstring); this cache makes "compute the
+        # schedule once, replay identically to every system" literal rather than merely incidental to that purity.
+        self.sizing_cache = sizing_cache
         self._pending = []                               # (apply_at, layout) of re-layouts held back by relayout_delay            # held counts {function: (containers, until)}; smoothed |short - long| / long
         self.warmup = float(warmup)                                 # the measured window opens here (fast_step acts only inside it)
         # rule ablation (2026-10-22): utilisation target, backlog-clearing horizon, placement ("random" = no data affinity)
@@ -439,7 +459,7 @@ class O3SimAdjuster:
         bot = bottleneck_first_placement(sim, lam_f, self.clear_s, util_cap=self.util_cap, wf_rate=wf_rate,
                                          rng=self.rng if self.churn.get("placement") == "random" else None,
                                          place=self.place_kwargs(sim), elastic=bool(self.churn.get("elastic")),
-                                         hold_floor=self.hold_floor(sim))
+                                         hold_floor=self.hold_floor(sim), sizing_cache=self.sizing_cache)
         if self.cand_mode == "local_sim":
             mu = np.array([f.exec_time for f in sim.sc.functions])
             loc = candidates(cur, lam_f, mu, self.rng, K=self.K)[1:]
@@ -658,16 +678,52 @@ class O3SimAdjuster:
         """Diagnostic (2026-10-22): B*'s request moving without its container swaps. Every `period` seconds each waiting request,
         longest queues first and from the back of each queue, is moved to the node holding its function where it would finish
         earliest (AET, the same estimate B* uses, including the state transfer), if that beats staying. Storage limits as in B*.
+
+        slack_frac_aware (2026-10-27, step 2 of the moving-hotspot diagnostic in output/data-analysis/results/): three
+        deterministic, no-training corrections on top of plain AET, each gated by its own churn weight (0.0 = off, the
+        original rule):
+          urgency_gain     a task with negative structural slack (SLO-like budget minus elapsed time minus its own remaining
+                            critical-path length, _slack below) gets an easier bar to clear to move. Targets the diagnostic's
+                            finding that criticality-aware handling of MOVED tasks specifically -- not plain queue FIFO order,
+                            which bought ~0 -- was where ceiling A's ~9% headroom came from.
+          pingpong_penalty a task already moved n_moves times needs a correspondingly bigger AET improvement to move again --
+                            the diagnostic's tail requests ping-ponged (moved >= 2x) at 2.1x the overall rate.
+          frac_penalty     moving away from the task's OWN planned node (req.plan[task]) costs an extra flat penalty unless
+                            AET's own gain clears it too -- a cheap proxy for the B1/B2 cohesion ceiling (~9-10%), reusing the
+                            plan already carried on the request instead of new bookkeeping.
         Returns a Sol with no container change, so the simulator applies only the moves."""
         from .solution import Sol
         sol = Sol(sim)
         rule = self.churn.get("rebal_rule", "aet")
         if rule != "aet":
             return self._queue_balance(sim, sol, rule, max_moves or self.churn.get("rebal_max", 10 ** 9))
+        if self.churn.get("move_terms"):
+            return self._rebalance_terms(sim, sol, max_moves or self.churn.get("rebal_max", 10 ** 9))
         qs = sorted(((len(sim.queue[k][f]), f, k) for k in range(sim.N) for f in range(sim.F) if sim.queue[k][f]), reverse=True)
         moved, cap = 0, max_moves or self.churn.get("rebal_max", 10 ** 9)
         lam = self.churn.get("lam", 1.0)                        # 2026-10-26, lambda-sweep probe; default 1.0 == unweighted (original rule)
         log_lam = self.churn.get("log_lambda_components")
+        sfa = bool(self.churn.get("slack_frac_aware"))
+        urgency_gain = float(self.churn.get("urgency_gain", 0.0))
+        pingpong_penalty = float(self.churn.get("pingpong_penalty", 0.0))
+        frac_penalty = float(self.churn.get("frac_penalty", 0.0))
+        # prio_aet (2026-10-28, diagnostic): under Sim(queue_priority=...) a run does not start in queue order, so count as "ahead"
+        # only the runs that would start before it (higher key, or equal key and older); default: queue position (FIFO)
+        qp = sim.queue_priority if self.churn.get("prio_aet") else None
+        kc = {}
+
+        def key(r):
+            if r not in kc:
+                kc[r] = qp(sim, r)
+            return kc[r]
+
+        def ahead(rq, f, kk, here):
+            q, kr = sol.queue(f, kk), key(rq)
+            if here:
+                i = q.index(rq)
+                return sum(1 for j, r in enumerate(q) if r is not rq and (key(r) > kr or (key(r) == kr and j < i)))
+            return sum(1 for r in q if key(r) >= kr)
+
         for _, f, k in qs:
             hosts = [int(x) for x in np.flatnonzero(sol.cnt[f]) if int(x) != k]
             if not hosts:
@@ -675,16 +731,21 @@ class O3SimAdjuster:
             for rq in reversed(list(sol.queue(f, k))):
                 if moved >= cap:
                     break
-                a0 = sol.aet(rq, k, lam=lam)
+                a0 = sol.aet(rq, k, lam=lam, ahead=ahead(rq, f, k, True) if qp else None)
+                threshold = a0
+                if sfa:
+                    threshold = a0 + urgency_gain * max(0.0, -self._slack(sim, rq)) - pingpong_penalty * rq.n_moves
                 best = None
                 cand_log = []
                 for k2 in hosts:
                     if sol.free[k2] < rq.total:
                         continue
-                    a = sol.aet(rq, k2, lam=lam)
+                    a = sol.aet(rq, k2, lam=lam, ahead=ahead(rq, f, k2, False) if qp else None)
+                    if sfa and k2 != rq.req.plan[rq.task]:
+                        a += frac_penalty
                     if log_lam:
                         cand_log.append((k2, sol.aet(rq, k2, parts=True)))
-                    if a < a0 and (best is None or a < best[0]):
+                    if a < threshold and (best is None or a < best[0]):
                         best = (a, k2)
                 if log_lam and cand_log:
                     # every evaluated decision point, current node's parts + every candidate's parts, lam=1 decomposition
@@ -703,6 +764,195 @@ class O3SimAdjuster:
                 sol.add_free(k, +rq.total)
                 sol.add_free(best[1], -rq.total)
                 moved += 1
+        self.rebal_moves = getattr(self, "rebal_moves", 0) + moved
+        return sol if moved else None
+
+    def _rem_crit(self, sim, wf):
+        """Remaining structural critical path (mean exec time only, no queueing/transfer/cold-start) from each task to the
+        workflow's end -- the backward twin of Sim._critical_path, cached per workflow type (2026-10-27, slack_frac_aware)."""
+        cache = self.__dict__.setdefault("_rem_crit_cache", {})
+        if wf.id not in cache:
+            d = [0.0] * wf.n
+            for t in reversed(range(wf.n)):          # topological order: a child always has a strictly greater index than its parents
+                d[t] = sim.exec_time[wf.ft[t]] + max((d[c] for c in wf.children[t]), default=0.0)
+            cache[wf.id] = d
+        return cache[wf.id]
+
+    def _slack(self, sim, rq):
+        """Online, no-future-knowledge slack estimate (2026-10-27, slack_frac_aware): the request's SLO-like budget
+        (slo_factor x unloaded critical path -- the same constant sim.py's own SLO check uses) minus time already elapsed
+        minus this task's own remaining structural critical path. Negative = already behind even with no further queueing
+        from here on; the move rule reads only its sign and magnitude, nothing further ahead than the task's own workflow."""
+        wf = rq.req.wf
+        rem = self._rem_crit(sim, wf)[rq.task]
+        elapsed = sim.now - rq.req.t_arr
+        budget = sim.slo_factor * sim.crit_path[wf.id]
+        return budget - elapsed - rem
+
+    def _float(self, sim, wf):
+        """Structural float of every task (critical path minus the longest exec-only path through the task), cached per workflow
+        type: 0 on the structural critical path (2026-10-28, move_terms)."""
+        cache = self.__dict__.setdefault("_float_cache", {})
+        if wf.id not in cache:
+            ex = [sim.exec_time[wf.ft[t]] for t in range(wf.n)]
+            est = [0.0] * wf.n
+            for t in range(wf.n):
+                est[t] = max((est[u] + ex[u] for u in wf.parents[t]), default=0.0)
+            rem = self._rem_crit(sim, wf)
+            cp = max(est[t] + rem[t] for t in range(wf.n))
+            cache[wf.id] = [cp - est[t] - rem[t] for t in range(wf.n)]
+        return cache[wf.id]
+
+    def _edge_class(self, sim, wf):
+        """Per edge (t, c): 2 = on every root-to-sink path of the DAG (a cut edge, always on the realised critical path), 1 = not a
+        cut edge but into a child of structural float 0, 0 = into a child with float > 0; cached per workflow type."""
+        cache = self.__dict__.setdefault("_edge_class_cache", {})
+        if wf.id not in cache:
+            fwd, bwd = [0] * wf.n, [0] * wf.n
+            for t in range(wf.n):
+                fwd[t] = 1 if not wf.parents[t] else sum(fwd[u] for u in wf.parents[t])
+            for t in reversed(range(wf.n)):
+                bwd[t] = 1 if not wf.children[t] else sum(bwd[c] for c in wf.children[t])
+            total = sum(fwd[t] for t in range(wf.n) if not wf.children[t])
+            fl = self._float(sim, wf)
+            cache[wf.id] = {(u, v): 2 if fwd[u] * bwd[v] == total else (1 if fl[v] <= 1e-9 else 0) for (u, v) in wf.ss}
+        return cache[wf.id]
+
+    def _median_sojourn(self, sim):
+        """Online running median sojourn per workflow type over its last 500 completed requests; before 20 completions the
+        unloaded critical path stands in (2026-10-28, move_terms)."""
+        out = {}
+        for wid, cp in sim.crit_path.items():
+            lst = sim.soj_log.get(wid, ())
+            out[wid] = float(np.median(lst[-500:])) if len(lst) >= 20 else float(cp)
+        return out
+
+    def _rebalance_terms(self, sim, sol, cap):
+        """Request moves with the four terms found by the Step A diagnostic (2026-10-28, output/data-analysis/results/penalty_stepA/;
+        each switchable through churn, all off == B*'s plain AET rule with the lam-weighted downstream term):
+          margin_theta     a move must save at least theta x mu_f of start time (input transfer + service estimate at the
+                           destination vs staying; mu_f = the function's mean service time). Below 0.25 mu realised gain is ~0 and
+                           ~50% of moves hurt, in every workflow family; above 0.5 mu it pays reliably.
+          urgency_priority within a queue the candidates are handled most urgent first -- (elapsed + the task's remaining
+                           structural critical path) / the type's online median sojourn -- so urgent tasks take the earlier slots
+                           at the destination. Ordering only: it never changes the bar a move has to clear.
+          join_gate        a task whose request is waiting on it alone at a join (some child has exactly one input outstanding) is
+                           on the critical path with probability ~1: it goes first, and its downstream transfer counts in full.
+                           Only workflows with a join can have such a task.
+          relevance_out    the downstream transfer of each edge is weighted by how often an edge of its class lies on the realised
+                           critical path (Step B, F3 baseline, moved parents): 1.0 on every root-to-sink path (exact), rel_w0=0.39
+                           into a child of float 0, rel_w1=0.21 otherwise -- instead of one uniform lam.
+        Pass 1 collects the candidates the plain rule would consider (from the back of the queue until the first that fails, as
+        before); pass 2 re-evaluates them in priority order against the live state."""
+        ch = self.churn
+        theta = float(ch.get("margin_theta", 0.0))
+        prio, jgate, rel = bool(ch.get("urgency_priority")), bool(ch.get("join_gate")), bool(ch.get("relevance_out"))
+        wt = {2: 1.0, 1: float(ch.get("rel_w0", 0.39)), 0: float(ch.get("rel_w1", 0.21))}      # weight by edge class (_edge_class)
+        lam = ch.get("lam", 1.0)
+        net = sim.net
+        med = self._median_sojourn(sim) if prio else None
+
+        def gating(rq):
+            wf = rq.req.wf
+            return jgate and any(len(wf.parents[c]) > 1 and rq.req.pending[c] == 1 for c in wf.children[rq.task])
+
+        def out_cost(rq, k, full):
+            wf, t, plan = rq.req.wf, rq.task, rq.req.plan
+            if rel and not full:
+                ec = self._edge_class(sim, wf)
+                return sum(wt[ec[(t, c)]] * net.stt(wf.ss[(t, c)], k, plan[c]) for c in wf.children[t])
+            return (1.0 if full else lam) * sum(net.stt(wf.ss[(t, c)], k, plan[c]) for c in wf.children[t])
+
+        log = self.__dict__.setdefault("decision_stats", dict(evals=0, rule_accepts=0, plain_accepts=0, vetoed=0, added=0,
+                                                              both_same_dest=0, both_other_dest=0, out_delta_s=0.0)) \
+            if ch.get("log_terms") else None
+        if log is not None:
+            self.__dict__.setdefault("backlog_log", []).append(
+                (round(sim.now, 2), int(sum(len(sim.queue[k][f]) for k in range(sim.N) for f in range(sim.F)))))
+
+        def raw_out(rq, k):
+            wf, t, plan = rq.req.wf, rq.task, rq.req.plan
+            return sum(net.stt(wf.ss[(t, c)], k, plan[c]) for c in wf.children[t])
+
+        def best_for(rq, k, hosts, record=False):
+            full = gating(rq)
+            inp0, svc0, _ = sol.aet(rq, k, parts=True)
+            a0 = inp0 + svc0 + out_cost(rq, k, full)
+            bar = theta * sim.exec_time[rq.f]
+            best = plain = None
+            p0 = inp0 + svc0 + lam * raw_out(rq, k) if record else None
+            for k2 in hosts:
+                if sol.free[k2] < rq.total:
+                    continue
+                inp, svc, _ = sol.aet(rq, k2, parts=True)
+                if theta and (inp0 + svc0) - (inp + svc) <= bar:
+                    continue
+                a = inp + svc + out_cost(rq, k2, full)
+                if a < a0 and (best is None or a < best[0]):
+                    best = (a, k2)
+                if record:                                       # what B*'s plain lam-weighted rule would decide here
+                    p = inp + svc + lam * raw_out(rq, k2)
+                    if p < p0 and (plain is None or p < plain[0]):
+                        plain = (p, k2)
+            if record:
+                log["evals"] += 1
+                log["rule_accepts"] += best is not None
+                log["plain_accepts"] += plain is not None
+                log["vetoed"] += plain is not None and best is None
+                log["added"] += best is not None and plain is None
+                if best is not None and plain is not None:
+                    log["both_same_dest" if best[1] == plain[1] else "both_other_dest"] += 1
+                if best is not None:
+                    log["out_delta_s"] += raw_out(rq, best[1]) - raw_out(rq, k)
+            return best
+
+        def urgency(rq):
+            wf = rq.req.wf
+            return (sim.now - rq.req.t_arr + self._rem_crit(sim, wf)[rq.task]) / max(med[wf.id], 1e-9) if prio else 0.0
+
+        def apply(rq, f, k, k2):
+            q = list(sol.queue(f, k))
+            q.remove(rq)
+            sol.set_queue(f, k, q)
+            sol.set_queue(f, k2, list(sol.queue(f, k2)) + [rq])
+            sol.set_node(rq, k2)
+            sol.add_free(k, +rq.total)
+            sol.add_free(k2, -rq.total)
+
+        qs = sorted(((len(sim.queue[k][f]), f, k) for k in range(sim.N) for f in range(sim.F) if sim.queue[k][f]), reverse=True)
+        moved = 0
+        for _, f, k in qs:
+            hosts = [int(x) for x in np.flatnonzero(sol.cnt[f]) if int(x) != k]
+            if not hosts:
+                continue
+            if not (prio or jgate):
+                for rq in reversed(list(sol.queue(f, k))):
+                    if moved >= cap:
+                        break
+                    b = best_for(rq, k, hosts, record=log is not None)
+                    if b is None:
+                        break
+                    apply(rq, f, k, b[1])
+                    moved += 1
+                continue
+            cands = []
+            for rq in reversed(list(sol.queue(f, k))):
+                if best_for(rq, k, hosts) is None:
+                    break
+                cands.append(rq)
+            ts = self.__dict__.setdefault("term_stats", dict(candidates=0, gating_candidates=0, gating_moved=0, moves=0))
+            ts["candidates"] += len(cands)
+            ts["gating_candidates"] += sum(1 for rq in cands if gating(rq))
+            cands.sort(key=lambda rq: (gating(rq), urgency(rq)), reverse=True)
+            for rq in cands:
+                if moved >= cap:
+                    break
+                b = best_for(rq, k, hosts, record=log is not None)
+                if b is not None:
+                    ts["gating_moved"] += int(gating(rq))
+                    ts["moves"] += 1
+                    apply(rq, f, k, b[1])
+                    moved += 1
         self.rebal_moves = getattr(self, "rebal_moves", 0) + moved
         return sol if moved else None
 

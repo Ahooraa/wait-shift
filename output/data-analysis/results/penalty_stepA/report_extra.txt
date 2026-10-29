@@ -1,0 +1,21 @@
+service time mu_f over moves: p10/p50/p90 = [3.58 6.45 9.34]  distinct functions moved: 30
+
+margin x kind (net of first-hop fracture; 'harm' = share of all net-negative seconds):
+  gain/mu    0-0.25  first   n=  4719 real  -0.46s net  -0.26s harmful 51.8%  share of total harm 8.9%
+  gain/mu    0-0.25  return  n=   747 real  -0.30s net  +1.21s harmful 45.5%  share of total harm 1.6%
+  gain/mu    0-0.25  onward  n=  2007 real  -1.98s net  -1.83s harmful 57.9%  share of total harm 4.7%
+  gain/mu 0.25-0.5   first   n=  6329 real  +1.86s net  +0.64s harmful 50.7%  share of total harm 10.2%
+  gain/mu 0.25-0.5   return  n=  1040 real  +2.54s net  +4.55s harmful 33.0%  share of total harm 1.1%
+  gain/mu 0.25-0.5   onward  n=  2563 real  +1.72s net  +0.99s harmful 48.7%  share of total harm 3.8%
+  gain/mu  0.5-1000000000.0 first   n= 36849 real  +8.06s net  +4.97s harmful 37.2%  share of total harm 52.8%
+  gain/mu  0.5-1000000000.0 return  n=  2436 real  +7.71s net  +8.67s harmful 25.5%  share of total harm 2.5%
+  gain/mu  0.5-1000000000.0 onward  n=  9186 real  +7.20s net  +5.61s harmful 35.7%  share of total harm 12.4%
+  absolute predicted gain 0-1s: n=4931 real -0.33s
+  absolute predicted gain 1-2s: n=7175 real +0.40s
+  absolute predicted gain 2-1000000000.0s: n=53770 real +7.31s
+
+join-gating signal:
+[all] join-feeding tasks 39800: gating at start 15.1%;  P(on critical path | gating) 0.993 vs | not gating 0.187  (zero-float structural: 0.487)
+       wait accrued AFTER becoming gating: 2.22s per request; gating tasks moved: 44.3%
+[tail] join-feeding tasks 995: gating at start 13.1%;  P(on critical path | gating) 1.000 vs | not gating 0.082  (zero-float structural: 0.194)
+       wait accrued AFTER becoming gating: 6.23s per request; gating tasks moved: 67.7%

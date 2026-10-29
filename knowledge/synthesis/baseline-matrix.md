@@ -22,6 +22,11 @@ bibliography: ../../output/bibtex/references.bib
 
 # Baseline matrix
 
+**Scope note (27 Oct):** the problem's framing (what counts as sizing vs. placement vs. request moves, the
+heterogeneous-container-weight and resource-contention model) is now fixed in [[problem-scope]], which this
+matrix's sections 2-4 motivated. Read that page first for the current scope boundary; this matrix's ablation
+results below are unaffected and remain the evidence base for it.
+
 Our controller = a re-layout every 60 s (sizing + incremental soft-routing placement) + finish-time request moves every 4 s, fixed slot budget, no B* annealing (FROZEN-2). Metric for every row: **P99 completion latency** (arrival of a request to the end of its last task; the DFPS paper's "makespan" is the same quantity, reported as a mean), requests arriving in a 900 s window after a 60 s warm-up, same scenarios, seeds and simulator. Reference for gains: the best of B*, RL, RL_CAL per case ("best existing").
 
 ## 1. Systems we run (comparison, not ablation)

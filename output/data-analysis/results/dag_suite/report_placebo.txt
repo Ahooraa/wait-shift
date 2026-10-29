@@ -1,0 +1,53 @@
+=== PLACEBO noise floor: baseline policy, move clock 2.001 / 1.999 s; per-seed change vs baseline (%) ===
+  chain      P99 placebo changes +1.9, -1.5, +0.5, -0.4, -0.6, +0.2  -> mean +0.0, SD 1.14;  P90 SD 0.72
+  diamond    P99 placebo changes +1.6, -0.8, +2.4, +3.1, -0.8, -2.6  -> mean +0.5, SD 2.23;  P90 SD 0.80
+  grid       P99 placebo changes +0.8, +0.0, -1.8, +0.6, -1.1, -5.1  -> mean -1.1, SD 2.21;  P90 SD 1.34
+  composite  P99 placebo changes -0.6, -0.9, -1.6, -0.2, -1.4, -4.4  -> mean -1.5, SD 1.52;  P90 SD 0.52
+  heavy      P99 placebo changes +0.7, -4.0, -1.3, -1.0, -1.9, +1.8  -> mean -0.9, SD 2.06;  P90 SD 4.10
+  pooled over archetypes (n=30): P99 run-to-run SD 1.91%, P90 SD 2.01%;  |placebo| max 5.1%
+
+=== every suite result against the placebo floor: z = mean of 3 per-seed changes / (pooled placebo SD / sqrt 3); |z|>2.6 ~ p<0.01 two-sided ===
+  arch       cfg   P99 mean    z99  P90 mean    z90  verdict
+  chain      U        -0.4%  -0.37     -0.6%  -0.47  within noise
+  chain      J        +1.0%  +0.94     +0.1%  +0.10  within noise
+  chain      R        -0.7%  -0.65     -1.0%  -0.85  within noise
+  diamond    U        -0.6%  -0.52     -0.2%  -0.21  within noise
+  diamond    J        -0.2%  -0.19     +0.0%  +0.01  within noise
+  diamond    R        -0.6%  -0.50     +0.0%  +0.00  within noise
+  grid       U        -2.0%  -1.82     -1.4%  -1.20  within noise
+  grid       J        -0.2%  -0.16     +0.1%  +0.11  within noise
+  grid       R        -1.1%  -1.01     -0.4%  -0.34  within noise
+  composite  U        -2.6%  -2.36     -0.7%  -0.60  within noise
+  composite  J        -2.2%  -1.95     -0.6%  -0.48  within noise
+  composite  R        -2.3%  -2.06     -1.2%  -1.06  within noise
+  composite  UJ       -1.5%  -1.40     -0.9%  -0.79  within noise
+  composite  UR       -2.1%  -1.89     -1.3%  -1.12  within noise
+  composite  JR       -1.3%  -1.14     -1.0%  -0.83  within noise
+  composite  UJR      -4.0%  -3.64     -2.2%  -1.86  beyond noise (better)
+  heavy      U        -1.4%  -1.30     +1.5%  +1.32  within noise
+  heavy      J        -3.9%  -3.58     -0.5%  -0.40  beyond noise (better)
+  heavy      R        +0.1%  +0.07     +0.8%  +0.67  within noise
+
+  composite placebo mean -1.5% (if clearly negative, the composite baseline runs were high-luck)
+
+=== re-referenced to the mean of the 3 null runs per seed (base, P1, P2); per-run noise sigma P99 1.46%, P90 1.49% ===
+    z = mean change / (sigma * sqrt(1 + 1/3) / sqrt(3));  19 cells tested -> Bonferroni |z| > 3.0 for p < 0.05 family-wise
+  chain      U    P99  -0.4% z -0.44 (seeds -0.5, -0.4, -0.4)   P90  -0.3% z -0.28
+  chain      J    P99  +1.0% z +1.04 (seeds -0.2, +0.7, +2.5)   P90  +0.4% z +0.40
+  chain      R    P99  -0.7% z -0.76 (seeds -2.3, -0.5, +0.6)   P90  -0.7% z -0.72
+  diamond    U    P99  -0.9% z -0.91 (seeds -1.3, -1.4, +0.1)   P90  -0.8% z -0.81
+  diamond    J    P99  -0.5% z -0.55 (seeds -0.4, -1.7, +0.4)   P90  -0.6% z -0.56
+  diamond    R    P99  -0.9% z -0.89 (seeds -1.1, +0.1, -1.7)   P90  -0.6% z -0.56
+  grid       U    P99  -1.3% z -1.31 (seeds -0.3, -1.8, -1.7)   P90  -0.8% z -0.86
+  grid       J    P99  +0.6% z +0.58 (seeds +3.2, -1.9, +0.4)   P90  +0.7% z +0.68
+  grid       R    P99  -0.4% z -0.37 (seeds +0.0, -2.6, +1.5)   P90  +0.2% z +0.17
+  composite  U    P99  -1.6% z -1.65 (seeds +0.1, -1.5, -3.4)   P90  -0.3% z -0.32
+  composite  J    P99  -1.1% z -1.18 (seeds -1.6, -1.2, -0.6)   P90  -0.2% z -0.18
+  composite  R    P99  -1.3% z -1.30 (seeds -1.8, +0.0, -2.1)   P90  -0.9% z -0.86
+  composite  UJ   P99  -0.5% z -0.54 (seeds -1.4, -0.0, -0.2)   P90  -0.5% z -0.54
+  composite  UR   P99  -1.1% z -1.11 (seeds -1.5, -0.1, -1.7)   P90  -0.9% z -0.93
+  composite  JR   P99  -0.2% z -0.25 (seeds -1.2, +0.8, -0.3)   P90  -0.6% z -0.59
+  composite  UJR  P99  -3.0% z -3.09 (seeds -4.6, -1.6, -2.8)   P90  -1.8% z -1.80  <- beyond Bonferroni
+  heavy      U    P99  -0.8% z -0.80 (seeds -0.0, +1.9, -4.2)   P90  +0.9% z +0.88
+  heavy      J    P99  -3.3% z -3.39 (seeds -2.1, +0.1, -8.0)   P90  -1.1% z -1.10  <- beyond Bonferroni
+  heavy      R    P99  +0.7% z +0.73 (seeds -1.5, +1.6, +2.0)   P90  +0.1% z +0.12

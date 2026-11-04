@@ -29,6 +29,12 @@ from frozen_sweep import FROZEN  # noqa: E402
 
 FROZEN2 = dict(FROZEN, moves_after_relayout=True)
 MOVE_PERIOD_S = {"F1": 4.0, "F2": 4.0}
+# FROZEN-3 (2026-11-04, user decision; CAP-W1): FROZEN-2 + the gain-ordered request-move pass. Use it with the transfer_only
+# dispatcher (dispatchers.DISPATCHERS[FROZEN3_DISPATCHER]), the router chosen the same day. Both choices are DESIGN DECISIONS taken
+# after pre-registered confirmations that were NOT CONFIRMED on P99 (knowledge/synthesis/workflow-aware-decision-rules.md):
+# gain order cuts moves ~8% (24 of 24 cases) and the median makespan 1.5-2% (24 of 24), P99 1.003 [0.984, 1.026], not shown within 2%.
+FROZEN3 = dict(FROZEN2, pass_order="gain")
+FROZEN3_DISPATCHER = "transfer_only"
 M = "p99_makespan"
 
 

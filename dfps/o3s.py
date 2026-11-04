@@ -313,6 +313,9 @@ class O3SimAdjuster:
         # 250 s on 2 more); results without a tag are MV-1.
         self.mover_impl = ("MV-2" if (self.churn.get("fast_rebal", True) and self._fast_ok() and self.churn.get("rebal_rule", "aet") == "aet"
                                       and not self.churn.get("move_terms")) else "MV-1")
+        # pass order of the request mover (2026-11-04), recorded in every result: "gain" (FROZEN-3) or "count" (FROZEN-2 and earlier;
+        # results without the field are "count")
+        self.mover_pass = "gain" if (self.churn.get("pass_order") == "gain" and self._fast_ok()) else "count"
 
     def _staleness(self, sim):
         """Diagnostic (2026-10-25): mismatch between the LIVE layout and what sizing would choose if re-solved right now from the
@@ -711,8 +714,21 @@ class O3SimAdjuster:
             return self._queue_balance(sim, sol, rule, max_moves or self.churn.get("rebal_max", 10 ** 9))
         if self.churn.get("move_terms"):
             return self._rebalance_terms(sim, sol, max_moves or self.churn.get("rebal_max", 10 ** 9))
+        if self.churn.get("pass_order") == "gain" and self._fast_ok():  # V3 follow-up (2026-11-04): gain-ordered pass; default off
+            mv = self._order_cf(sim, online_sol=sol)
+            self.rebal_moves = getattr(self, "rebal_moves", 0) + len(mv)
+            return sol if mv else None
         if self.churn.get("fast_rebal", True) and self._fast_ok():
-            return self._rebalance_fast(sim, sol, max_moves or self.churn.get("rebal_max", 10 ** 9))
+            cf = None
+            if self.churn.get("log_order_cf"):                          # logging only (2026-11-04): pass-order counterfactual on copies
+                self._cf_tick = getattr(self, "_cf_tick", 0) + 1
+                if self._cf_tick % int(self.churn.get("order_cf_every", 4)) == 0:
+                    cf = self._order_cf(sim)
+            out = self._rebalance_fast(sim, sol, max_moves or self.churn.get("rebal_max", 10 ** 9))
+            if cf is not None:
+                cf["real_match"] = bool(self._fast_moves == cf.pop("_v0_list"))
+                self.__dict__.setdefault("order_cf_log", []).append(cf)
+            return out
         qs = sorted(((len(sim.queue[k][f]), f, k) for k in range(sim.N) for f in range(sim.F) if sim.queue[k][f]), reverse=True)
         moved, cap = 0, max_moves or self.churn.get("rebal_max", 10 ** 9)
         lam = self.churn.get("lam", 1.0)                        # 2026-10-26, lambda-sweep probe; default 1.0 == unweighted (original rule)
@@ -859,6 +875,134 @@ class O3SimAdjuster:
                     or c.get("log_lambda_components") or c.get("log_move_ctx") or float(c.get("tail_z", 0.0)) or c.get("slack_frac_aware")
                     or float(c.get("veto_p", 0.0)))
 
+    def _order_cf(self, sim, online_sol=None):
+        """Logging only (2026-11-04, pass-order Gate 0): run the plain AET pass on fresh copies of the solution state under four pass
+        logics and report what each would move. V0 = current (count order, from the back, early stop; same arithmetic as
+        _rebalance_fast, so its moves must equal the real pass's), V1 = no early stop, V2 = queues by estimated wait of their back
+        request, V3 = lazy gain-ordered greedy (M4). Nothing here touches the simulator: Sol(sim) copies the state it changes."""
+        import heapq as _hq
+        from .solution import Sol
+        net = sim.net
+        h, epd, bw = net.h, net.epd, net.bw
+        lam = self.churn.get("lam", 1.0)
+        assert float(self.churn.get("wait_w", 1.0)) == 1.0
+        N = h.shape[0]
+
+        def engine(mode, base=None):
+            sol = base if base is not None else Sol(sim)
+            cache, hcache = {}, {}
+            st = dict(evals=0, blocked_any=0, blocked_changed=0)
+
+            def svc(f, k, ah):
+                key = (f, k, ah)
+                v = cache.get(key)
+                if v is None:
+                    v = cache[key] = sol.service_estimate(f, k, ah)
+                return v
+
+            def hosts_of(f, k):
+                key = (f, k)
+                if key not in hcache:
+                    hs = [int(x) for x in np.flatnonzero(sol.cnt[f]) if int(x) != k]
+                    hcache[key] = (hs, np.asarray(hs))
+                return hcache[key]
+
+            def evaluate(rq, f, k):
+                hosts, hv = hosts_of(f, k)
+                if not hosts:
+                    return None
+                wf, loc = rq.req.wf, sol.node_of(rq)
+                inp = 0.0
+                for sz in rq.sizes:
+                    inp = inp + h[loc] * (epd + sz / bw)
+                if not len(rq.sizes):
+                    inp = np.zeros(N)
+                out = 0.0
+                for c in wf.children[rq.task]:
+                    out = out + h[:, rq.req.plan[c]] * (epd + wf.ss[(rq.task, c)] / bw)
+                if not len(wf.children[rq.task]):
+                    out = np.zeros(N)
+                qk = sol.queue(f, k)
+                ah = len(qk) - 1 if (qk and qk[-1] is rq) else (qk.index(rq) if rq in qk else len(qk))
+                a0 = float(inp[k]) + svc(f, k, ah) + lam * float(out[k])
+                sv = np.array([svc(f, k2, len(sol.queue(f, k2))) for k2 in hosts])
+                base = inp[hv] + sv + lam * out[hv]
+                ok = sol.free[hv] >= rq.total
+                if mode == "V0":
+                    st["evals"] += 1
+                    if not ok.all():
+                        st["blocked_any"] += 1
+                        ju = int(np.argmin(base))
+                        if base[ju] < a0 and not ok[ju]:
+                            st["blocked_changed"] += 1
+                a = np.where(ok, base, np.inf)
+                j = int(np.argmin(a))
+                return (a0 - float(a[j]), hosts[j]) if a[j] < a0 else None
+
+            moves = []
+            tot = [0.0]
+
+            def apply(rq, f, k, k2, g):
+                qk = sol.queue(f, k)
+                sol.set_queue(f, k, list(qk[:-1]) if qk[-1] is rq else [r for r in qk if r is not rq])
+                sol.set_queue(f, k2, list(sol.queue(f, k2)) + [rq])
+                sol.set_node(rq, k2)
+                sol.add_free(k, +rq.total)
+                sol.add_free(k2, -rq.total)
+                moves.append((rq.req.id, rq.task, k2))
+                tot[0] += g
+            qs = sorted(((len(sim.queue[k][f]), f, k) for k in range(sim.N) for f in range(sim.F) if sim.queue[k][f]), reverse=True)
+            if mode in ("V0", "V1", "V2"):
+                if mode == "V2":
+                    def wait_key(t):
+                        n, f, k = t
+                        return svc(f, k, n - 1) - float(sim.exec_time[f])
+                    qs = sorted(qs, key=lambda t: (wait_key(t), t), reverse=True)
+                for _, f, k in qs:
+                    if not hosts_of(f, k)[0]:
+                        continue
+                    for rq in reversed(list(sol.queue(f, k))):
+                        b = evaluate(rq, f, k)
+                        if b is None:
+                            if mode == "V1":
+                                continue
+                            break
+                        apply(rq, f, k, b[1], b[0])
+            else:                                                       # V3: lazy gain-ordered greedy, early stop per queue
+                heap, cap = [], 10 * sum(t[0] for t in qs) + 10
+                for _, f, k in qs:
+                    q = sol.queue(f, k)
+                    if q and hosts_of(f, k)[0]:
+                        b = evaluate(q[-1], f, k)
+                        if b is not None:
+                            heap.append((-b[0], f, k))
+                _hq.heapify(heap)
+                while heap and len(moves) < cap:
+                    _, f, k = _hq.heappop(heap)
+                    q = sol.queue(f, k)
+                    if not q:
+                        continue
+                    rq = q[-1]
+                    b = evaluate(rq, f, k)
+                    if b is None:
+                        continue                                        # early stop: this queue is done
+                    if heap and b[0] < -heap[0][0]:
+                        _hq.heappush(heap, (-b[0], f, k))               # stale: wait for its turn
+                        continue
+                    apply(rq, f, k, b[1], b[0])
+                    if sol.queue(f, k):
+                        _hq.heappush(heap, (-b[0], f, k))               # its next request: re-evaluated on pop
+            return moves, tot[0], st
+        if online_sol is not None:                                      # V3 follow-up (2026-11-04): the gain-ordered pass applied for real
+            return engine("V3", online_sol)[0]
+        res = {m: engine(m) for m in ("V0", "V1", "V2", "V3")}
+        v0 = set(res["V0"][0])
+        out = dict(t=round(sim.now, 2), _v0_list=list(res["V0"][0]), storage=res["V0"][2])
+        for m, (mv, g, _) in res.items():
+            sm = set(mv)
+            out[m] = (len(mv), float(g), len(sm & v0), len(sm))
+        return out
+
     def _rebalance_fast(self, sim, sol, cap):
         """Speed-only twin of the plain AET loop in rebalance_step (2026-11-04). Same arithmetic in the same order, so the moves are
         bit-identical (checked by comparing whole results); what changes is the cost: input/output transfer terms are vectorised over
@@ -870,6 +1014,7 @@ class O3SimAdjuster:
         ww = float(self.churn.get("wait_w", 1.0))
         self._np = getattr(self, "_np", 0) + 1
         svc_cache = {}
+        rec = self._fast_moves = [] if self.churn.get("log_order_cf") else None
 
         def svc_at(f, k, ahead):
             key = (f, k, ahead)
@@ -924,6 +1069,8 @@ class O3SimAdjuster:
                 sol.add_free(k, +rq.total)
                 sol.add_free(k2, -rq.total)
                 sv[j] = svc_row(k2)
+                if rec is not None:
+                    rec.append((rq.req.id, rq.task, k2))
                 moved += 1
         self.rebal_moves = getattr(self, "rebal_moves", 0) + moved
         return sol if moved else None

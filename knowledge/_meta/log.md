@@ -796,3 +796,24 @@ author: llm
 
 ## [2026-11-04] meta | fast mover is the default; results tagged mover_impl (MV-2 / MV-1)
 - `fast_rebal` default on; `mover_impl` written into every result (MV-2 vectorised, MV-1 original/untagged). Convention in CLAUDE.md; default and explicit-off paths both reproduce the original reference. See [[workflow-aware-decision-rules]].
+
+## [2026-11-04] plan | mover pass order / early stop, counterfactual Gate 0 (user go-ahead, reopens mover line)
+- V1 no early stop, V2 wait order, V3 gain order vs V0 current; logging only, 18 CAP-W1 cases; pass to online run if >= 5% moves differ AND >= 5% more estimated gain in >= 4/6 cells. See [[workflow-aware-decision-rules]].
+
+## [2026-11-04] result | mover pass order / early stop Gate 0 (CAP-W1, 18 cases, logging only)
+- Probe inert (18/18 identical), V0 = real pass 954/954. All variants dead by the rule: V1 no early stop 0/6 (gain +0.0-0.1%), V2 wait order 0/6 (5-44% moves differ, gain +0-0.9%), V3 gain order 3/6 (gain +4.7-6.8% with 5-11% fewer moves at rho >= 0.7). Storage changes <= 0.47% of decisions. See [[workflow-aware-decision-rules]].
+
+## [2026-11-04] plan | V3 follow-up online (gain-ordered mover), last mover experiment
+- Pre-registered (user's wording): 12 CAP-W1 cases at rho >= 0.7, seeds 1-3; success = P99 gm CI upper <= 1.02 AND moves/req gm CI upper <= 0.95 vs the current mover (transfer_only). Fail -> mover line closed permanently; pass -> cost improvement, move to writing. See [[workflow-aware-decision-rules]].
+
+## [2026-11-04] result | V3 follow-up online: FAIL; mover line closed permanently
+- 12 CAP-W1 cases at rho >= 0.7: P99 1.008 [0.985, 1.037] (not shown non-inferior: upper > 1.02); moves/req 0.922 [0.907, 0.938] (met, 12/12 lower). Directional cost signal, does not clear the online test. Current mover stays. See [[workflow-aware-decision-rules]].
+
+## [2026-11-04] plan | V3 confirmation on fresh seeds 4-6 (12 runs)
+- CONFIRMED if moves/req CI upper <= 0.95 AND median makespan CI upper < 1.00 (fresh 12) AND P99 CI upper <= 1.02 pooled over 24 cases. See [[workflow-aware-decision-rules]].
+
+## [2026-11-04] result | V3 confirmation, seeds 4-6: NOT CONFIRMED; mover line closed
+- Moves/req 0.922 [0.903, 0.940] (12/12), median 0.985 [0.979, 0.991] (12/12): both replicate. P99 pooled 24: 1.003 [0.984, 1.026] -> not within 2%. Current mover stays; gain order = discussion point. See [[workflow-aware-decision-rules]].
+
+## [2026-11-04] decision | FROZEN-3 = FROZEN-2 + gain-ordered pass + transfer_only (user decision, despite NOT CONFIRMED)
+- Adopted for consistent cost reduction (moves -8%, median -1.5-2%, 24/24); P99 not claimed. Results tagged `mover_pass`. See [[workflow-aware-decision-rules]].

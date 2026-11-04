@@ -805,3 +805,72 @@ The user chose `transfer_only` as the router of the paper's controller ("good en
 **Full-length check (900 s, 6 cases, fast path versus the stored `capW1_confirm` transfer_only runs made with the original mover):** F1 r0.85 s4, F2 r0.85 s5, F2 r0.7 s4, F1 r0.7 s5, F2 r0.5 s5, F1 r0.5 s6: **all 6 identical** (every non-wall-clock field equal, including moves 28,939 to 83,345 and P99). Wall time per run 271 -> 47 s, 245 -> 70, 154 -> 37, 123 -> 42, 64 -> 38, 58 -> 29 (stored runs at 5 in parallel, check runs at 6 in parallel). This also shows the rest of the code is unchanged since the confirmation batch.
 **Remaining caveat:** the wall-clock controller-latency fields (`adjust_ms_*`) change by design, which matters if the paper reports controller overhead. The flag is still off by default; runs reported in the paper should state which mover implementation produced them (results are identical either way).
 **Default and tag (4 Nov 2026, user decision after the 6 of 6 check).** `fast_rebal` now defaults to on (`churn.get("fast_rebal", True)`; any diagnostic switch still falls back to the original loop). Every result carries `mover_impl`: **MV-2** vectorised mover, **MV-1** original loop (untagged results are MV-1), written by `Sim` from the adjuster like `capacity_model`; convention added to CLAUDE.md. Checked after the change: F2 r0.5 s5, 250 s, default (MV-2) and `fast_rebal=False` (MV-1) both reproduce the original reference result field by field. Stored results of earlier batches are MV-1 and stay valid; results can be pooled across the two tags.
+
+### Mover pass order and early stop: counterfactual Gate 0 (pre-registered 4 Nov 2026, before any run; user go-ahead 4 Nov, reopens the mover line)
+**Question.** The pass visits (function, node) queues by request count, longest first, walks each from the back and stops a queue at the first request with no improving move. Would a different order or no early stop make different, larger-gain moves? Ordering can matter only through moves that compete: two moves into the same (function, node) queue (found in 98% of passes with moves, 2 Nov), or moves of different functions competing for one node's storage (never measured).
+**Variants** (all on the same state, only the pass logic differs; estimate = the mover's own AET, lam 0.5):
+- **V0** current: count order, from the back, early stop (re-implemented in the probe; must reproduce the real pass's moves exactly, a self-check).
+- **V1** no early stop: V0's order, but a request with no improving move is skipped and the scan continues to the front of the queue.
+- **V2** wait order: queues sorted by the estimated queue wait of their back request at pass start (service estimate minus mean run time), longest first; from the back, early stop.
+- **V3** gain order (M4): lazy greedy over queues; always take next the queue whose back request has the largest estimated gain (recomputed on pop; accepted only if still at least the next stored gain), early stop per queue.
+- **Storage count** (V0): share of evaluated requests where some host is excluded by storage, and share where the best host without the storage limit is storage-blocked (storage changed the decision).
+**Design.** Logging only: on every 4th pass the probe runs V0-V3 on fresh copies of the solution state (`Sol(sim)`, side-effect free), then the real pass runs unchanged (MV-2). Event hash and every result field must equal the stored run (`results/capW1_align_transfer_only`, MV-1), proving the probe is inert. 18 CAP-W1 development cases (seeds 1-3), controller FROZEN-2 + `transfer_only` dispatcher (the user's router decision). Runner `output/data-analysis/order_cf.py`, results `results/order_cf/`.
+**Metrics per variant vs V0**, pooled per (family, load) cell over seeds and sampled passes: (a) share of moves that differ, 1 - |V0 & Vx| / max(|V0|, |Vx|), a move = (request, task, destination); (b) moves ratio; (c) summed estimated gain ratio (gain = staying estimate minus best estimate at the moment of the move).
+**Reading, fixed now.** A variant goes to an online 18-case run only if (a) >= 5% AND (c) >= 1.05 in at least 4 of the 6 cells. Otherwise it is dead (no run). The estimated gain is used because it ranks the realised benefit of moves (veto test); it is not P99, so a variant that passes must still win P99 online (NOT WORSE / BETTER rule of this file). Storage count: if the storage limit changes fewer than 1% of decisions, ordering across functions cannot matter and only the within-function order is relevant.
+
+#### Mover pass order and early stop: result (4 Nov 2026; 18 of 18 runs, 0 errors; `order_cf.py report`; CAP-W1, MV-2)
+**Checks.** Probe inert: all 18 runs equal the stored `capW1_align_transfer_only` runs field by field. V0 reproduces the real pass's moves in 954 of 954 sampled passes (measured window).
+**By the pre-registered rule all three variants are dead** (cells passing, need 4 of 6: V1 0/6, V2 0/6, V3 3/6).
+
+| cell | V0 moves/pass | V1 differ / gain | V2 differ / gain | V3 differ / moves / gain | storage changed decision |
+|---|---|---|---|---|---|
+| F1 r0.5 | 150 | 0.7% / 1.001 | 5.3% / 1.000 | 27.0% / 0.982 / 1.015 | 0.000% |
+| F1 r0.7 | 262 | 2.4% / 1.001 | 18.1% / 1.003 | 49.8% / 0.947 / 1.047 | 0.006% |
+| F1 r0.85 | 355 | 4.1% / 1.001 | 36.7% / 1.006 | 63.7% / 0.894 / **1.064** | 0.466% |
+| F2 r0.5 | 152 | 0.6% / 1.000 | 7.0% / 1.001 | 25.0% / 0.984 / 1.016 | 0.000% |
+| F2 r0.7 | 267 | 2.0% / 1.000 | 24.0% / 1.004 | 49.0% / 0.943 / **1.052** | 0.065% |
+| F2 r0.85 | 370 | 3.5% / 1.000 | 43.9% / 1.009 | 63.0% / 0.889 / **1.068** | 0.444% |
+
+- **V1 (no early stop): the early stop is sound.** Scanning to the front of the queue finds 0.2-1.1% more moves and 0.0-0.1% more estimated gain. Requests ahead of the first non-mover almost never have an improving move.
+- **V2 (wait order instead of count order): different moves, same gain.** It changes 5-44% of the moves but adds at most 0.9% estimated gain. Count and wait order pick different requests for the contested destination slots, of about equal value.
+- **Storage hardly ever decides** (at most 0.47% of evaluations, at rho 0.85), so ordering across functions cannot matter; only the order within a function's queues does (as reasoned before the run).
+- **V3 (gain order, M4): close to the bar at high load, not over it.** 5-7% more estimated gain with 5-11% FEWER moves at rho >= 0.7 (gain per move +11 to +20%); passes the bar in 3 of 6 cells (F1 r0.7 misses at 1.047), +1.5% at rho 0.5. Observed, not part of the rule: the effect grows with load. Caveats: the gain is the mover's own estimate summed within one pass, on the same state; the next pass starts from a different state online, and the estimate is not P99.
+- Reading: the current pass logic (count order, from the back, early stop) leaves little on the table on its own estimate; the only ordering with headroom is gain order, at high load, and it misses the pre-registered bar. No online run follows from this rule.
+
+### V3 follow-up: gain-ordered move selection online (pre-registered 4 Nov 2026, before any run; user's wording, user go-ahead 4 Nov)
+**Status of this test.** The post-hoc concern is acknowledged: by the Gate 0 rule above V3 was dead (3 of 6 cells passing, the bar was 4 of 6). This is a **pre-registered follow-up of a diagnostic signal, not a post-hoc claim**. The trace-only result it follows up: V3 showed +5-7% extra estimated gain and 5-11% fewer moves at rho >= 0.7, 3 of 6 cells passing the 4 of 6 bar, a narrow miss at F1 rho 0.7 (1.047 vs 1.05).
+**Hypothesis.** Gain-ordered move selection reduces moves per request at rho >= 0.7 without worsening P99.
+**Test.** 12 CAP-W1 cases: F1/F2 x rho 0.7/0.85 x seeds 1-3 (the seeds of the primary development suite). Arm: FROZEN-2 + `transfer_only` dispatcher, mover pass in gain order (V3 of the Gate 0: lazy greedy over queues by the estimated gain of their back request, recomputed on pop, early stop per queue; `churn["pass_order"] = "gain"`). Comparison: the current mover with the same dispatcher (stored `results/capW1_align_transfer_only`, which MV-2 reproduces field by field). Runner `output/data-analysis/v3_online.py`, results `results/v3_online/`.
+**Success criteria** (geometric mean of the 12 case ratios, bootstrap 95% CI):
+- P99 not worse: gm ratio CI upper <= 1.02.
+- Moves per request >= 5% lower: gm ratio CI upper <= 0.95.
+- Both must hold.
+**Consequence, fixed now.** This is the last mover experiment. If it fails: report the trace-only probe result (V3 shows a directional signal but does not clear the online test) and close the mover line permanently. If it passes: report it as a cost improvement and move to writing. No further mover variants regardless. Reported, not part of the rule: cold starts, relocated MB per request, per-case ratios, and rho 0.7 and 0.85 separately.
+
+#### V3 follow-up: result (4 Nov 2026; 12 of 12 cases, 0 errors; `v3_online.py report`; CAP-W1)
+**FAIL.** P99 not worse: **not met**, gain-order / current **1.008 [0.985, 1.037]** (CI upper above 1.02), better in 7 of 12. Moves per request >= 5% lower: **met**, **0.922 [0.907, 0.938]**, lower in 12 of 12; relocated MB/req 0.923 [0.909, 0.938]; cold starts unchanged (ratio 1.00).
+- By load: rho 0.7 P99 1.016, moves/req 0.948; rho 0.85 P99 0.999, moves/req 0.896. The cost effect grows with load, as in the probe.
+- The P99 interval is widened mainly by F2 r0.7 s3 (+14.6%, 120.3 -> 137.9 s); the other 11 cases range -4.7% to +4.8%. Not grounds to re-read the rule.
+- **Reported as pre-registered:** V3 shows a directional signal (trace-only: +5-7% estimated gain, 5-11% fewer moves at rho >= 0.7; online: 8% fewer moves and 8% less relocated data in 12 of 12 cases) but does not clear the online test, because P99 non-inferiority is not shown.
+- **Mover line closed permanently** (pre-registered consequence; no further mover variants). The current mover (count order, from the back, early stop; MV-2) stays. `churn["pass_order"] = "gain"` remains in the code, default off.
+
+### V3 confirmation on fresh seeds 4-6 (pre-registered 4 Nov 2026, before any run; user go-ahead 4 Nov, reopens the mover line closed above)
+**Why.** The V3 follow-up failed its pre-registered P99 bar (1.008 [0.985, 1.037]) but cut moves in 12 of 12 cases (0.922 [0.907, 0.938]); a look at the other makespan percentiles **after** the result (not pre-registered, four metrics inspected) found median 0.982 [0.975, 0.988] (12 of 12 better), mean 0.987 [0.978, 0.997], P95 0.995 [0.982, 1.007]. This is a lead from a post-hoc look; this test decides it on fresh data.
+**Design.** 12 new runs: gain-ordered mover (`churn["pass_order"] = "gain"`), FROZEN-2 + `transfer_only`, F1/F2 x rho 0.7/0.85 x seeds 4-6 (never used for V3). Comparison: the current mover with the same dispatcher on the same cases (stored `results/capW1_confirm/{tag}.transfer_only.json`). Runner `output/data-analysis/v3_confirm.py`, results `results/v3_confirm/`, CAP-W1.
+**Criteria** (geometric mean of case ratios, bootstrap 95% CI over cases):
+1. Moves per request, fresh 12 cases: CI upper <= 0.95.
+2. Median makespan, fresh 12 cases: CI upper < 1.00.
+3. P99, pooled 24 cases (seeds 1-3 from the follow-up and seeds 4-6): CI upper <= 1.02.
+**CONFIRMED = all three.** Then gain order may be adopted as a tested cost and median improvement with a non-inferior tail. **Otherwise** the current mover stays and gain order is reported only as a discussion point (directional cost signal), and the mover line closes. No further mover variants either way.
+
+#### V3 confirmation: result (4 Nov 2026; 12 of 12 fresh runs, 0 errors; `v3_confirm.py report`; CAP-W1)
+**NOT CONFIRMED** (criteria 1 and 2 met, 3 not met).
+1. Moves per request, fresh: **0.922 [0.903, 0.940]**, lower in 12 of 12 -- met (replicates the follow-up's 0.922 exactly).
+2. Median makespan, fresh: **0.985 [0.979, 0.991]**, better in 12 of 12 -- met (replicates the post-hoc 0.982; over both seed sets the median is better in 24 of 24).
+3. P99 pooled over 24 cases: **1.003 [0.984, 1.026]** -- not met (CI upper above 1.02); fresh alone 0.999 [0.969, 1.032].
+- Also: mean 0.990 [0.983, 0.997], P95 1.000 [0.987, 1.014], cold starts unchanged.
+- Per case P99 moves both ways: -7.1% to +11.8% on fresh seeds (F2 r0.85 s6 +11.8%, F1 r0.85 s5 +8.9%, F2 r0.7 s6 +6.9%; F2 r0.7 s5 -7.1%, F2 r0.85 s5 -5.5%). Gain order does not shift the P99 on average (point estimate 1.003) but changes individual tails by several percent in either direction, so non-inferiority within 2% is not shown.
+- **Reading, as pre-registered:** the current mover stays. Gain order is reported as a discussion point: across 24 cases it cuts moves by about 8% and the median makespan by about 1.5-2% in every case, with the P99 not distinguishable from the current mover but not shown within 2%. Mover line closed; no further mover variants.
+
+#### Mover decision (4 Nov 2026, user decision after the V3 confirmation)
+The user adopted the gain-ordered pass ("the reduction in cost is consistent"), although the confirmation was NOT CONFIRMED on P99. Recorded as a **design decision, not a confirmed result**. The paper's controller is now **FROZEN-3** = FROZEN-2 + gain-ordered pass + `transfer_only` dispatcher (`output/data-analysis/frozen2.py`: `FROZEN3`, `FROZEN3_DISPATCHER`); results record `mover_pass`. Basis: moves per request -8% and median makespan -1.5 to -2% in 24 of 24 cases, mean -1%, cold starts unchanged. Not claimed: any P99 improvement; P99 within 2% of the count-order mover (1.003 [0.984, 1.026]). Text must say "chosen for lower move cost; P99 not distinguishable from the count-order pass, non-inferiority within 2% not shown; individual-case P99 varies by -7% to +12%". FROZEN-3 results already exist for 24 cases at rho >= 0.7 (`results/v3_online`, `results/v3_confirm`); rho 0.5 has none.

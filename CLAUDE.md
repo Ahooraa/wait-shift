@@ -961,6 +961,12 @@ field by field (event hash, moves, P99; 6 of 6 full-length cases), so results of
 The wall-clock fields `adjust_ms_*`, `plan_ms_*` and `wall_s` differ by design. Details: `knowledge/synthesis/workflow-aware-decision-rules.md`
 ("Mover speed-up without behaviour change").
 
+### Controller versions
+**FROZEN-3** (4 Nov 2026, the paper's controller) = FROZEN-2 + gain-ordered request-move pass (`pass_order="gain"`), run with the
+`transfer_only` dispatcher (`frozen2.FROZEN3`, `frozen2.FROZEN3_DISPATCHER`). Both parts are design decisions after confirmations that
+were NOT CONFIRMED on P99; never describe either as a P99 improvement (P99 level, not shown within 2%; moves about -8%, median about -1.5 to -2%).
+Every result records `mover_pass` ("gain" or "count"; untagged = "count"). Earlier controllers: FROZEN-2 (matcher, count order).
+
 > [Add further project-specific rules here:
 > - Preferred language(s) for wiki pages
 > - Domain terminology and abbreviations

@@ -946,6 +946,21 @@ objects, the following rules apply:
   - `uncertain` — only rough location possible
 - **Coordinate format:** decimal degrees (WGS 84), e.g. `32.5847, 35.1749`.
 
+### Capacity-model versions
+
+Every experiment states which capacity model it ran under (`meta['capacity_model']` in scenarios and result files, and in
+script / result-directory names): **CAP-U** = one slot per container (all results before 2 Nov 2026; untagged results are
+CAP-U); **CAP-W1** = function containers differ in size (profile weights, load-preserving normalisation). A changed weight
+model gets a new version (CAP-W2, ...), never a silent edit. Definitions: `knowledge/synthesis/heterogeneous-container-sizes.md`.
+
+### Mover implementation versions
+Every result of a run with the request mover carries `mover_impl` (written by `Sim` from the adjuster): **MV-2** = vectorised mover
+(`O3SimAdjuster._rebalance_fast`, default since 4 Nov 2026); **MV-1** = the original loop (also what any diagnostic switch such as
+`prio_aet`, `tail_z`, `slack_frac_aware`, `veto_p` or a `log_*` flag falls back to, or `churn["fast_rebal"] = False`). MV-2 reproduces MV-1
+field by field (event hash, moves, P99; 6 of 6 full-length cases), so results of the two may be pooled; results without the tag are MV-1.
+The wall-clock fields `adjust_ms_*`, `plan_ms_*` and `wall_s` differ by design. Details: `knowledge/synthesis/workflow-aware-decision-rules.md`
+("Mover speed-up without behaviour change").
+
 > [Add further project-specific rules here:
 > - Preferred language(s) for wiki pages
 > - Domain terminology and abbreviations

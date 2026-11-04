@@ -641,3 +641,158 @@ author: llm
 - Per-scenario winners (lowest median per-type P99 change among eligible values): f3 -> full5 (-5.4%), heavy -> full3 (-6.9%), diamond -> full5 (-6.1%, tied with full2/full3 at -6.1%), grid -> full2 (-3.7%). No value wins on all four scenarios; margins between the per-scenario winner and the other eligible values are small (<=1.3pp in every case), consistent with ordinary seed-to-seed variation rather than a real per-topology optimum.
 - By the rule fixed in advance (adopt a new global value only if it wins on all four scenarios, else keep full2): **no single global winner -> full2 (aging=2.0) remains the global default.** No per-scenario adaptive setting is adopted -- the disagreement is not large enough to outweigh the added complexity, matching the user's decision earlier in this entry not to add per-workflow or per-scenario tuning without a clear diagnostic signal, which this comparison did not produce.
 - **Aging-multiplier selection phase complete.** The dispatch-order mechanism (QueuePriority("full", aging=2.0)) is the final, established setting from this evaluation. No further threshold changes without a new pre-registration.
+
+## [2026-10-29] result | 2x2 grid re-run on the extended simulator (re-layout x moves+criticality dispatch), vs B*/RL/RL_CAL
+- User decision: re-run the original 2026-10-22 grid2x2.py's A/B/C/D design (fixed-layout-nothing-adapts / fixed-layout+moves /
+  re-layout-only / both) under the current code, since dfps/controllers.py, dispatchers.py and model.py changed since -- and
+  fold the newly-established criticality-aware dispatch (QueuePriority("full", aging=2.0)) into cells B and D on top of the
+  finish-time move rule, so the grid now tests {re-layout} x {moves + criticality dispatch}. Scope: same F1/F2 x rho
+  0.5/0.7/0.85 x seeds 1-3 (18 cases) as the original, for direct comparability with baseline-matrix.md. Compared against the
+  existing B*/RL/RL_CAL comparison baselines only (not the full ablation table).
+- **Found and fixed a real compatibility bug before running anything**: dfps/model.py's Scenario.fw field (added 2026-10-27)
+  defaults to an all-ones array in __post_init__, but __post_init__ never re-runs on unpickling, so every pre-existing
+  Scenario pickle (e.g. results/d1_headroom/*.pkl, from 2026-10-15) loaded with fw=None and crashed downstream (need @ sc.fw
+  etc, ValueError). Fixed with a __setstate__ that re-derives fw when absent/None. Verified: the repaired pickle now gives
+  fw=ones as expected; tests 78/78 unaffected. Because fw=None/ones is bit-identical to the pre-fw code path (verified
+  separately in controllers.py's own docstring, 0 mismatches / 30k trials), this means the cached B*/RL/RL_CAL/HEU result
+  JSONs (results/d1_headroom, results/d1_baselines) remain valid reference numbers -- they did NOT need regenerating, only
+  the Scenario pickle loading needed the fix to even run under current code at all.
+- New runner: output/data-analysis/grid2x2_v2.py (A/B/C/D, 72 fresh runs, no errors). Supermultiplicative interaction
+  confirmed on the extended simulator (log-P99 scale, effect = ln(P99_without/P99_with), all-loads/18 cases): moves+dispatch
+  alone (A->B) x2.4, moves+dispatch with re-layout (C->D) x8.3; re-layout alone (A->C) x3.7, re-layout with moves+dispatch
+  (B->D) x12.8. Interaction (A-B)-(C-D) = -1.25 (CI -1.45 to -1.05, i.e. x0.3) -- reliably negative at both 50% and 70-85%
+  load, confirming the combination is substantially more than additive, not an artifact of one load level.
+- D (ours, re-layout + moves + criticality dispatch) vs B*: +73.2% pooled P99 (CI +67 to +79, all loads); +61.2% at 50% load,
+  +79.2% at 70-85% load. D vs best-existing (min of B*/RL/RL_CAL per case): +60.4% all loads (CI +48 to +71); +26.6% at 50%
+  load, +77.3% at 70-85% load. The all-loads figure (+60.4%) lands almost exactly on baseline-matrix.md's pre-existing +60.0%
+  (24 Oct, move-rule-only controller, before criticality dispatch) -- a consistency check that the code refresh and the added
+  mechanism did not regress the headline comparison.
+
+
+## [2026-11-01] experiment | placement-objective additions (pre-registered, running)
+- User request: our placement sees only request origins and direct edges; test what a more workflow-aware placement buys, one addition at a time and all together.
+- Rules written BEFORE any run: knowledge/synthesis/workflow-aware-decision-rules.md ("Placement-objective additions"); novelty-register row P8. Variants V1 own state size, V2 two-hop chains, V3 join cohesion, V4 fork cohesion, V5 critical-path weighting, V6 waiting term (anchor), V7 all of V1-V5. Constants fixed in advance (gamma 0.5, floor 0.25). Noise floor from placebo runs (move period +-1 ms).
+- Code (default off, V0 bit-identical): dfps/controllers.py (demand_points struct, _edge_phi, _add_structure, function_state_size, queue_aware_placement struct/size_aware), dfps/o3s.py place_kwargs (churn keys pstruct, size_aware). Runner: output/data-analysis/placement_extensions.py.
+- Checks passed before launching: default-off demand and layout identical to the HEAD code on two real scenarios; on the chain archetype V3, V4, V5 give exactly the V0 layout; V0 re-run reproduces the stored results exactly (event hash and P99): grid2x2_v2 D F2 50% s3, dag_suite base chain s1 and diamond s1.
+- Also this session: Heu/RL warm-start check (OnDemandSim X0 option, output/data-analysis/baselines_warmstart.py, results/d1_baselines_warmstart/): giving RL the NSGA-II start changes P99 by -1.3% on average (range -8.5% to +10.4%) and cold starts by -1.6% (range -11% to +13%), 18 dev cases; Heu not rerun (about 68 CPU-hours). Slide 2 keeps the cold-start numbers and carries a note.
+- Launched 258 runs (T1 162 on the 18 dev cases incl. 36 placebos, T2 96 on the DAG suite), 10 workers; about 30 CPU-hours.
+
+## [2026-11-02] experiment | placement-objective additions stopped at 162 of 258 runs
+- Stopped by the user to focus on the request-move mechanism. No variant paid on T1 (8 of 18 cases with placebos) or structurally on T2 (grid, diamond, composite, heavy complete). Results and caveats: knowledge/synthesis/workflow-aware-decision-rules.md ("result, stopped early"); partial report results/placement_ext_report_partial.txt; novelty-register P8 updated.
+- Not covered: Huawei cases, most of 85% load, chain V1/V2/V6/V7. Code stays in place, default off, V0 bit-identical (dfps/controllers.py, dfps/o3s.py).
+
+## [2026-11-02] plan | request-move mechanism: variants of a different kind (pre-registered, awaiting user go-ahead)
+- User asked to stop the placement experiment and focus on the request-move mechanism. Plan, history of every earlier move-score change (all null or worse), nearest work (web search 2 Nov, snippet level) and gates: knowledge/synthesis/workflow-aware-decision-rules.md ("Request-move mechanism"). Variants M1 tail-aware estimate, M2 transit-aware destination, M3 idle-initiated pull, M4 gain-ordered pass; Gate 0 cheap diagnostics before any variant run. No code written, no run started.
+- [2026-11-02] gap diagnosis step 1 (move estimate error, existing Step A log): held-out R2 0.437 -> 0.535 with two coefficients (transfer x1.26, wait x0.55); more features add nothing; lateness grows with transfer time for idle destinations. Written in workflow-aware-decision-rules.md. New candidate M5 (re-weighted estimate). No simulation run.
+
+## [2026-11-02] result | request-move gap diagnosis step 2 (timing rung, estimate-error replication)
+- 18 development cases, 73 runs, 0 errors; logging runs identical to stored D runs 18 of 18. Timing rung: period 1 s P99 +0.8% (-0.4 to +2.0), 0.5 s +4.3% worse (+1.9 to +6.7), moves per request +70% / +131% -> M3 (idle-initiated pull) dead by the pre-registered rule. Estimate error: rmse -8.9% with two coefficients, but weights transfer 1.06-1.13 / wait 0.44-0.64 per cell; pre-registered condition (both, 4 of 6 cells) met in 1 -> M5 dropped; transit lateness criterion met in 3 of 6 -> M2 dropped. Post hoc: the wait weight is about 0.5 in all 6 cells. Full text and caveats in workflow-aware-decision-rules.md; report results/move_gap_report.txt.
+
+## [2026-11-02] query | wait-weight test of the request-move rule
+- Pre-registered then run: wait_w = 0.5 on the 18 development cases; P99 +2.0% worse (CI +1.0 to +3.0), 2/18 better; closed as null. Default wait_w = 1.0 bit-identical (checked).
+- Code: Sol.aet(wait_w=), churn["wait_w"]; script output/data-analysis/wait_weight.py
+
+## [2026-11-02] query | move-rule gap diagnosis step 3 (M1, M4 logging)
+- 18 logging runs identical to stored D runs; M1 Gate 0 flip rate 10.8% (z 0.5) / 15.5% (z 1.0) -> proceeds to runs per pre-registration; M4 structure alive but current order already roughly gain-descending (corr -0.41).
+- Code: churn["log_move_ctx"] (o3s.py), output/data-analysis/move_ctx_probe.py
+
+## [2026-11-02] query | M1 tail-aware comparison run
+- Pre-registered then run: z = 0.5 and 1.0 on 18 development cases: P99 +0.2% (CI -0.5 to +0.9) and +0.5% (-0.1 to +1.2); closed as null. Default tail_z = 0 bit-identical (checked).
+- Code: churn["tail_z"] in dfps/o3s.py; variants T05, T10 in placement_extensions.EXTRA. Move-rule gap diagnosis: nothing reducible found on timing, estimate weights, destinations or tail-awareness; M4 untested.
+
+## [2026-11-02] meta | AET terminology corrected
+- AET is the paper's "actual execution time" (p. 8), not "estimated finish time"; labels fixed in the English talk deck and synthesis pages; differences between the paper's AET and ours listed in workflow-aware-decision-rules.md.
+
+## [2026-11-02] meta | uniform-slot capacity assumption retired; container sizes from workflow and task profiles
+- User challenge: DFPS Sec. 3.1 (p. 4) says each container needs "a fixed, specific amount of CPU and memory resources" and bounds a node by ecc_k containers; it never says all functions are one size. One slot per container was our reading, and real functions differ. Decision: capacity is a weighted knapsack with per-function weights taken from profiles.
+- Wiki: new [[heterogeneous-container-sizes]] (audit table, derivation, open points); [[problem-scope]] section 2, assumptions and evidence base revised.
+- Data: Alibaba plan_cpu/plan_mem re-extracted for the same 1,459,783 jobs in the same order (data/alibaba_dags_lt60s_profiles.json; experiments/extract_alibaba_profiles.py checks the match). SeBS-Flow memory per benchmark from config.json.
+- Code (uniform path unchanged when all weights are 1): dfps/profiles.py (new); sim.py (hetero flag, apply_placement, invariants); sa.py; nsga2.py; controllers.py queue_aware_placement + guards on equal-size-only rules; o3s.py (_fit_counts, baseline_layout, random_placement guard); ondemand.py (weighted room-making for Heu/RL); workload.py (profile loader, meta workflow_jobs); experiments/run.py. Tests: tests/test_hetero.py (8).
+- Derived weights on the 18 development scenarios: 0.27 to 2.33, CV 0.47-0.54; exact job recovery by replay, 0 ambiguous.
+- Not done: no weighted scenario set, initial layouts or runs yet; all earlier results (deck slides 2, 34, decomposition) are under uniform capacity. Heu and RL stay size-blind by design.
+- Regression check (2 Nov): grid2x2_v2 cell D, F1 rho 0.5 seed 1, re-run under the changed code: event hash identical to the stored run, P99 99.127 s in both. The equal-size path is unchanged.
+
+## [2026-11-02] data | capacity model versions + CAP-W1 light test (pre-registered)
+- Versions named: CAP-U (one slot per container; all results to date) and CAP-W1 (profile weights, load-preserving normalisation).
+- Consistency fixes for weighted runs (sim pending additions, deferred conversions, live-capacity invariant, B* misfit redraw, lazy affinity layout); equal-size runs bit-identical (event hash).
+- Light test pre-registered in heterogeneous-container-sizes.md; script output/data-analysis/capw1_light.py, results results/capW1_light/.
+
+## [2026-11-02] data | CAP-W1 light test: ours vs B* after the sizing fix
+- 18 of 18 cases: ours below B* in 18; geometric-mean P99 ratio 0.24 (CAP-U) -> 0.15 (CAP-W1); pre-registered verdict SURVIVES; gap grows (d = -0.48, CI [-0.64, -0.33]); the 85% narrowing was the proportional_counts sizing bug and is gone after the fix.
+- Ours' P99 almost unchanged (x0.97); B* x1.57. Recorded in [[heterogeneous-container-sizes]]. Heu/RL CAP-W1 runs still in progress.
+
+## [2026-11-03] diagnosis | why our Figs. 5-7 differ from the paper (B*, Heu, RL order; curve shapes) -- user request
+- New page [[fig5-7-reproduction-gap]]: the paper's count curves are flat (Heu/RL cold starts ~50k at every rate, DFPS cold starts fall x0.18 over an 8x rate rise), ours scale with the rate because our runs have a fixed 300 s length. That fits a fixed request count per workload in the paper (inference; run length is not stated). The paper's utilisation text ("aggressive removal of idle instances", p. 11) fits busy / alive-container time, not busy / slot capacity. The calibrated pool averages 1.54 tasks per request, the full < 60 s pool 2.91.
+- Probe pre-registered and started: output/data-analysis/fig5_pattern_probe.py (cal300 / calN / wide300 / wideN x Uniform, Pareto x scale 0.25, 1, 2 x SR, SG, B*, Heu, RL; seed 1; CAP-U). Smoke test: cal300 reproduces the stored fig567_cal runs (identical event hashes for RL, Heu, SR).
+- dfps/heu.py: per-workflow quantities cached (weights, node delays, slot and storage demand). Results identical (event hash on 3 stored cells), Heu 2-3.5x faster.
+- Probe result (60/60, seed 1), details on [[fig5-7-reproduction-gap]]: a fixed request count reproduces DFPS's falling cold starts (x2/x0.25 0.11-0.12 vs paper 0.18/0.34; ours with 300 s runs 0.93-0.95). Larger workflows plus fixed count reproduce the steady Pareto SR/SG curves (slope 1.9-2.1 vs 1.5) but break the Uniform low-rate fit (SR 69 vs 12 s). No variant fixes the order (Kendall tau 0.25-0.38): Heu and RL stay at or below B* everywhere. Remaining suspect: the paper's RL (and possibly Heu) release containers after use, about one cold start per task; not tested.
+
+## [2026-11-03] data | dispatcher replacement line: mover diagnosis + traced join binding (CAP-W1)
+- Why does the mover move tasks: WAIT holds (99-100% of moves wait-driven, 6/6), PULL not shown (0-1%); the mover is a queue balancer, 86-94% of moves leave the planned node, destination hosts a planned child in 5-7%.
+- Traced join binding: early join move cost not reduced (0/6 cases down >= 25%; up in 4, down in 2); moves/req -1 to -6%; with the 18-case result (gm 1.002, no gain) the join-binding mechanism claim is not supported.
+- Details in [[workflow-aware-decision-rules]] (sections "Why does the mover move tasks: result", "Traced join binding: result"). Scripts move_why_diag.py, joinbind_traced.py; results results/move_why/, results/joinbind_traced/.
+
+## [2026-11-03] data | Fig. 5 probe 2: release after use for Heu and RL (CAP-U)
+- keep_warm=0 for Heu and RL on the cal300 / calN / wideN scenarios, 36 of 36 runs, seed 1; pre-registered in [[fig5-7-reproduction-gap]] before the runs.
+- RL utilisation (busy over alive containers) is explained: about 50%, flat, against the paper's 56-41%. Heu is flat too, but its level misses (52% against 20-35%).
+- The order is not explained in substance: Heu and RL move just above DFPS at x0.25 (+4-10 s), against the paper's 5-20x; tau +0.07-0.10 at most; at high rates they stay faster than DFPS on Pareto.
+- Remaining suspects: MOSEC cloud offloading and Heu's cost objective (AB-H3). Script fig5_pattern_probe.py (REL variants); results results/fig5_probe/*r_*.json.
+
+## [2026-11-03] query | What the DFPS, Xu 2023 and MOSEC papers say about Heu and RL slowness
+- DFPS pp. 10-11: per-request placement, idle or replaced instances, low reuse and more cold starts; RL spreads tasks over nodes; RL removes idle instances aggressively. Table 2: 80 edge nodes, no cloud; no Heu cost weights given.
+- Xu 2023 Alg. 1 l. 9: a new instance per request. MOSEC p. 4: idle containers recycled after a no-load period; it has a cloud server, but the DFPS setup does not.
+- Neither remaining suspect (cloud offload, Heu cost weights) is backed by the DFPS text. The mechanism the text names was tested in probe 2 and cannot reach 46-199 s at the lowest rate (cold start 2-10 s, 1.4-2.8 tasks per request).
+- Reading: the paper's Heu and RL makespan magnitude is not reproducible from the published descriptions. Section "What the papers say about Heu and RL" in [[fig5-7-reproduction-gap]].
+
+## [2026-11-03] data | Figs. 5-7 rerun with protocol v2 (user approved, CAP-U)
+- fig567_reproduction.py --protocol v2: fixed request count (300 s / scale, warm-up 10%), Heu and RL release every container after its task, util_alive reported. Results in results/fig567_v2/, summary in output/data-analysis/results/fig567_reproduction_v2.json. The v1 results (results/fig567_cal) are untouched.
+- Smoke test: seed 1, Uniform x0.25: Heu, RL and DFPS reproduce the probe's identical runs (same event hash).
+
+## [2026-11-04] data | FIFO vs criticality-order mismatch in the move estimate; live-state replay (CAP-W1)
+- Mismatch diagnostic: not material (moves with gain <= 0 in service order 1-16%, 0/6 cases >= 20%); the FIFO estimate only overstates the wait (service-order count never larger). Intervention (mover counts ahead in service order, 18 cases): gm P99 ratio 1.075 [1.055, 1.096], better in 1/18, moves/req +20-50%: worse.
+- Live-state replay: exec=plan beats exec=live in 6/6 (gap -18.7 to -38.6 pts); off-plan agreement 14-37% vs 2-5% for the formula estimate; not supported as a basis for a live-state binder.
+- In-transit variant pre-registered and running (live_replay2.py). Details in [[workflow-aware-decision-rules]]. Scripts prio_mismatch.py, live_replay.py; results results/prio_mismatch_diag/, prio_mismatch_arm/, live_replay/.
+
+## [2026-11-04] data | live-state replay, in-transit variant (CAP-W1)
+- Counting tasks bound or relocated but not yet queued does not raise agreement of the live choice with the executing node (-0.4 to -4.0 points, 0/6 cases >= +10); in-transit mass is 44-128% of the queued count. Not the reason the live estimate fails; see [[workflow-aware-decision-rules]]. Script live_replay2.py, results results/live_replay2/.
+- Graph-Aware port audited against the paper for size handling (no size feature dropped except the residual margins inside delta, eta = 0); Graph-Aware on the 18 CAP-W1 cases (beta 4, then beta 1) and the calibration test (matcher and greedy EFT arms) started.
+
+## [2026-11-04] data | Graph-Aware on CAP-W1 (beta 4); dispatcher calibration (matcher, greedy EFT)
+- Graph-Aware beta 4, 18 CAP-W1 cases: gm P99 ratio vs matcher 0.985 [0.960, 1.015], better 15/18, NOT WORSE; moves/req lower in 18/18 (-2 to -21%); plan time 2-7 ms vs 10-90 ms. Beta 1 arm running.
+- Calibration: matcher and greedy EFT equally calibrated (CAL 0/3); FST at planning has ~zero rank correlation with realised wait (Spearman -0.20 to +0.03), roots included. Graph-Aware calibration arm running.
+- Pre-registered the last two spatial tests (snapshot stability, randomised move veto) with the user's stopping rule; move_cost sweep skipped (no contention model). Details in [[workflow-aware-decision-rules]].
+
+## [2026-11-04] result | Figs. 5-7 rerun with protocol v2 (CAP-U, 5 seeds)
+- 1320 of 1320 runs, 0 failed. Compared descriptively on [[fig5-7-reproduction-gap]]: Fig. 5 against the digitised values, Figs. 6-7 against the paper's text claims.
+- Reproduced: DFPS cold starts fall with rate (x2/x0.25 0.12 vs 0.18; 5.6k vs 5.1k at x1 Uniform); Heu and RL cold-start curves are flat (level 0.3-0.5 of the paper's); RL utilisation over alive containers is about 50%, flat.
+- Not reproduced: the order (tau 0.15 -> 0.24 U, 0.49 -> 0.52 P; Heu, RL at most 1.7x DFPS vs 4-22x); Heu's low utilisation (50% vs 20-35%); Heu vs RL distinction (identical within 0.1% in cold starts under release-after-use, paper 199 vs 46 s).
+- Figs. 6-7: the claims about the static methods and DFPS utilisation hold; the claims that need Heu or RL to be slow do not (Pareto DFPS best only up to 60 nodes; Heu utilisation highest from 60 nodes).
+
+## [2026-11-04] data | spatial line closed: snapshot stability, randomised move veto; Graph-Aware beta 1
+- Graph-Aware beta 1 (18 CAP-W1 cases): gm 0.983 [0.965, 1.000], better 13/18, NOT WORSE.
+- Snapshot stability: best node moves after binding (A 6/6: bind choice >= 1 s worse at +2 s for 34-65%), but exec does not follow the later snapshot (B 0/6, +2 to +3 pts) -> mixed. Event hashes matched (veto code inert).
+- Move veto (10% of first moves, never moved afterwards): vetoed requests slower in 6/6 (+1.9 to +3.2 s remaining sojourn); effect rises with estimated gain (high third +3.7 to +6.9 s, low third ~0); no group where vetoing helps -> inconclusive by the pre-committed rule (low third not better in only 3/6). No mechanism built; spatial line closed per the stopping rule. Details in [[workflow-aware-decision-rules]].
+
+## [2026-11-04] data | objective-aligned routers (CAP-W1, 18 cases per arm)
+- transfer_only: P99 vs matcher 0.973 [0.957, 0.988], 15/18 better, NOT WORSE (not BETTER: CI upper > 0.97); moves/req +4% vs Graph-Aware -> cost not lower. Plan time 0.5-1.4 ms.
+- mover_aet: P99 0.994 [0.978, 1.011], NOT WORSE; moves/req vs Graph-Aware 0.932 [0.868, 1.002] -> not lower by the rule; fewer moves at rho 0.5 (-5 to -31%), more at rho 0.85.
+- Neither arm meets the pre-registered success rule; Graph-Aware stays the lowest-cost baseline. Router line closed again. Details in [[workflow-aware-decision-rules]].
+
+## [2026-11-04] plan | transfer_only confirmation on fresh seeds 4-6 (CAP-W1)
+- Pre-registered before any run in [[workflow-aware-decision-rules]]: matcher, greedy EFT, transfer_only on 18 fresh cases; CONFIRMED if P99 NOT WORSE vs matcher AND P99 CI upper <= 1.00 vs greedy EFT.
+
+## [2026-11-04] result | transfer_only confirmation, fresh seeds 4-6 (CAP-W1, 18 cases x 3 arms)
+- NOT CONFIRMED. P99 vs matcher 0.998 [0.974, 1.029] (C1 not met: upper > 1.02); vs greedy EFT 0.985 [0.969, 1.0000126] (C2 not met, by 1.3e-5). The seed 1-3 advantage (0.973, growing with load) did not replicate.
+- Cost/plan time: moves/req -4% vs matcher, no difference vs greedy EFT; plan time 0.03x matcher. Matcher stays in FROZEN-2; routers reported as a sensitivity table. Router line closed. Details in [[workflow-aware-decision-rules]].
+
+## [2026-11-04] decision | router = transfer_only (user decision, despite NOT CONFIRMED)
+- Recorded as a design decision on planning cost and simplicity; P99 level with the matcher (not claimed better). Controller = FROZEN-2 + transfer_only dispatcher. See [[workflow-aware-decision-rules]].
+
+## [2026-11-04] meta | mover speed-up (fast_rebal, opt-in), bit-identical on two cases
+- Profile: mover = 89% of wall. Vectorised transfer terms, cached service estimate, tail position. 250 s runs identical field by field; 4.9x (heavy) and 1.8x (light) faster. Default off pending full-length checks. See [[workflow-aware-decision-rules]].
+
+## [2026-11-04] result | fast_rebal full-length equivalence: 6 of 6 identical (900 s)
+- Fast mover vs stored original runs on 6 cases (all loads, both families): every non-wall-clock field identical; wall time 1.5-5.8x lower. See [[workflow-aware-decision-rules]].
+
+## [2026-11-04] meta | fast mover is the default; results tagged mover_impl (MV-2 / MV-1)
+- `fast_rebal` default on; `mover_impl` written into every result (MV-2 vectorised, MV-1 original/untagged). Convention in CLAUDE.md; default and explicit-off paths both reproduce the original reference. See [[workflow-aware-decision-rules]].

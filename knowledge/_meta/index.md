@@ -28,3 +28,4 @@ _No entries yet._
 _No entries yet._
 - [[baseline-matrix]] — baselines to run, ablate or cite per mechanism, plus literature search record (24 Oct)
 - [[problem-scope]] — fixed problem scope: runtime placement/re-placement under externally-sized, heterogeneous containers, with resource and network contention (27 Oct)
+- [[heterogeneous-container-sizes]] — audit of the uniform-slot assumption, profile-derived container weights, and where the code was changed or guarded (2 Nov)

@@ -77,6 +77,8 @@ Initial placement (once, before requests), request scheduling (per request), and
 ### 3. System model: central controller, container slots, states stored at nodes (pp. 3-5)
 A central controller (possibly in the cloud, p. 4) manages Ne edge nodes, each with a container capacity ecc_k, a storage capacity esc_k, a list of warm instances and a list of stored states. Workflows are DAGs; each task output is a "state" sent to the node chosen for the next task. The architecture "follows a static planning and dynamic scheduling approach" (p. 4). A standby controller is the proposed answer to the single point of failure (p. 4). Propagation delay is set to zero; transfer time is hops times size over bandwidth (Eq. 1-2, p. 5).
 
+> **Reading note (2 Nov 2026).** The capacity sentence (p. 4, Sec. 3.1) reads: "Each container requires a fixed, specific amount of CPU and memory resources. Therefore, each edge e_k can accommodate a limited number of containers based on its available resources, which is denoted by ecc_k (container capacity)." It bounds a node by a number of containers. It does not say every function's container is the same size, and the paper gives no per-function sizes; "slot" is our word, not the paper's. Earlier wiki pages and the simulator read this as one slot per container; that reading is retired, see [[heterogeneous-container-sizes]].
+
 ### 4. ⭐ The objective is mean workflow makespan under capacity limits only (p. 5)
 Makespan is the time from request receipt to the last task's completion. Constraints are function (container) and storage capacity. No deadline, SLO, drop or admission notion appears.
 

@@ -2,7 +2,7 @@
 title: "Problem scope: runtime placement and re-placement under externally-sized containers"
 type: synthesis
 created: 2026-10-27
-updated: 2026-10-27
+updated: 2026-11-02
 status: review
 author: llm
 tags: [scope, placement, re-placement, autoscaling, bin-packing, resource-contention, network-contention, g0-novelty]
@@ -33,18 +33,28 @@ keeps changing how many containers each function gets under a changing workload.
   intermediate state.
 - Heterogeneous network distances between nodes, in a multi-tier edge topology.
 
-**Containers.**
-- Each function `f` has a resource weight `w_f` (container memory requirement), continuous (GB), default range
-  0.5-2GB (matching [[jia-2025-faaspr]]'s measured range -- revisit once testbed numbers exist, see section 9).
-- A node's containers must satisfy `Σ (containers on k) × w_f ≤ cap_k` -- a continuous knapsack constraint, not a
-  slot count. This is a deliberate departure from [[zolfaghari-2025-dynamic-function-placement]] (DFPS), whose own
-  model treats every container as identical ("each container requires a fixed, specific amount of CPU and memory
-  resources", Sec. III) and `ecck` as a plain integer slot count -- see section 10 for what this costs DFPS as a
-  baseline.
+**Containers.** *(Revised 2 Nov 2026: the uniform one-slot-per-container model is retired; see
+[[heterogeneous-container-sizes]] for the audit and the change list.)*
+- Each function `f` has a container weight `w_f` (its memory footprint), and a node holds any set of containers
+  whose weights sum to at most `ecc_k`. The weights come from the workflow and task **profiles**, not from a
+  distribution picked by hand: Alibaba cluster-trace-v2018 `plan_mem` per task ([[alibaba-cluster-trace]]) and the
+  per-workflow `memory` setting of each SeBS-Flow benchmark ([[schmid-2025-sebs-flow]]). Each source is divided by its
+  own median (the two are in different units), a function takes the mean over the tasks mapped to it, and the weights
+  are normalised to mean 1 so that `ecc_k` still reads "containers of average size". Code: `dfps/profiles.py`.
+- Memory is the capacity dimension because a warm container holds its memory whether it runs or not; CPU
+  (`plan_cpu`, carried in the profile file) matters while a task runs and enters through the contention model below.
+- A node's containers must satisfy `Σ (containers on k) × w_f ≤ ecc_k` -- a knapsack constraint, not a slot count.
+  The earlier simulator treated every container as one slot. That was our reading of
+  [[zolfaghari-2025-dynamic-function-placement]] (DFPS), Sec. 3.1, p. 4: "Each container requires a fixed, specific
+  amount of CPU and memory resources. Therefore, each edge e_k can accommodate a limited number of containers ... ecc_k
+  (container capacity)". The sentence gives a count bound; it does not say all functions are the same size, and the
+  paper publishes no per-function sizes. Reading it as one slot per container was ours, not the paper's.
+- Consequence for fill: with real-valued weights a node cannot in general be filled exactly, so the DFPS invariant D-7
+  ("every slot always holds an instance") becomes "no container of the lightest function still fits".
 
 **Global budget.**
-- `N_total = Σ_k cap_k` is fixed. Capacity is only ever redistributed among functions -- never added or removed
-  system-wide (matches DFPS's own framing, just in a continuous unit instead of a slot count).
+- `N_total = Σ_k ecc_k` is fixed, in units of the average container. Capacity is only ever redistributed among
+  functions -- never added or removed system-wide.
 
 **Compute resource contention (new, 27 Oct).**
 - Each function also has a CPU weight `c_f` (containers are 2D resource vectors `(cpu_f, mem_f)`, standard
@@ -118,7 +128,9 @@ keeps changing how many containers each function gets under a changing workload.
 - Single-function applications with no inter-function data dependency.
 
 ## 8. Assumptions
-- Container resource weight `w_f` and CPU weight `c_f` are continuous, not discretised into size classes.
+- Container resource weight `w_f` and CPU weight `c_f` are continuous, not discretised into size classes, and are derived
+  from workflow and task profiles (Alibaba `plan_mem`/`plan_cpu`, SeBS-Flow `memory`), not assumed equal (2 Nov).
+  The two profile sources are put on one scale by dividing each by its own median; that is an assumption.
 - Network links have finite, shared bandwidth per hop (max-min fair sharing under contention).
 - Compute contention follows a linear processor-sharing slowdown, not a full queueing-theoretic model.
 - One central decision-maker.
@@ -141,8 +153,9 @@ keeps changing how many containers each function gets under a changing workload.
   for narrowing the contribution to placement/re-placement/moves and treating sizing purely as an input.
 - [[jia-2025-faaspr]]: source of the 0.5-2GB container-memory range (section 9, p. 10) and the only baseline in
   this project that already models heterogeneous container sizes natively.
-- [[zolfaghari-2025-dynamic-function-placement]] (DFPS): source of the uniform-slot assumption this scope departs
-  from (Sec. III, "each container requires a fixed, specific amount of CPU and memory resources"); its own
+- [[zolfaghari-2025-dynamic-function-placement]] (DFPS): says "each container requires a fixed, specific amount of
+  CPU and memory resources" (Sec. 3.1, p. 4) and bounds a node by `ecc_k` containers; it does not state that all
+  functions are one size. The uniform-slot model was our reading of it, retired on 2 Nov; its own
   `FEN()` placement formula (Eq. 3-4) has no notion of a function costing more capacity than another, which is
   why it is not fairly comparable under this scope's weights without a disclosed, audited port (section 10).
 - `knowledge/_meta/log.md` (2026-10-26, "state-transfer modeling check"): the topology-hop-variance finding that

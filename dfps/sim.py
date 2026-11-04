@@ -30,7 +30,7 @@ class Instance:
 
 
 class Req:
-    __slots__ = ("id", "wf", "origin", "t_arr", "plan", "pending", "left", "t_done")
+    __slots__ = ("id", "wf", "origin", "t_arr", "plan", "pending", "left", "t_done", "held")
 
 
 class Run:
@@ -50,7 +50,7 @@ class Sim:
     def __init__(self, sc, X, adjuster=None, interval=None, seed=0, fst_variant="prose", k_best=10, n_trees=5,
                  lam_window=5, lam_update=1.0, duration=None, warmup=30.0, drain_factor=20.0, use_source=True, debug=False,
                  allow_empty=False, admission=None, exec_sampler=None, slo_factor=3.0, match_objective="sum", retry_min_interval=0.0, retry_max_attempts=None, lam_source=None, record_requests=False,
-                 move_cost=1.0, elastic=False, dispatcher=None, trace=False, queue_priority=None):
+                 move_cost=1.0, elastic=False, dispatcher=None, trace=False, queue_priority=None, join_bind=False):
         from .constants import PAPER
         self.sc, self.net = sc, sc.network
         self.N, self.F = self.net.ne, len(sc.functions)
@@ -67,9 +67,22 @@ class Sim:
         # instance into a free slot (cold start) and destroying one (immediately if idle or still cold, after its run if busy).
         # The unit of cost is then the number of provisioned containers, integrated over the measured window (inst_s).
         self.elastic = bool(elastic)
+        # heterogeneous container sizes (2026-11-02): sc.fw not all ones. A node then holds any containers whose weights sum to at
+        # most ecc_k, and cannot in general be filled exactly, so D-7 ("every slot always holds an instance") becomes "no further
+        # container of the lightest function fits"; layouts are applied as plain removals and additions, not 1-for-1 swaps.
+        # With fw all ones nothing below changes.
+        self.hetero = not bool(np.allclose(sc.fw, 1.0))
         # dispatcher: callable(sim, request) -> {task: node} or None; None = DFPS's graph pattern matching (see dfps/dispatchers.py)
         self.dispatcher = dispatcher
+        # join_bind (2026-11-03): a join task (>= 2 parents) is bound when its LAST parent finishes; the earlier parents' output states
+        # stay on the nodes that produced them until then. Its node is re-chosen with the queues of that moment (greedy EFT score: summed
+        # input transfer from the parents' actual nodes + FST), among nodes holding the function with room for its inputs; the arrival-time
+        # plan and its storage reservation are the fallback (the reservation moves only if the new node has room). Simplification: held
+        # states stay accounted on the planned node's storage until binding. False = all tasks bound at arrival, the original behaviour.
+        self.join_bind = join_bind
+        self.n_join_bound = self.n_join_rebound = 0
         self.trace = {"tasks": [], "reqs": []} if trace else None      # per-task trace of in-window requests (dfps/diagnostics.py)
+        self._snap_due = []                                            # trace-only snapshot timers (trace_snap, 2026-11-04); empty = off
         self.soj_log = {}                                              # workflow id -> sojourn of every completed request (online per-type median)
         # queue_priority (2026-10-28): callable(sim, run) -> sortable key; an idle instance starts the waiting run with the largest
         # key (ties: the oldest). None = FIFO, the original behaviour. See dfps/dispatch_priority.py.
@@ -115,6 +128,11 @@ class Sim:
                     self.inst[k][f].append(Instance(f, k, IDLE))
                 self.cnt[f, k] = int(X[k, f])
         self._n_inst, self._t_acct, self.inst_s, self.n_add_blocked = int(np.asarray(X).sum()), 0.0, 0.0, 0
+        # heterogeneous sizes (2026-11-02): containers already in the final count (cnt) that wait for room on their node, because
+        # the capacity they need is still held by a busy instance marked for removal or conversion. Started, in order, as soon as
+        # room frees up. Always empty with equal sizes.
+        self.pending_add = [[] for _ in range(self.N)]
+        self.n_add_deferred = 0
         if not allow_empty and (self.cnt.sum(axis=1) == 0).any():   # allow_empty: on-demand baselines (Heu, RL) start empty
             raise ValueError("initial placement leaves a function without any instance")
         # metrics (measured in [warmup, duration], D: makespan of requests that ARRIVE in the window)
@@ -157,6 +175,8 @@ class Sim:
             else:
                 same_t, n_same = t, 0
             self.now = t
+            if self._snap_due and self._snap_due[0][0] <= t:      # trace only: snapshots due before this event (state as of their due time)
+                self._snap_fire(t)
             h.update(f"{t:.9f}|{kind}|{a if isinstance(a, int) else ''}|{b if isinstance(b, int) else ''};".encode())
             getattr(self, "_ev_" + kind)(a, b, c)
         self.n_unfinished = self.active + len(self.waiting)
@@ -197,6 +217,10 @@ class Sim:
                     out.append((max(0.0, ins.warm_at - self.now), COLD))
                 else:
                     out.append((self.exec_time[f], BUSY))
+        if self.hetero and f in self.pending_add[k]:              # waiting for room: starts when the first instance marked for
+            leaving = [self.exec_time[i.f] for g in range(self.F) for i in self.inst[k][g] if i.swap_to is not None]
+            first = min(leaving) if leaving else 0.0              # removal or conversion ends (mean residual), then cold-starts
+            out += [(first + self.cold_start[f], COLD)] * self.pending_add[k].count(f)
         return out
 
     # ------------------------------------------------------------------------------------------------ events
@@ -232,6 +256,7 @@ class Sim:
         r.plan = None
         r.pending = [1 if not wf.parents[t] else len(wf.parents[t]) for t in range(wf.n)]
         r.left = wf.n
+        r.held = {}
         if self.admission is not None and not self.admission(self, r):
             if self.in_window(self.now):
                 self.n_arrived += 1
@@ -257,6 +282,12 @@ class Sim:
         if res is None:
             return False
         r.plan = res[0]
+        if self.trace is not None and self.in_window(r.t_arr):   # trace only: the start-wait estimate (FST) of every chosen node, at planning
+            self.trace.setdefault("pred", []).append((r.id, self.now, [float(self.fst_vec(wf.ft[t])[r.plan[t]]) for t in range(wf.n)]))
+        if self.trace is not None and getattr(self, "trace_cf", False) and self.in_window(r.t_arr):   # trace only: what greedy EFT would have planned now
+            from . import dispatchers as _D
+            cf = _D.greedy_eft(self, r)
+            self.trace.setdefault("cf", []).append((r.id, None if cf is None else [int(cf[t]) for t in range(wf.n)]))
         for t in range(wf.n):                                    # A-23: reserve the input states' storage at planning
             self.storage_used[r.plan[t]] += wf.input_total(t)
         for root in wf.roots:
@@ -278,15 +309,22 @@ class Sim:
 
     def _enqueue(self, run, k):
         f = run.f
+        if getattr(self, "trace_live", False):                    # trace only: the run is no longer in transit
+            kk = self.__dict__.get("_infl_key", {}).pop((run.req.id, run.task), None)
+            if kk is not None:
+                self._infl[(f, kk)] -= 1
         if self.cnt[f, k] == 0:                                   # D-6 / A-25: no instance here any more -> reroute by AET
             self._reroute(run)
             return
         run.node, run.t_enq = k, self.now
-        if run.t_first is None:
+        first = run.t_first is None
+        if first:
             run.t_first = self.now
         self.queue[k][f].append(run)
         self.buckets[0, f, k] += 1
         self.req_count[f, k] += 1
+        if first and self.trace is not None and getattr(self, "trace_snap", False):
+            self._snap_enqueue(run)
         self._dispatch(k, f)
 
     def _reroute(self, run):
@@ -317,9 +355,15 @@ class Sim:
         # the total state volume, and P99 improves monotonically as their cap is lifted, i.e. nothing prices them. A factor
         # > 1 charges each relocation that multiple of its nominal transfer time, for every controller alike.
         delay = self.move_cost * sum(self.net.stt(s, k_old, k_new) for s in run.sizes)
+        if self.trace is not None and self.in_window(run.req.t_arr):      # trace only: per-move cost, nothing here changes the dynamics
+            self.trace.setdefault("moves", []).append((run.req.id, run.task, self.now, delay, run.t_first))
         self.storage_used[k_old] -= run.total
         self.storage_used[k_new] += run.total
         run.node = k_new
+        if getattr(self, "trace_live", False):                    # trace only: a relocated run is in transit to k_new until it enqueues
+            self.__dict__.setdefault("_infl_key", {})[(run.req.id, run.task)] = k_new
+            i_ = self.__dict__.setdefault("_infl", {})
+            i_[(run.f, k_new)] = i_.get((run.f, k_new), 0) + 1
         run.n_moves += 1
         self.n_moved += 1
         self.mb_relocated_total += run.total
@@ -353,6 +397,8 @@ class Sim:
         s = float(self.rng.exponential(mu)) if self.exec_sampler is None else float(self.exec_sampler(run.f, self.rng))
         ins.state, ins.run, ins.busy_until = BUSY, run, self.now + s
         run.t_start = self.now
+        if self.trace is not None and getattr(self, "trace_snap", False):
+            self.__dict__.setdefault("_snap_started", set()).add((run.req.id, run.task))
         if self.queue_priority is not None and hasattr(self.queue_priority, "on_start"):
             self.queue_priority.on_start(self, run)
         lo, hi = max(self.now, self.warmup), min(self.now + s, self.duration)
@@ -360,13 +406,128 @@ class Sim:
             self.busy_time += hi - lo
         self._at(self.now + s, "done", ins, ins.token)
 
+    # ---- snapshot stability (trace only, 2026-11-04): does the best node move between binding and the mover's passes? -------------------
+    def _snap_scores(self, r, ch, h, run):
+        """Live AET of placing task ch of request r on every feasible node now: input transfer from the parents' nodes (the router's
+        counterfactual "bind it now") + service estimate (own queue position if it already waits there, else the queue length) + 0.5 x
+        output transfer to the children's planned nodes. Reads state only."""
+        from .solution import Sol
+        wf = r.wf
+        f, tot = wf.ft[ch], wf.input_total(ch)
+        sol = Sol(self)
+        res = int(r.plan[ch]) if run is None else int(run.node)       # node holding the task's storage reservation
+        sc = {}
+        for k2 in np.flatnonzero(self.cnt[f]):
+            k2 = int(k2)
+            if self.esc[k2] - self.storage_used[k2] + (tot if k2 == res else 0.0) < tot - 1e-9:
+                continue
+            q = self.queue[k2][f]
+            ahead = q.index(run) if (run is not None and run.node == k2 and run in q) else len(q)
+            sc[k2] = (sum(self.net.stt(s_, sk, k2) for sk, s_ in h) + sol.service_estimate(f, k2, ahead)
+                      + 0.5 * sum(self.net.stt(wf.ss[(ch, c)], k2, r.plan[c]) for c in wf.children[ch]))
+        return sc
+
+    @staticmethod
+    def _snap_pick(sc, b0):
+        if not sc:
+            return None, None
+        b = min(sc, key=sc.get)
+        return b, (sc.get(b0, float("inf")) - sc[b]) if b0 is not None else None
+
+    def _snap_bind(self, r, ch, k, size):
+        h = self.__dict__.setdefault("_snap_par", {}).setdefault((r.id, ch), [])
+        h.append((k, size))
+        if len(h) < len(r.wf.parents[ch]):
+            return
+        del self._snap_par[(r.id, ch)]
+        if not self.in_window(r.t_arr) or r.id % 2:                      # deterministic half sample of in-window requests (cost)
+            return
+        b0, _ = self._snap_pick(self._snap_scores(r, ch, h, None), None)
+        if b0 is not None:
+            self.__dict__.setdefault("_snap", {})[(r.id, ch)] = dict(r=r, h=h, t0=self.now, b0=b0, run=None, rec=[])
+
+    def _snap_enqueue(self, run):
+        d = self.__dict__.get("_snap", {}).get((run.req.id, run.task))
+        if d is None:
+            return
+        d["run"], d["te"] = run, self.now
+        d["rec"].append(self._snap_pick(self._snap_scores(run.req, run.task, d["h"], run), d["b0"]))
+        self._snap_seq = getattr(self, "_snap_seq", 0) + 1
+        heapq.heappush(self._snap_due, (self.now + 2.0, self._snap_seq, (run.req.id, run.task), 2))
+        self._snap_seq += 1
+        heapq.heappush(self._snap_due, (self.now + 4.0, self._snap_seq, (run.req.id, run.task), 4))
+
+    def _snap_fire(self, t):
+        started = self.__dict__.setdefault("_snap_started", set())
+        while self._snap_due and self._snap_due[0][0] <= t:
+            _, _, key, lag = heapq.heappop(self._snap_due)
+            d = self._snap.get(key)
+            if d is None:
+                continue
+            if key in started:
+                d["rec"].append((None, None))
+            else:
+                d["rec"].append(self._snap_pick(self._snap_scores(d["r"], key[1], d["h"], d["run"]), d["b0"]))
+            if lag == 4:
+                (b1, g1), (b2, g2), (b4, g4) = d["rec"]
+                self.trace.setdefault("snap", []).append((key[0], key[1], int(d["r"].plan[key[1]]), round(d["t0"], 3), d["b0"],
+                                                          round(d["te"], 3), b1, g1, b2, g2, b4, g4))
+                del self._snap[key]
+
+    def _live_probe(self, r, ch, k, size):
+        """Trace only (2026-11-03, live-state replay): when the last parent of `ch` finishes, which node would a router that scores with the
+        mover's AET on the LIVE state (input transfer from the parents' nodes + service estimate at the current queue length + 0.5 x output
+        transfer to the children's planned nodes) pick? Reads state, writes only the trace; the event hash must be unchanged."""
+        h = self.__dict__.setdefault("_tl", {}).setdefault((r.id, ch), [])
+        h.append((k, size))
+        wf = r.wf
+        if len(h) < len(wf.parents[ch]):
+            return
+        del self._tl[(r.id, ch)]
+        infl = self.__dict__.setdefault("_infl", {})                 # (f, node) -> tasks bound or relocated there, not yet in its queue
+        if self.in_window(r.t_arr):
+            from .solution import Sol
+            sol, f, tot = Sol(self), wf.ft[ch], wf.input_total(ch)
+            best, best2, a_plan, sq, si = None, None, float("inf"), 0, 0
+            for k2 in np.flatnonzero(self.cnt[f]):
+                k2 = int(k2)
+                if self.esc[k2] - self.storage_used[k2] + (tot if k2 == r.plan[ch] else 0.0) < tot - 1e-9:
+                    continue
+                nq, ni = len(self.queue[k2][f]), infl.get((f, k2), 0)
+                sq, si = sq + nq, si + ni
+                base = sum(self.net.stt(s, sk, k2) for sk, s in h) + 0.5 * sum(self.net.stt(wf.ss[(ch, c)], k2, r.plan[c]) for c in wf.children[ch])
+                a = base + sol.service_estimate(f, k2, nq)
+                a2 = base + sol.service_estimate(f, k2, nq + ni)       # in-transit tasks counted as already queued
+                if k2 == r.plan[ch]:
+                    a_plan = a
+                if best is None or a < best[0]:
+                    best = (a, k2)
+                if best2 is None or a2 < best2[0]:
+                    best2 = (a2, k2)
+            self.trace.setdefault("live", []).append((r.id, ch, self.now, int(r.plan[ch]), None if best is None else best[1],
+                                                      None if best is None else float(best[0]), float(a_plan),
+                                                      None if best2 is None else best2[1], sq, si,
+                                                      0 if best is None else infl.get((wf.ft[ch], best[1]), 0)))
+        self.__dict__.setdefault("_infl_key", {})[(r.id, ch)] = int(r.plan[ch])
+        infl[(wf.ft[ch], int(r.plan[ch]))] = infl.get((wf.ft[ch], int(r.plan[ch])), 0) + 1
+
     def _ev_done(self, ins, token, c):
         run = ins.run
         r, wf, t, k = run.req, run.req.wf, run.task, ins.node
         ins.run, ins.state = None, IDLE
         self.storage_used[k] -= run.total                          # consumed input states are removed (p.5)
         for ch in wf.children[t]:
-            self._at(self.now + self.net.stt(wf.ss[(t, ch)], k, r.plan[ch]), "state", r, ch)
+            if self.trace is not None and getattr(self, "trace_live", False):
+                self._live_probe(r, ch, k, wf.ss[(t, ch)])
+            if self.trace is not None and getattr(self, "trace_snap", False):
+                self._snap_bind(r, ch, k, wf.ss[(t, ch)])
+            if self.join_bind and len(wf.parents[ch]) >= 2:
+                h = r.held.setdefault(ch, [])
+                h.append((k, wf.ss[(t, ch)]))
+                if len(h) == len(wf.parents[ch]):
+                    self._bind_join(r, ch, h)
+            else:
+                self._at(self.now + self.net.stt(wf.ss[(t, ch)], k, r.plan[ch]), "state", r, ch)
         if self.trace is not None and self.in_window(r.t_arr):
             self.trace["tasks"].append((r.id, wf.id, t, r.plan[t], k, run.t_first, run.t_start, self.now, run.n_moves))
         r.left -= 1
@@ -394,6 +555,28 @@ class Sim:
         if self.waiting:
             self._maybe_retry()
 
+    def _bind_join(self, r, t, held):
+        """join_bind: all parents of join task t are done; choose its node now and send the held input states there."""
+        wf, f, k0 = r.wf, r.wf.ft[t], r.plan[t]
+        total = wf.input_total(t)
+        room = self.esc - self.storage_used
+        room[k0] += total                                         # its own reservation sits on the planned node
+        ks = np.flatnonzero((self.cnt[f] > 0) & (room >= total - 1e-9))
+        k = k0
+        if ks.size:
+            bw, epd, h = self.net.bw, self.net.epd, self.net.h
+            score = sum(h[s, ks] * (epd + size / bw) for s, size in held) + self.fst_vec(f)[ks]
+            k = int(ks[int(np.argmin(score))])
+        self.n_join_bound += 1
+        if k != k0:
+            self.n_join_rebound += 1
+            self.storage_used[k0] -= total
+            self.storage_used[k] += total
+            r.plan[t] = k
+        for s, size in held:
+            self._at(self.now + self.net.stt(size, s, k), "state", r, t)
+        del r.held[t]
+
     def _maybe_retry(self):
         if self.retry_min_interval <= 0.0 or self.now - self._last_retry >= self.retry_min_interval:
             self._last_retry = self.now
@@ -414,7 +597,16 @@ class Sim:
             self._retry_waiting()
 
     def _convert(self, ins, g):
-        """The instance becomes a cold instance of function g (cold-start delay of g)."""
+        """The instance becomes a cold instance of function g (cold-start delay of g). Heterogeneous sizes: if the new container
+        does not fit next to what the node still holds (other busy instances waiting to convert), the old one is removed and the
+        new one waits in pending_add until room frees up, so live capacity is never exceeded."""
+        k = ins.node
+        if self.hetero and self.weighted_used(k) - self.sc.fw[ins.f] + self.sc.fw[g] > self.sc.ecc[k] + 1e-9:
+            ins.swap_to = -1                                       # its count has already moved to g
+            self.pending_add[k].append(int(g))
+            self.n_add_deferred += 1
+            self._destroy(ins)                                     # frees its room and starts what now fits
+            return
         self.inst[ins.node][ins.f].remove(ins)
         ins.f, ins.swap_to, ins.state = g, None, COLD
         ins.warm_at = self.now + self.cold_start[g]
@@ -448,16 +640,28 @@ class Sim:
         """Capacity used on node k, in sc.fw units (== n_slots_used when fw is all-ones)."""
         return sum(len(self.inst[k][g]) * self.sc.fw[g] for g in range(self.F))
 
-    def add_instance(self, k, f):
+    def add_instance(self, k, f, defer=False):
         """Start a new (cold) instance of f in a free slot of node k. Returns False if the node has no free slot (a slot is
-        occupied until a busy instance marked for removal has finished its run)."""
+        occupied until a busy instance marked for removal has finished its run). defer=True (heterogeneous sizes only): the
+        container joins the final count now and starts as soon as the room is free (pending_add), instead of being dropped."""
         if self.weighted_used(k) + self.sc.fw[f] > self.sc.ecc[k] + 1e-9:
+            if defer and self.hetero:
+                self.pending_add[k].append(int(f))
+                self.cnt[f, k] += 1
+                self.n_add_deferred += 1
+                self._fst_cache = {}
+                return True
             self.n_add_blocked += 1
             return False
+        self.cnt[f, k] += 1
+        self._new_instance(k, f)
+        return True
+
+    def _new_instance(self, k, f):
+        """A new cold instance of f on node k (its count is already in cnt)."""
         self._acct()
         ins = Instance(f, k, COLD, warm_at=self.now + self.cold_start[f])
         self.inst[k][f].append(ins)
-        self.cnt[f, k] += 1
         self._n_inst += 1
         self.cold_starts_total += 1
         if self.in_window(self.now):
@@ -471,6 +675,11 @@ class Sim:
         """Remove one instance of f from node k (the final count drops by one now). Preference as for a replacement: idle, then
         cold, destroyed at once; otherwise a pending incoming conversion is cancelled, otherwise a busy instance is destroyed
         when its run ends."""
+        if self.hetero and f in self.pending_add[k]:              # a container that never started: cancel it
+            self.pending_add[k].remove(int(f))
+            self.cnt[f, k] -= 1
+            self._fst_cache = {}
+            return
         cands = [i for i in self.inst[k][f] if i.swap_to is None]
         pref = [i for i in cands if i.state == IDLE] or [i for i in cands if i.state == COLD]
         if pref:
@@ -493,11 +702,27 @@ class Sim:
         ins.state = None
         self._n_inst -= 1
         self._fst_cache = {}
+        if self.hetero and self.pending_add[ins.node]:
+            self._start_pending(ins.node)
+
+    def _start_pending(self, k):
+        """Start the waiting containers of node k that now fit, in the order they were requested (heterogeneous sizes)."""
+        for f in list(self.pending_add[k]):
+            if self.weighted_used(k) + self.sc.fw[f] <= self.sc.ecc[k] + 1e-9:
+                self.pending_add[k].remove(f)
+                self._new_instance(k, f)
 
     # ------------------------------------------------------------------------------------------------ replacement
     def swap_instance(self, k, f_r, f_n):
         """Replace one instance of f_r on node k by a new (cold) instance of f_n (Alg.1 l.5-6). Preference: idle, then
         cold, then busy (the busy one finishes its run first, D-5)."""
+        if self.hetero and f_r in self.pending_add[k]:          # f_r has not started yet: wait for room as f_n instead
+            self.pending_add[k][self.pending_add[k].index(f_r)] = int(f_n)
+            self.cnt[f_r, k] -= 1
+            self.cnt[f_n, k] += 1
+            self._start_pending(k)
+            self._fst_cache = {}
+            return
         cands = [i for i in self.inst[k][f_r] if i.swap_to is None]
         pref = [i for i in cands if i.state == IDLE] or [i for i in cands if i.state == COLD]
         if pref:
@@ -541,7 +766,7 @@ class Sim:
         requests queued at (f, k) pairs that no longer hold f (they would otherwise never be served). Used by oracles."""
         X = np.asarray(X, dtype=int)
         used = X.dot(self.sc.fw)                                   # weighted row sums (== X.sum(axis=1) when fw is all-ones)
-        if self.elastic:                                          # slots may stay empty: row sums only have to fit
+        if self.elastic or self.hetero:                           # slots may stay empty: row sums only have to fit
             assert (used <= self.sc.ecc + 1e-9).all() and (X.sum(axis=0) >= 1).all()
         else:
             assert (np.abs(used - self.sc.ecc) <= 1e-9).all() and (X.sum(axis=0) >= 1).all()
@@ -551,6 +776,12 @@ class Sim:
                 continue
             dec = [f for f in np.flatnonzero(d < 0) for _ in range(int(-d[f]))]
             inc = [f for f in np.flatnonzero(d > 0) for _ in range(int(d[f]))]
+            if self.hetero:                                       # a swap changes the node's weight: removals first, then additions
+                for f_r in dec:
+                    self.remove_instance(k, int(f_r))
+                for f_n in inc:
+                    self.add_instance(k, int(f_n), defer=True)
+                continue
             for f_r, f_n in zip(dec, inc):
                 self.swap_instance(k, int(f_r), int(f_n))
             if self.elastic:                                      # the net difference: plain removals and additions
@@ -583,6 +814,7 @@ class Sim:
                     utilization=float(self.busy_time / (self.sc.ecc.sum() * cap_t)),
                     cold_starts=int(self.cold_starts), cold_starts_total=int(self.cold_starts_total),
                     n_adjust=self.n_adjust, n_moved=self.n_moved, n_rerouted=self.n_rerouted,
+                    n_join_bound=self.n_join_bound, n_join_rebound=self.n_join_rebound,
                     # reconfiguration cost (problem-scope.md S6): a 2D vector reported alongside P99, never optimised
                     # directly -- dim. 1 is mb_relocated (this), dim. 2 is cold_starts (above).
                     mb_relocated=float(self.mb_relocated), mb_relocated_total=float(self.mb_relocated_total),
@@ -598,21 +830,26 @@ class Sim:
                     warm_idle_slot_s=float(max(0.0, slots - self.busy_time - self.cold_slot_s)),
                     provisioned_slot_s=float(self.inst_s), mean_containers=float(self.inst_s / cap_t),
                     warm_idle_provisioned_s=float(max(0.0, self.inst_s - self.busy_time - self.cold_slot_s)),
-                    n_add_blocked=int(self.n_add_blocked),
+                    n_add_blocked=int(self.n_add_blocked), n_add_deferred=int(self.n_add_deferred),
                     adjust_ms_p95=q(self.adjust_ms, 95), plan_ms_p95=q(self.plan_ms, 95),
                     plan_ms_mean=float(np.mean(self.plan_ms)) if self.plan_ms else float("nan"),
-                    event_hash=self._hash.hexdigest())
+                    event_hash=self._hash.hexdigest(),
+                    **({"mover_impl": self.adjuster.mover_impl} if getattr(self.adjuster, "mover_impl", None) else {}))
 
     def check_invariants(self):
         """Capacity (D-7), storage and bookkeeping invariants; raises AssertionError."""
         for k in range(self.N):
             total = self.weighted_used(k)
-            if self.elastic:
+            if self.hetero:                                       # final (cnt-based) weight fits; in-flight conversions may differ
+                final = float(self.cnt[:, k] @ self.sc.fw)
+                assert final <= self.sc.ecc[k] + 1e-9, f"node {k}: final weighted capacity {final} > ecc {self.sc.ecc[k]}"
+                assert total <= self.sc.ecc[k] + 1e-9, f"node {k}: live weighted capacity {total} > ecc {self.sc.ecc[k]}"
+            elif self.elastic:
                 assert total <= self.sc.ecc[k] + 1e-9, f"node {k}: {total} weighted capacity > ecc {self.sc.ecc[k]}"
             else:
                 assert abs(total - self.sc.ecc[k]) <= 1e-9, f"node {k}: {total} weighted capacity != ecc {self.sc.ecc[k]} (D-7)"
             assert self.storage_used[k] <= self.esc[k] + 1e-6, f"node {k}: storage overflow"
             for f in range(self.F):
                 n_final = sum(1 for i in self.inst[k][f] if i.swap_to is None) + \
-                    sum(1 for g in range(self.F) for i in self.inst[k][g] if i.swap_to == f)
+                    sum(1 for g in range(self.F) for i in self.inst[k][g] if i.swap_to == f) + self.pending_add[k].count(f)
                 assert n_final == self.cnt[f, k], f"cnt mismatch at (f={f}, k={k})"

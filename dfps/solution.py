@@ -106,7 +106,7 @@ class Sol:
             heapq.heappush(heap, heapq.heappop(heap) + mu)
         return heap[0] + mu
 
-    def aet(self, run, k, ahead=None, lam=1.0, parts=False):
+    def aet(self, run, k, ahead=None, lam=1.0, parts=False, wait_w=1.0):
         """lam (2026-10-26, default 1.0 == original behaviour) weights the downstream-transfer term only ("out" below), not
         the input transfer or the service estimate -- the lambda-sweep probe's object of study. Every caller except
         O3SimAdjuster.rebalance_step's aet rule uses the default and is therefore unaffected (dfps/sa.py's SimulatedAnnealing,
@@ -123,6 +123,9 @@ class Sol:
         out = sum(net.stt(wf.ss[(run.task, c)], k, run.req.plan[c]) for c in wf.children[run.task])
         if parts:
             return inp, svc, out
+        if wait_w != 1.0:      # 2026-11-02, wait-weight test: weight only the predicted queue wait (svc - mean run time); default 1.0 == original
+            mu = self.sim.exec_time[run.f]
+            svc = mu + wait_w * (svc - mu)
         return inp + svc + lam * out
 
     def total_size(self, run):

@@ -25,7 +25,7 @@ ASSUME = yaml.safe_load((ROOT / "config" / "assumptions.yaml").read_text(encodin
 
 def initial_placements(sc, seed, gens, prop_variant="abs", log=None):
     """SR: random feasible placement. SG/DFPS: the NSGA-II plan (same plan for both)."""
-    prob = PlacementProblem(sc.network, sc.ecc, np.array([f.exec_time for f in sc.functions]), prop_variant)
+    prob = PlacementProblem(sc.network, sc.ecc, np.array([f.exec_time for f in sc.functions]), prop_variant, fw=sc.fw)
     x_sr = prob.random(np.random.default_rng(seed + 100))
     t = time.time()
     _, front_obj, x_sg = nsga2(prob, np.random.default_rng(seed + 200), gens=gens, log=log)
@@ -33,13 +33,14 @@ def initial_placements(sc, seed, gens, prop_variant="abs", log=None):
                             sr_objectives=prob.objectives(x_sr).tolist(), sg_objectives=prob.objectives(x_sg).tolist())
 
 
-def load_rl_policy(path, seed):
+def load_rl_policy(path, seed, sizes=False):
     import torch
     torch.set_num_threads(1)
-    q = QNet()
+    from dfps.rl import D, D_SIZES
+    q = QNet(d=D + (D_SIZES if sizes else 0))
     q.load_state_dict(torch.load(path))
     q.eval()
-    return MosecPolicy(seed=seed, train=False, qnet=q)
+    return MosecPolicy(seed=seed, train=False, qnet=q, sizes=sizes)
 
 
 def run_methods(sc, seed, gens, methods=("SR", "SG", "DFPS"), prop_variant="abs", fst_variant="prose",

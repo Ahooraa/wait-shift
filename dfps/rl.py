@@ -24,6 +24,11 @@ from torch import nn
 
 D_TASK, D_NODE = 4, 10
 D = D_TASK + D_NODE
+# CAP-W1 size features (2 Nov 2026): container size of the task's function, and per node the weighted load (containers counted
+# by their size fw), the free weighted room, and whether the task's container fits without evicting anything. Appended only when
+# MosecPolicy(sizes=True); the CAP-U network and its stored policy keep the original input width D.
+D_SIZE_TASK, D_SIZE_NODE = 1, 3
+D_SIZES = D_SIZE_TASK + D_SIZE_NODE
 
 
 def squash(x, c):
@@ -78,10 +83,12 @@ class MosecPolicy:
 
     def __init__(self, seed=0, train=False, qnet=None, total_train_decisions=200000, gamma=0.99, lr=1e-3, batch=64,
                  lam=3, buffer=5000, eps=(1.0, 0.05), eps_frac=0.4, train_every=4, target_every=500, clip=10.0,
-                 reward_scale=10.0):
+                 reward_scale=10.0, sizes=False):
         self.rng = np.random.default_rng(seed)
         torch.manual_seed(seed)
-        self.train, self.q = train, qnet if qnet is not None else QNet()
+        self.sizes = sizes
+        self.d = D + (D_SIZES if sizes else 0)
+        self.train, self.q = train, qnet if qnet is not None else QNet(d=self.d)
         self.gamma, self.batch, self.lam, self.reward_scale = gamma, batch, lam, reward_scale
         self.train_every, self.target_every, self.clip = train_every, target_every, clip
         self.eps0, self.eps1 = eps
@@ -93,7 +100,7 @@ class MosecPolicy:
         self.last = None
         self.losses = []
         if train:
-            self.target = QNet()
+            self.target = QNet(d=self.d)
             self.target.load_state_dict(self.q.state_dict())
             self.opt = torch.optim.Adam(self.q.parameters(), lr=lr)
 
@@ -101,7 +108,7 @@ class MosecPolicy:
         self.sim = sim
         self.last = None
         if self.train and self.buf is None:
-            self.buf = Buffer(self.buf_cap, sim.N, D)
+            self.buf = Buffer(self.buf_cap, sim.N, self.d)
 
     # --- state ----------------------------------------------------------------------------------------------
     def features(self, sim, r, t):
@@ -129,7 +136,19 @@ class MosecPolicy:
             squash(xfer.sum(axis=0), 2.0),
             squash(sim.qcnt[f] / ecc, 1.0),
         ], axis=1)
-        x = np.concatenate([np.broadcast_to(u, (N, D_TASK)), g], axis=1).astype(np.float32)
+        x = np.concatenate([np.broadcast_to(u, (N, D_TASK)), g], axis=1)
+        if self.sizes:
+            fw = np.asarray(sim.sc.fw, dtype=float)
+            used = fw @ sim.cnt                                    # weighted containers per node (cnt is [functions, nodes])
+            free = ecc - used
+            sz = np.stack([
+                np.full(N, squash(fw[f], 1.0)),                    # container size of the task's function
+                np.clip(used / ecc, 0.0, 1.5),                     # weighted load of the node
+                np.clip(free / ecc, -1.0, 1.0),                    # free weighted room
+                (free >= fw[f] - 1e-9).astype(float),              # fits without evicting an idle container
+            ], axis=1)
+            x = np.concatenate([x, sz], axis=1)
+        x = x.astype(np.float32)
         mask = (sim.esc - sim.storage_used) >= total
         return x, mask
 

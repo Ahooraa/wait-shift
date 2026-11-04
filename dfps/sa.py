@@ -21,7 +21,8 @@ class SimulatedAnnealing:
         self.rng = np.random.default_rng(seed)
         self.t_max, self.alpha, self.iterations, self.vicinity, self.accept = t_max, alpha, iterations, vicinity, accept
         self.best_so_far = best_so_far     # E3 correction (B*): return the best solution seen, not the last (paper: last, L-1)
-        self.stats = dict(iterations=0, rejected=0, noop=0, reverted=0, accepted_worse=0, accepted_better=0)
+        self.stats = dict(iterations=0, rejected=0, noop=0, reverted=0, accepted_worse=0, accepted_better=0,
+                          fit_checked=0, nofit=0)       # fit_checked/nofit: heterogeneous sizes only (proposals tested for fit / rejected for not fitting)
 
     # ------------------------------------------------------------------------------------------ Algorithm 2
     def run(self, sim):
@@ -74,6 +75,18 @@ class SimulatedAnnealing:
             return 0.0
         if sol.cnt[f_r].sum() == 1:                                        # A-31: never remove the last instance of f_r
             return None
+        fw = sim.sc.fw
+        if sim.hetero:                                                     # heterogeneous sizes (2026-11-02): f_n must fit e_s
+            room = sim.sc.ecc[es] - float(sol.cnt[:, es] @ fw) + fw[f_r]   # after removing one f_r
+            self.stats["fit_checked"] += 1
+            if fw[f_n] > room + 1e-9:                                      # redraw f_n among the functions that fit (never f_r),
+                self.stats["nofit"] += 1                                   # (counted: the first draw did not fit)
+                fit = [g for g in range(sim.F) if g != f_r and fw[g] <= room + 1e-9]   # so a trial is not wasted on a misfit;
+                if not fit:                                                # with equal sizes everything fits and this never runs
+                    self.stats["nofit_none"] = self.stats.get("nofit_none", 0) + 1
+                    return None
+                f_n = int(rng.choice(fit))
+                self.stats["redraw_up"] = self.stats.get("redraw_up", 0) + int(fw[f_n] > fw[f_r])
         forced = sol.cnt[f_r, es] == 1                                     # will fn_rs reach 0 (l.7)?
         old_aet = {}
         if forced:                                                         # D-3: AET in Sol_{t-1}

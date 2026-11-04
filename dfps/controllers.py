@@ -74,7 +74,12 @@ def proportional_counts(demand, S, floor=None, fw=None):
     if left < -1e-9:
         raise ValueError("fewer container slots than required instances")
     demand = np.asarray(demand, dtype=float)
-    share = (demand / demand.sum() * left) if demand.sum() > 0 else np.full(F, left / F)
+    # the budget is in capacity units, so it is shared in proportion to the CAPACITY each function needs (busy containers x
+    # container weight), not to its busy-container count: 2026-11-02 fix, found when ours lost its edge at 85% load on CAP-W1
+    # (sharing by count gave heavy functions fewer containers than their load needs: 11 of 30 functions above 95% utilisation,
+    # utilisation correlated +0.99 with the weight). With fw all ones the two are identical.
+    cap_demand = demand * fw
+    share = (cap_demand / cap_demand.sum() * left) if cap_demand.sum() > 0 else np.full(F, left / F)
     extra = np.floor(np.maximum(share, 0.0) / fw).astype(int)
     n_f = n_f + extra
     used = float((n_f * fw).sum())
@@ -94,6 +99,19 @@ def proportional_counts(demand, S, floor=None, fw=None):
     return n_f
 
 
+def _uniform_only(fn):
+    """Placement rules written for one slot per container (2026-11-02 audit, knowledge/synthesis/heterogeneous-container-sizes.md):
+    on a scenario with unequal container sizes (sc.fw not all ones) they would silently overfill nodes, so they refuse instead."""
+    import functools
+
+    @functools.wraps(fn)
+    def wrapper(sc, *a, **k):
+        if not np.allclose(sc.fw, 1.0):
+            raise NotImplementedError(f"{fn.__name__} assumes equal container sizes; use queue_aware_placement (weight-aware)")
+        return fn(sc, *a, **k)
+    return wrapper
+
+
 def origin_weights(arrivals, ne):
     """Share of requests arriving at each node, from an observed window of arrivals (no look-ahead)."""
     w = np.zeros(int(ne))
@@ -102,6 +120,7 @@ def origin_weights(arrivals, ne):
     return w / w.sum() if w.sum() else np.full(int(ne), 1.0 / int(ne))
 
 
+@_uniform_only
 def affinity_placement_v2(sc, rates=None, counts=None, cur=None, keep_weight=0.0, origin_weight=0.0, epoch=60.0,
                           o_w=None, softmin=1):
     """Placement with an explicit cost in seconds per second (2026-10-23). Same greedy shape as
@@ -194,6 +213,7 @@ def _placement_costs(sc, rates, origin_weight, o_w):
     return demand, aff / bw, ocost
 
 
+@_uniform_only
 def transport_placement(sc, rates=None, counts=None, cur=None, keep_weight=1.0, origin_weight=1.0, epoch=60.0,
                         o_w=None, iters=2):
     """Placement as a min-cost transportation problem (2026-10-23), replacing the sequential greedy of
@@ -269,7 +289,69 @@ def transport_placement(sc, rates=None, counts=None, cur=None, keep_weight=1.0, 
     return X
 
 
-def demand_points(sc, rates, cur, o_w=None, origin_weight=1.0, affinity=True):
+def _edge_phi(sc, w, floor):
+    """Critical-path weight of every edge of workflow w (V5 of the 1 Nov 2026 placement experiment): 1 - slack / CP, floored.
+    Slack = CP - (longest path through the edge), from mean run times only (no transfers, no queueing). Tasks are in topological
+    order. A chain has zero slack everywhere, so every weight is exactly 1.0."""
+    mu = [sc.functions[f].exec_time for f in w.ft]
+    n = w.n
+    ef = [0.0] * n
+    for t in range(n):
+        ef[t] = mu[t] + max((ef[u] for u in w.parents[t]), default=0.0)
+    cp = max(ef)
+    lp = [0.0] * n
+    for t in range(n - 1, -1, -1):
+        lp[t] = mu[t] + max((lp[c] for c in w.children[t]), default=0.0)
+    return {(u, v): max(floor, 1.0 - (cp - (ef[u] + lp[v])) / cp) if cp > 0 else 1.0 for (u, v) in w.ss}
+
+
+def _add_structure(aff, sc, w, r, struct):
+    """Extra pulls between function types from the shape of workflow w (1 Nov 2026 placement experiment); `struct` keys:
+    path2 = gamma: a -> b -> c adds gamma * r * min(s_ab, s_bc) between a and c (two-hop partners);
+    join  = gamma: two parents a, b of one task add gamma * r * min(s_a, s_b) between a and b (join cohesion);
+    fork  = gamma: two children b, c of one task add gamma * r * min(s_b, s_c) between b and c (fork cohesion).
+    Every pull is symmetric and only between different function types, like the direct-edge term."""
+    def put(x, y, wt):
+        if x != y and wt > 0:
+            aff[x, y] += wt
+            aff[y, x] += wt
+    g2, gj, gf = struct.get("path2", 0.0), struct.get("join", 0.0), struct.get("fork", 0.0)
+    for v in range(w.n):
+        pa, ch = w.parents[v], w.children[v]
+        if g2:
+            for u in pa:
+                for x in ch:
+                    put(w.ft[u], w.ft[x], g2 * r * min(w.ss[(u, v)], w.ss[(v, x)]))
+        if gj and len(pa) > 1:
+            for i, u1 in enumerate(pa):
+                for u2 in pa[i + 1:]:
+                    put(w.ft[u1], w.ft[u2], gj * r * min(w.ss[(u1, v)], w.ss[(u2, v)]))
+        if gf and len(ch) > 1:
+            for i, c1 in enumerate(ch):
+                for c2 in ch[i + 1:]:
+                    put(w.ft[c1], w.ft[c2], gf * r * min(w.ss[(v, c1)], w.ss[(v, c2)]))
+
+
+def function_state_size(sc, rates=None):
+    """Rate-weighted mean size (MB) of the states each function sends or receives, request input included for roots (V1 of the
+    1 Nov 2026 placement experiment). Functions that touch no state fall back to the cluster-wide mean."""
+    F = len(sc.functions)
+    rates = expected_workflow_rates(sc) if rates is None else np.asarray(rates, dtype=float)
+    num, den = np.zeros(F), np.zeros(F)
+    for w, r in zip(sc.workflows, rates):
+        for (u, v), s in w.ss.items():
+            for t in (u, v):
+                num[w.ft[t]] += r * s
+                den[w.ft[t]] += r
+        for t in w.roots:
+            num[w.ft[t]] += r * w.input_size
+            den[w.ft[t]] += r
+    ss = [s for w in sc.workflows for s in w.ss.values()]
+    mean = float(np.mean(ss)) if ss else 30.0
+    return np.where(den > 0, num / np.maximum(den, 1e-12), mean)
+
+
+def demand_points(sc, rates, cur, o_w=None, origin_weight=1.0, affinity=True, struct=None):
     """Per function, the weighted demand points its containers have to be close to, in MB/s of state that must travel.
 
     For function f: every node holding a workflow partner g, carrying aff[f, g] of state per second (spread over g's hosts),
@@ -279,19 +361,27 @@ def demand_points(sc, rates, cur, o_w=None, origin_weight=1.0, affinity=True):
     `affinity=False` (diagnostic, 2026-10-25): drop the workflow-partner term, keep only the origin term -- placement no
     longer pulls a function toward its producers/consumers, only toward where requests start. Used to test whether the
     locality term matters for P99 as data size grows (data-oblivious placement that still respects capacity).
+    `struct` (1 Nov 2026 placement experiment, default None = the frozen controller, bit-identical): dict of workflow-shape
+    additions. Keys path2 / join / fork = gamma (see `_add_structure`), cp = floor (multiply each direct edge by its critical-path
+    weight, see `_edge_phi`). They only change the function-to-function pulls, never the origin term.
     Returns dem[F, N] in MB/s."""
     N, F = sc.network.ne, len(sc.functions)
     rates = expected_workflow_rates(sc) if rates is None else np.asarray(rates, dtype=float)
     cur = np.asarray(cur, dtype=int)
     aff = np.zeros((F, F))
     dem = np.zeros((F, N))
+    cp_floor = None if not struct else struct.get("cp")
     for w, r in zip(sc.workflows, rates):
         if affinity:
+            phi = _edge_phi(sc, w, cp_floor) if cp_floor is not None else None
             for (u, v), size in w.ss.items():
                 a, b = w.ft[u], w.ft[v]
                 if a != b:
-                    aff[a, b] += r * size
-                    aff[b, a] += r * size
+                    wt = r * size if phi is None else r * size * phi[(u, v)]
+                    aff[a, b] += wt
+                    aff[b, a] += wt
+            if struct:
+                _add_structure(aff, sc, w, r, struct)
         if origin_weight and o_w is not None:
             for t in w.roots:
                 dem[w.ft[t]] += origin_weight * r * w.input_size * np.asarray(o_w, dtype=float)
@@ -309,7 +399,7 @@ def _cover_gain(dem_f, h, cur_min):
 
 
 def queue_aware_placement(sc, rates=None, counts=None, cur=None, o_w=None, origin_weight=1.0, busy=None, tau=1.0,
-                          queue_term=True, util_clip=0.97, affinity=True):
+                          queue_term=True, util_clip=0.97, affinity=True, struct=None, size_aware=False):
     """Capacity- and queue-aware incremental placement (2026-10-23): the k-median of `kmedian_placement` with a cost that
     knows containers have finite capacity.
 
@@ -328,27 +418,36 @@ def queue_aware_placement(sc, rates=None, counts=None, cur=None, o_w=None, origi
     The layout cost is transfer + queueing, in seconds per second, for every function, so gains are comparable across
     functions. Growth picks the (function, node) pair with the largest cost reduction; shrinking removes the container whose
     loss is smallest; containers that need not move stay where they are (the incremental construction of the k-median).
-    `queue_term=False` keeps the soft routing but drops the waiting term (ablation: isolates what the queue model adds)."""
+    `queue_term=False` keeps the soft routing but drops the waiting term (ablation: isolates what the queue model adds).
+    `struct` (workflow-shape additions to the demand points, see `demand_points`) and `size_aware` (seconds per hop from each
+    function's own state sizes instead of the cluster-wide mean) are the 1 Nov 2026 placement-experiment options; both default
+    off, which reproduces the frozen controller bit for bit."""
     N, F = sc.network.ne, len(sc.functions)
     rates = expected_workflow_rates(sc) if rates is None else np.asarray(rates, dtype=float)
     mu = np.array([f.exec_time for f in sc.functions])
     h = sc.network.h.astype(float)
     ecc = sc.ecc.astype(int)
     S = int(ecc.sum())
+    fw = np.asarray(sc.fw, dtype=float)
+    hetero = not np.allclose(fw, 1.0)                     # container sizes differ (2026-11-02): capacity is a weighted knapsack
     if counts is None:
         dm = np.zeros(F)
         for w, r in zip(sc.workflows, rates):
             for t in range(w.n):
                 dm[w.ft[t]] += r * mu[w.ft[t]]
-        counts = proportional_counts(dm, S)
+        counts = proportional_counts(dm, S, fw=fw if hetero else None)
     n_f = np.asarray(counts, dtype=int)
-    assert n_f.sum() <= S and (n_f >= 1).all()
+    assert (float(n_f @ fw) <= S + 1e-9 if hetero else n_f.sum() <= S) and (n_f >= 1).all()
     cur = np.zeros((N, F), dtype=int) if cur is None else np.asarray(cur, dtype=int)
     ref = cur if cur.any() else np.ones((N, F), dtype=int)
-    dem = demand_points(sc, rates, ref, o_w=o_w, origin_weight=origin_weight, affinity=affinity)
+    dem = demand_points(sc, rates, ref, o_w=o_w, origin_weight=origin_weight, affinity=affinity, struct=struct)
     busy = (0.8 * n_f.astype(float)) if busy is None else np.asarray(busy, dtype=float)
     ss = [s for w in sc.workflows for s in w.ss.values()]
     t_hop = sc.network.epd + (float(np.mean(ss)) if ss else 30.0) / sc.network.bw       # seconds per hop for a typical state
+    if size_aware:                                                                       # V1: each function's own state sizes
+        t_hop_f = sc.network.epd + function_state_size(sc, rates) / sc.network.bw
+    else:
+        t_hop_f = np.full(F, t_hop)
     W = np.exp(-h / float(tau))                                                         # [N, N] attraction between nodes
     B = W * h
 
@@ -367,7 +466,7 @@ def queue_aware_placement(sc, rates=None, counts=None, cur=None, o_w=None, origi
         cc = c[None, :] + delta                                                         # [K, N]
         Sd = cc @ Wa.T                                                                  # [K, D] sum_n c'_n W_dn
         Sd = np.maximum(Sd, 1e-12)
-        transfer = ((cc @ Ba.T) / Sd * ra[None, :]).sum(axis=1) * t_hop                 # [K]
+        transfer = ((cc @ Ba.T) / Sd * ra[None, :]).sum(axis=1) * t_hop_f[f]            # [K]
         if not queue_term:
             return transfer
         T = (1.0 / Sd) * ra[None, :] @ Wa                                               # [K, N] sum_d r_d W_dn / S'_d
@@ -387,13 +486,13 @@ def queue_aware_placement(sc, rates=None, counts=None, cur=None, o_w=None, origi
             delta[np.arange(len(hosts)), hosts] = -1.0
             cost = costs(f, X[:, f].astype(float), delta)
             X[hosts[int(np.argmin(cost))], f] -= 1
-    free = ecc - X.sum(axis=1)
+    free = (ecc - X @ fw) if hetero else ecc - X.sum(axis=1)
     need = n_f - X.sum(axis=0)
-    assert (free >= 0).all() and need.sum() <= free.sum()
+    assert (free >= -1e-9).all() and (hetero or need.sum() <= free.sum())
 
     gains, dirty = {}, set(np.flatnonzero(need > 0).tolist())
     while need.sum() > 0:
-        avail = np.flatnonzero(free > 0)
+        avail = np.flatnonzero(free > 1e-9) if hetero else np.flatnonzero(free > 0)
         for f in list(dirty):
             c = X[:, f].astype(float)
             delta = np.zeros((len(avail), N))
@@ -407,19 +506,59 @@ def queue_aware_placement(sc, rates=None, counts=None, cur=None, o_w=None, origi
         best, bf, bk = -np.inf, None, None
         for f in np.flatnonzero(need > 0):
             g = gains[int(f)].copy()
-            g[free <= 0] = -np.inf
+            g[(free < fw[int(f)] - 1e-9) if hetero else (free <= 0)] = -np.inf   # a container of f must FIT, not just find a free slot
             k = int(np.argmax(g))
             if g[k] > best:
                 best, bf, bk = float(g[k]), int(f), k
-        if bf is None:
+        if bf is None and hetero:
+            # nothing fits anywhere (fragmentation: the free capacity is spread in pieces smaller than any needed container)
+            f0 = int(np.flatnonzero(need > 0)[np.argmax(need[need > 0])])
+            if X[:, f0].sum() > 0:
+                need[f0] = 0                                  # f0 keeps the instances it has; the sizing rule's extra ones are dropped
+                continue
+            donors = [(fw[g], k, g) for k in range(N) for g in np.flatnonzero(X[k]) if X[:, g].sum() > 1 and free[k] + fw[g] >= fw[f0] - 1e-9]
+            if not donors:
+                raise ValueError("no feasible layout: a function with no instance fits nowhere")
+            _, k, g = min(donors)                             # evict the lightest donor that frees enough room
+            X[k, g] -= 1
+            free[k] += fw[g]
+            bf, bk = f0, k
+        elif bf is None:
             bf = int(np.flatnonzero(need > 0)[0])
             bk = int(avail[0])
         X[bk, bf] += 1
-        free[bk] -= 1
+        free[bk] -= fw[bf] if hetero else 1
         need[bf] -= 1
         if need[bf] > 0:
             dirty.add(bf)
-    assert (X.sum(axis=1) <= ecc).all() and (X.sum(axis=0) == n_f).all()
+    if hetero:
+        # D-7 for unequal sizes: keep adding the best-gain container that FITS until none does. The sizing rule's counts cannot
+        # tile every node exactly (the leftover on a node is smaller than any container the rule still wanted), so the counts
+        # are a floor and the leftover goes where it reduces cost most.
+        while True:
+            fit = np.flatnonzero(free >= fw.min() - 1e-9)
+            if fit.size == 0:
+                break
+            best, bf, bk = -np.inf, None, None
+            for f in range(F):
+                ks = fit[free[fit] >= fw[f] - 1e-9]
+                if ks.size == 0:
+                    continue
+                c = X[:, f].astype(float)
+                delta = np.zeros((len(ks), N))
+                delta[np.arange(len(ks)), ks] = 1.0
+                new = costs(f, c, delta)
+                g = (costs(f, c, np.zeros((1, N)))[0] - new) if c.sum() > 0 else -new
+                j = int(np.argmax(g))
+                if g[j] > best:
+                    best, bf, bk = float(g[j]), f, int(ks[j])
+            if bf is None:
+                break
+            X[bk, bf] += 1
+            free[bk] -= fw[bf]
+        assert (X @ fw <= ecc + 1e-9).all() and (X.sum(axis=0) >= 1).all()
+    else:
+        assert (X.sum(axis=1) <= ecc).all() and (X.sum(axis=0) == n_f).all()
     return X
 
 
@@ -528,6 +667,7 @@ def _two_opt(sc, X, dem, h, epoch, max_swaps, cap=None):
     return swaps
 
 
+@_uniform_only
 def kmedian_placement(sc, rates=None, counts=None, cur=None, o_w=None, origin_weight=1.0, incremental=True,
                       improve=0, epoch=60.0, spread_cap=None):
     """Re-layout as an incremental weighted k-median (2026-10-23), replacing `affinity_greedy_placement`.
@@ -644,6 +784,7 @@ def kmedian_placement(sc, rates=None, counts=None, cur=None, o_w=None, origin_we
     return X
 
 
+@_uniform_only
 def affinity_greedy_placement(sc, rates=None, counts=None):
     """D3 heuristic placement X [N, F] (instances of function f on node k), filling every container slot (invariant D-7).
     counts: optional instance count per function (sum = total slots); default proportional to expected busy slots."""
@@ -713,6 +854,7 @@ class RejectSet:
         return req.id not in self.ids
 
 
+@_uniform_only
 def faaspr_placement(sc, rates=None, counts=None, cur=None, hg_limit=4, aggre=1e-3, rng=None):
     """FaaSPR's placement (Jia et al., IEEE/ACM ToN 2025, Sec. IV: horizontal and vertical grouping + migration-minimizing placing),
     ported to our model (2026-10-24). Returns X [N, F] filling every slot.

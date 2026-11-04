@@ -18,18 +18,23 @@ from .network import transit_stub
 _TASK = re.compile(r"^([A-Za-z]+)(\d+)((?:_\d+)*)$")
 
 
-def load_alibaba_batch_task(path, max_exec_s=None, min_tasks=2, max_jobs=None):
+def load_alibaba_batch_task(path, max_exec_s=None, min_tasks=2, max_jobs=None, with_profile=False):
     """Parse cluster-trace-v2018 `batch_task.csv` (9 columns, no header, times in seconds; verified on the real file):
     task_name, instance_num, job_name, task_type, status, start_time, end_time, plan_cpu, plan_mem.
     DAG dependencies are encoded in task names ("M5_3_4" = task 5 depends on tasks 3 and 4; the letter is irrelevant).
     Keeps jobs whose tasks are all DAG-named and Terminated with start_time > 0, that form a valid acyclic DAG of at least
     `min_tasks` tasks, and whose execution time (A-29: max(end_time) - min(start_time), seconds) is under `max_exec_s`
-    (the paper: applications with short execution times, under one minute, p.9). Vectorised: ~15M rows, ~1 minute."""
+    (the paper: applications with short execution times, under one minute, p.9). Vectorised: ~15M rows, ~1 minute.
+
+    with_profile (2026-11-02): also return each task's resource request, in the same topological order as `edges`'
+    indices: `plan_cpu` (100 = one core) and `plan_mem` (trace-normalised memory, 0..1), per instance of the task; None where
+    the trace leaves the field empty. Selection and order of the jobs are identical with and without it."""
     import pandas as pd
 
     max_exec_s = PAPER["alibaba_job_max_execution_s"]["value"] if max_exec_s is None else max_exec_s
-    df = pd.read_csv(path, header=None, usecols=[0, 2, 4, 5, 6], names=["task_name", "job_name", "status", "start", "end"],
-                     dtype={"task_name": str, "job_name": str, "status": str})
+    cols = [0, 2, 4, 5, 6] + ([7, 8] if with_profile else [])
+    names = ["task_name", "job_name", "status", "start", "end"] + (["plan_cpu", "plan_mem"] if with_profile else [])
+    df = pd.read_csv(path, header=None, usecols=cols, names=names, dtype={"task_name": str, "job_name": str, "status": str})
     df["bad"] = (df["status"] != "Terminated") | (df["start"] <= 0) | ~df["task_name"].str.match(r"^[A-Za-z]+\d+(?:_\d+)*$")
     g = df.groupby("job_name")
     stats = g.agg(bad=("bad", "max"), n=("bad", "size"), t0=("start", "min"), t1=("end", "max"))
@@ -38,11 +43,16 @@ def load_alibaba_batch_task(path, max_exec_s=None, min_tasks=2, max_jobs=None):
     out = []
     for job, grp in sub.groupby("job_name", sort=False):
         ids, deps, ok = [], {}, True
-        for name in grp["task_name"]:
+        prof = {}
+        pc = grp["plan_cpu"].tolist() if with_profile else None
+        pm = grp["plan_mem"].tolist() if with_profile else None
+        for i, name in enumerate(grp["task_name"]):
             m = _TASK.match(name)
             tid = int(m.group(2))
             ids.append(tid)
             deps[tid] = [int(x) for x in m.group(3).split("_") if x]
+            if with_profile:
+                prof[tid] = (None if pc[i] != pc[i] else float(pc[i]), None if pm[i] != pm[i] else float(pm[i]))
         if len(set(ids)) != len(ids) or any(d not in deps for v in deps.values() for d in v):
             continue
         order, seen = [], set()
@@ -57,7 +67,11 @@ def load_alibaba_batch_task(path, max_exec_s=None, min_tasks=2, max_jobs=None):
             continue
         idx = {t: i for i, t in enumerate(order)}
         edges = [(idx[d], idx[t]) for t in order for d in deps[t]]
-        out.append(dict(job=job, n=len(order), edges=edges, span=float(keep.loc[job, "t1"] - keep.loc[job, "t0"])))
+        rec = dict(job=job, n=len(order), edges=edges, span=float(keep.loc[job, "t1"] - keep.loc[job, "t0"]))
+        if with_profile:
+            rec["plan_cpu"] = [prof[t][0] for t in order]
+            rec["plan_mem"] = [prof[t][1] for t in order]
+        out.append(rec)
         if max_jobs and len(out) >= max_jobs:
             break
     return out
@@ -114,8 +128,9 @@ def build_scenario(seed, kind="uniform", scale=1.0, ne=None, n_workflows=None, p
     source = "alibaba-2018 batch_task (real)" if dags is not None else "SYNTHETIC-alibaba-like (OPEN-2)"
     pool = dags if dags is not None else synthetic_alibaba_like(rng, max(nw * 4, 60), max_tasks=synthetic_max_tasks)
     picks = rng.choice(len(pool), nw, replace=False)
-    workflows = []
+    workflows, picked_jobs = [], []
     for wid, p in enumerate(picks):
+        picked_jobs.append(pool[int(p)].get("job"))
         d = pool[int(p)]
         d = dict(d, edges=[tuple(e) for e in d["edges"]])
         if function_mapping == "pool":
@@ -136,7 +151,7 @@ def build_scenario(seed, kind="uniform", scale=1.0, ne=None, n_workflows=None, p
     total_rate = float(np.sum(1.0 / means))
     meta = dict(synthetic_max_tasks=(None if dags is not None else synthetic_max_tasks),
                 mean_tasks=float(np.mean([w.n for w in workflows])), seed=seed, kind=kind, scale=scale, ne=ne, nw=nw, pool_size=len(functions), function_mapping=function_mapping, duration_s=duration_s,
-                dag_source=source, per_app_rate=(1.0 / means).tolist(), total_rate_per_s=total_rate,
+                dag_source=source, workflow_jobs=picked_jobs, per_app_rate=(1.0 / means).tolist(), total_rate_per_s=total_rate,
                 rate_within_table2=bool(PAPER["incoming_request_rate_per_s"]["min"] <= total_rate
                                         <= PAPER["incoming_request_rate_per_s"]["max"]))
     return Scenario(functions, workflows, net, ecc, esc, arrivals, meta)

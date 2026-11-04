@@ -58,6 +58,32 @@ def locality(sim, r):
     return _plan_tasks(sim, r, choose)
 
 
+def transfer_only(sim, r):
+    """Objective alignment, deterministic part only (2026-11-04): each task goes to the feasible node with the smallest summed input-transfer
+    time from its parents' planned nodes (the origin for a root); ties (common: equal hop counts) broken by FST. No wait term is optimised,
+    on the reading that the planning-time wait estimate carries little information and the mover handles waits."""
+    def choose(sim, f, t, ks, src):
+        d = _transfer(sim, ks, src)
+        return ks[int(np.lexsort((sim.fst_vec(f)[ks], d))[0])]
+    return _plan_tasks(sim, r, choose)
+
+
+def mover_aet(sim, r):
+    """Objective alignment with the mover's own score (2026-11-04): each task goes to the node minimising input transfer + the mover's
+    service estimate (Sol.service_estimate over the live instance availability, at the current queue length plus the tasks of this plan
+    already placed on that (function, node)). The output term of the mover's score is left out: here every edge is priced once, as the
+    child's input transfer."""
+    from .solution import Sol
+    sol, extra = Sol(sim), {}
+
+    def choose(sim, f, t, ks, src):
+        svc = np.array([sol.service_estimate(f, int(k), len(sim.queue[int(k)][f]) + extra.get((f, int(k)), 0)) for k in ks])
+        k = int(ks[int(np.argmin(_transfer(sim, ks, src) + svc))])
+        extra[(f, k)] = extra.get((f, k), 0) + 1
+        return k
+    return _plan_tasks(sim, r, choose)
+
+
 def jsq(sim, r):
     def choose(sim, f, t, ks, src):
         load = np.array([len(sim.queue[k][f]) for k in ks], dtype=float) / sim.cnt[f, ks]
@@ -179,7 +205,7 @@ class GraphAware:
 # Comm.-Cost-Aware Greedy (Liang et al. 2026, Sec. 5.1.4: "local execution suitability, predecessor communication penalty, and execution
 # cost") is exactly greedy_eft here: FST + transfer, in seconds, with no node prices.
 DISPATCHERS = {"greedy_eft": greedy_eft, "locality": locality, "jsq": jsq, "random": random_node, "resource_fit": resource_fit,
-               "heft_like": heft_like, "ccag": greedy_eft}
+               "heft_like": heft_like, "ccag": greedy_eft, "transfer_only": transfer_only, "mover_aet": mover_aet}
 
 
 class FaaSPRRouter:

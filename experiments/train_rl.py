@@ -25,7 +25,25 @@ def training_plan(episodes, base_seed=1000):
     return [(base_seed + i, *kinds[i % len(kinds)]) for i in range(episodes)]
 
 
-def train(dags, episodes=24, duration=90.0, seed=0, log=print, calibrated=False):
+def capw1_scenario(sc, profiles, dags, duration):
+    """CAP-W1 (same recipe as output/data-analysis/capw1_light.py::prep_job): profile container weights, then scaled so the
+    offered load in capacity units equals the nominal load (the test isolates sizes, not load)."""
+    from dfps.profiles import with_profiled_weights
+    sc = with_profiled_weights(sc, profiles, agg="mean", alibaba_dags=dags)
+    mu = np.array([f.exec_time for f in sc.functions])
+    fw = np.asarray(sc.fw, dtype=float)
+    u = w = 0.0
+    for t, wid, _ in sc.arrivals:
+        if t < duration:
+            ft = sc.workflows[wid].ft
+            u += float(sum(mu[f] for f in ft))
+            w += float(sum(mu[f] * fw[f] for f in ft))
+    sc.fw = fw * (u / w)
+    sc.meta = dict(sc.meta, capacity_model="CAP-W1")
+    return sc
+
+
+def train(dags, episodes=24, duration=90.0, seed=0, log=print, calibrated=False, capw1=False):
     plan = training_plan(episodes)
     if calibrated:
         # calibrated reproduction scenario (2026-10-18): depth<=2 Alibaba jobs, one function per task; network size and number of
@@ -35,8 +53,12 @@ def train(dags, episodes=24, duration=90.0, seed=0, log=print, calibrated=False)
                               function_mapping="distinct") for i, (s, kind, scale) in enumerate(plan)]
     else:
         scs = [build_scenario(s, kind, scale, duration_s=duration, dags=dags) for s, kind, scale in plan]
+    if capw1:
+        from dfps.profiles import load_profiles
+        profiles = load_profiles(ROOT / "data" / "alibaba_dags_lt60s_profiles.json")
+        scs = [capw1_scenario(sc, profiles, dags, duration) for sc in scs]
     total = sum(sum(sc.workflows[w].n for _, w, _ in sc.arrivals) for sc in scs)
-    pol = MosecPolicy(seed=seed, train=True, total_train_decisions=total)
+    pol = MosecPolicy(seed=seed, train=True, total_train_decisions=total, sizes=capw1)
     hist = []
     for ep, ((s, kind, scale), sc) in enumerate(zip(plan, scs)):
         t = time.time()
@@ -57,6 +79,7 @@ if __name__ == "__main__":
     ap.add_argument("--dags", default=str(ROOT / "data" / "alibaba_dags_lt60s.json"))
     ap.add_argument("--out", default=str(ROOT / "results" / "rl_policy.pt"))
     ap.add_argument("--calibrated", action="store_true", help="train on the calibrated reproduction scenario")
+    ap.add_argument("--capw1", action="store_true", help="CAP-W1: container sizes from profiles; policy gets size features")
     a = ap.parse_args()
     if a.calibrated:
         import sys
@@ -65,6 +88,6 @@ if __name__ == "__main__":
         dags = [d for d in json.load(open(ROOT / "data" / "alibaba_dags_lt60s_min1.json")) if dag_depth(d) <= 2]
     else:
         dags = json.load(open(a.dags))
-    pol, hist = train(dags, a.episodes, a.duration, a.seed, calibrated=a.calibrated)
+    pol, hist = train(dags, a.episodes, a.duration, a.seed, calibrated=a.calibrated, capw1=a.capw1)
     torch.save(pol.q.state_dict(), a.out)
     Path(a.out).with_suffix(".json").write_text(json.dumps(hist))

@@ -42,7 +42,12 @@ class ORun(Run):
 
 
 class OnDemandSim(Sim):
-    def __init__(self, sc, policy, seed=0, duration=None, warmup=30.0, drain_factor=20.0, debug=False, keep_warm=None, exec_mult=None):
+    def __init__(self, sc, policy, seed=0, duration=None, warmup=30.0, drain_factor=20.0, debug=False, keep_warm=None, exec_mult=None,
+                 X0=None):
+        # X0 (2026-11-01, user question: is the empty-slot start part of why Heu/RL show so many cold starts?): optional [N, F]
+        # placement of WARM idle containers to start from, e.g. the same NSGA-II layout B* and ours start from (P["X0"] in
+        # results/d1_headroom/*.prep.pkl). None = the paper's own model, every slot empty (DFPS p.9-11, the default above).
+        # This only changes the t=0 state; dispatch, recycling and cold-start accounting afterwards are unchanged.
         N, F = sc.network.ne, len(sc.functions)
         super().__init__(sc, np.zeros((N, F), dtype=int), adjuster=None, seed=seed, duration=duration, warmup=warmup,
                          drain_factor=drain_factor, debug=debug, allow_empty=True)
@@ -55,6 +60,19 @@ class OnDemandSim(Sim):
         self.nq = [deque() for _ in range(N)]
         self.wait_tasks = deque()
         self.n_recycled = 0
+        self.X0 = None if X0 is None else np.asarray(X0, dtype=int)
+        if self.X0 is not None:
+            assert self.X0.shape == (N, F), f"X0 shape {self.X0.shape} != ({N}, {F})"
+            for k in range(N):
+                if (float(self.X0[k] @ sc.fw) > self.ecc[k] + 1e-9) if self.hetero else (int(self.X0[k].sum()) > self.ecc[k]):
+                    raise ValueError(f"X0 exceeds ecc_{k}")
+                for f in range(F):
+                    for _ in range(int(self.X0[k, f])):
+                        ins = OInstance(f, k, IDLE)        # warm from t=0: not an _acquire() cold start, not counted anywhere
+                        self.inst[k][f].append(ins)
+                        self.idle[f, k] += 1
+                        self.tot[k] += 1
+                    self.cnt[f, k] = int(self.X0[k, f])
         # keep_warm (baseline diagnostic, 2026-10-18): None = an idle container stays warm until its slot is recycled (AB-C1..C4,
         # the default so far); 0 = released as soon as its task finishes (no reuse; AB-H5's proposed default "new instance per
         # request, released after use"); t > 0 = removed after t seconds idle (MOSEC-style idle timeout, AB-R4).
@@ -147,12 +165,15 @@ class OnDemandSim(Sim):
 
     def _try_node(self, k):
         q = self.nq[k]
-        avail = self.ecc[k] - self.occ[k]
+        avail = len(q) if self.hetero else self.ecc[k] - self.occ[k]   # unequal sizes: _acquire decides whether a run fits
         if not q or avail <= 0:
             return
         for run in list(q):
             if avail <= 0:
                 break
+            if self.hetero and self.idle[:, k].sum() == 0 and \
+                    self.ecc[k] - float(self.cnt[:, k] @ self.sc.fw) < self.sc.fw.min() - 1e-9:
+                break                                               # nothing idle to use or recycle and no room for even the lightest
             if self._acquire(k, run) is False:                      # only pre-warming containers of other functions are free
                 continue
             q.remove(run)
@@ -172,7 +193,9 @@ class OnDemandSim(Sim):
             pre.run = run
             self.occ[k] += 1
             return
-        if self.tot[k] >= self.ecc[k]:                               # (3) recycle the LRU idle container of another function
+        if self.hetero and not self._room_for(k, f):                 # (3h) unequal container sizes: recycle idle ones until f fits
+            return False
+        if not self.hetero and self.tot[k] >= self.ecc[k]:           # (3) recycle the LRU idle container of another function
             if self.recycle_budget is not None:
                 if self.recycle_budget[k] < 1.0:
                     return False                                     # anti-churn: wait for a warm container instead
@@ -222,6 +245,42 @@ class OnDemandSim(Sim):
             return
         self._start(ins, ins.run)
 
+    def _room_for(self, k, f):
+        """Heterogeneous container sizes (2026-11-02): make room on node k for one new container of f, recycling idle containers of
+        OTHER functions in the same order as `_evict_choice` (LRU by default) until the weights fit. All-or-nothing: if the idle
+        containers cannot free enough, nothing is evicted and False is returned (the run waits). Returns True when f fits."""
+        fw = self.sc.fw
+        need = float(self.cnt[:, k] @ fw) + fw[f] - self.ecc[k]
+        if need <= 1e-9:
+            return True
+        cand = []
+        for g in np.flatnonzero(self.idle[:, k]):
+            if g == f:
+                continue
+            for i in self.inst[k][g]:
+                if i.state == IDLE and i.run is None:
+                    cand.append(((i.last,) if self.evict_score is None else (float(self.evict_score[g]), i.last), id(i), i))
+        cand.sort(key=lambda x: (x[0], x[1]))
+        chosen, freed = [], 0.0
+        for _, _, i in cand:
+            chosen.append(i)
+            freed += fw[i.f]
+            if freed >= need - 1e-9:
+                break
+        if freed < need - 1e-9:
+            return False
+        if self.recycle_budget is not None:
+            if self.recycle_budget[k] < len(chosen):
+                return False                                         # anti-churn: wait for a warm container instead
+            self.recycle_budget[k] -= len(chosen)
+        for i in chosen:
+            self.inst[k][i.f].remove(i)
+            self.idle[i.f, k] -= 1
+            self.cnt[i.f, k] -= 1
+            self.tot[k] -= 1
+            self.n_recycled += 1
+        return True
+
     def _evict_choice(self, k, exclude=None):
         """Idle container to recycle on node k: least recently used (default) or, with evict_score, lowest score then LRU."""
         best, bkey = None, None
@@ -239,6 +298,8 @@ class OnDemandSim(Sim):
         """Start a container of f on node k before any task needs it (used only by the look-ahead cheater). Uses a free slot,
         else recycles the least-recently-used idle container of another function; returns False if the node is full of busy or
         warming containers. Counts as a cold start."""
+        if self.hetero:
+            raise NotImplementedError("prewarm (look-ahead cheater) assumes equal container sizes")
         if self.tot[k] >= self.ecc[k]:
             best = self._evict_choice(k, exclude=f)
             if best is None:
@@ -300,7 +361,11 @@ class OnDemandSim(Sim):
     def check_invariants(self):
         for k in range(self.N):
             n_inst = sum(len(self.inst[k][f]) for f in range(self.F))
-            assert n_inst == self.tot[k] <= self.ecc[k], f"node {k}: container count {n_inst}/{self.tot[k]}/{self.ecc[k]}"
+            if self.hetero:
+                wused = sum(len(self.inst[k][f]) * self.sc.fw[f] for f in range(self.F))
+                assert n_inst == self.tot[k] and wused <= self.ecc[k] + 1e-9, f"node {k}: weighted capacity {wused} / {self.ecc[k]}"
+            else:
+                assert n_inst == self.tot[k] <= self.ecc[k], f"node {k}: container count {n_inst}/{self.tot[k]}/{self.ecc[k]}"
             occ = sum(1 for f in range(self.F) for i in self.inst[k][f] if i.run is not None)
             assert occ == self.occ[k], f"node {k}: occupied {occ} != {self.occ[k]}"
             for f in range(self.F):

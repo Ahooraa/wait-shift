@@ -31,10 +31,15 @@ def proximity(X, h, diameter, include_self=True):
     return float(levels.sum())
 
 
-def proportionality(X, ecc, exec_time, variant="abs"):
-    """Eq. 3-4. FAN(f_l) = sum_k X[k,l]; FEN(f_l) = sum_k ecc_k * mu_l / sum_l' mu_l' (mu = mean execution time, Q-1)."""
+def proportionality(X, ecc, exec_time, variant="abs", fw=None):
+    """Eq. 3-4. FAN(f_l) = sum_k X[k,l]; FEN(f_l) = sum_k ecc_k * mu_l / sum_l' mu_l' (mu = mean execution time, Q-1).
+    fw (2026-11-02, heterogeneous container sizes): instance counts stay proportional to mu, scaled so that the WEIGHTED capacity is
+    used up: FEN(f_l) = sum_k ecc_k * mu_l / sum_l' mu_l' fw_l'. With fw all ones this is exactly the printed formula."""
     fan = X.sum(axis=0)
-    fen = ecc.sum() * exec_time / exec_time.sum()
+    if fw is None or np.allclose(fw, 1.0):
+        fen = ecc.sum() * exec_time / exec_time.sum()
+    else:
+        fen = ecc.sum() * exec_time / float((exec_time * np.asarray(fw, dtype=float)).sum())
     diff = fan - fen
     if variant == "signed":     # Eq. 3 literally (E-1): identically 0
         return float(diff.sum())
@@ -75,19 +80,33 @@ def crowding_distance(F, front):
 
 
 class PlacementProblem:
-    def __init__(self, net, ecc, exec_time, prop_variant="abs", include_self=True):
+    def __init__(self, net, ecc, exec_time, prop_variant="abs", include_self=True, fw=None):
         self.net, self.ecc = net, np.asarray(ecc)
         self.exec_time = np.asarray(exec_time, dtype=float)
         self.nf = len(exec_time)
         self.prop_variant, self.include_self = prop_variant, include_self
+        self.fw = None if fw is None or np.allclose(fw, 1.0) else np.asarray(fw, dtype=float)   # None = one slot per container
 
     def random(self, rng):
-        """A-02: for each node a uniform multinomial draw of ecc_k slots over F."""
-        return np.stack([rng.multinomial(int(e), np.full(self.nf, 1.0 / self.nf)) for e in self.ecc])
+        """A-02: for each node a uniform multinomial draw of ecc_k slots over F. With container weights (fw): draw functions
+        uniformly among those that still fit until none does, so a node ends full to within the lightest container."""
+        if self.fw is None:
+            return np.stack([rng.multinomial(int(e), np.full(self.nf, 1.0 / self.nf)) for e in self.ecc])
+        X = np.zeros((len(self.ecc), self.nf), dtype=int)
+        for k, e in enumerate(self.ecc):
+            free = float(e)
+            while True:
+                fit = np.flatnonzero(self.fw <= free + 1e-9)
+                if fit.size == 0:
+                    break
+                f = int(rng.choice(fit))
+                X[k, f] += 1
+                free -= self.fw[f]
+        return X
 
     def objectives(self, X):
         return np.array([proximity(X, self.net.h, self.net.diameter, self.include_self),
-                         proportionality(X, self.ecc, self.exec_time, self.prop_variant)])
+                         proportionality(X, self.ecc, self.exec_time, self.prop_variant, self.fw)])
 
     def crossover(self, a, b, rng, p_node=0.5):
         mask = rng.random(len(a)) < p_node
@@ -105,6 +124,8 @@ class PlacementProblem:
                 cand = [b for b in np.flatnonzero(X[k] > 0) if b != a]
                 if cand:
                     b = int(rng.choice(cand))
+                    if self.fw is not None and float(X[k] @ self.fw) + self.fw[a] - self.fw[b] > self.ecc[k] + 1e-9:
+                        continue                              # the swap would overfill the node
                     X[k, a] += 1
                     X[k, b] -= 1
         return X

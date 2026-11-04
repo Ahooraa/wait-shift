@@ -59,6 +59,8 @@ def backlog_per_function(sim):
 
 def random_placement(sc, counts, rng):
     """Ablation: the same per-function counts, but containers dropped on random nodes with free slots (no data affinity)."""
+    if not np.allclose(sc.fw, 1.0):
+        raise NotImplementedError("random_placement (ablation) assumes equal container sizes")
     N, F = sc.network.ne, len(sc.functions)
     X = np.zeros((N, F), dtype=int)
     free = sc.ecc.astype(int).copy()
@@ -163,14 +165,15 @@ def limit_changes(cur, target, cap):
     return X
 
 
-def _fit_counts(need, demand, S):
+def _fit_counts(need, demand, S, fw=None):
     """Fit per-function container needs to the fixed slot budget S (every function keeps >= 1): if the needs fit, they are a floor and
-    the leftover slots follow `demand`; if they exceed S, all slots are split in proportion to `demand`."""
+    the leftover slots follow `demand`; if they exceed S, all slots are split in proportion to `demand`. fw: per-function container
+    weight (heterogeneous sizes; S is then in the same units); None = one slot per container."""
     need = np.maximum(1, np.asarray(need, dtype=int))
     demand = np.asarray(demand, dtype=float)
-    if need.sum() > S:
-        return proportional_counts(demand, S)
-    return proportional_counts(demand, S, floor=need)
+    if (float(need @ np.asarray(fw, dtype=float)) if fw is not None else need.sum()) > S:
+        return proportional_counts(demand, S, fw=fw)
+    return proportional_counts(demand, S, floor=need, fw=fw)
 
 
 def _dag_weights(sc):
@@ -227,9 +230,9 @@ def baseline_layout(sim, lam_f, wf_rate, kind, clear_s=120.0, util_cap=0.8, krak
         raise ValueError(kind)
     if elastic:                                                          # the rule's own container count; slots beyond it stay empty
         need = np.maximum(1, np.asarray(need, dtype=int))
-        n_f = proportional_counts(np.maximum(demand, 1e-9), S) if need.sum() > S else need
+        n_f = proportional_counts(np.maximum(demand, 1e-9), S, fw=sc.fw) if float(need @ sc.fw) > S else need
         return kmedian_placement(sc, rates=np.maximum(wf_rate, 1e-9), counts=n_f, cur=sim.cnt.T, origin_weight=0.0)
-    n_f = _fit_counts(need, np.maximum(demand, 1e-9), S)
+    n_f = _fit_counts(need, np.maximum(demand, 1e-9), S, fw=sc.fw)
     if rng is not None:                                                  # data-oblivious placement (off-the-shelf stack)
         return random_placement(sc, n_f, rng)
     if place and place.get("faaspr"):
@@ -301,9 +304,15 @@ class O3SimAdjuster:
         self.staleness_log = []                           # (now, mismatch) if churn["log_staleness"]: diagnostic, 2026-10-25
         self.calib_log = []                               # (now, proxy_mismatch, true_mismatch) if churn["calibrate_placement"]
         self.gain_log = []                                # (now, gain_s) per accepted finish-time move, if churn["log_gain"] -- 2026-10-25
+        self.ctx_log = []                                 # (pass, now, f, mu, cur ahead/cnt/parts, [(k2, parts, ahead, cnt)], accepted_k2), every decision of every 4th pass, if churn["log_move_ctx"] -- 2026-11-02
         self.lambda_log = []                              # (now, cur_parts, [(k2, parts)], accepted_k2) per evaluated decision, if churn["log_lambda_components"] -- 2026-10-26
         self._calib_left = int(self.churn.get("calibrate_placement_n", 15))
         self._calib_tick = 0
+        # mover implementation tag (2026-11-04), recorded in every result like capacity_model: MV-2 = vectorised request mover
+        # (_rebalance_fast, the default), MV-1 = the original loop. MV-2 reproduces MV-1 field by field (6 of 6 full-length cases,
+        # 250 s on 2 more); results without a tag are MV-1.
+        self.mover_impl = ("MV-2" if (self.churn.get("fast_rebal", True) and self._fast_ok() and self.churn.get("rebal_rule", "aet") == "aet"
+                                      and not self.churn.get("move_terms")) else "MV-1")
 
     def _staleness(self, sim):
         """Diagnostic (2026-10-25): mismatch between the LIVE layout and what sizing would choose if re-solved right now from the
@@ -412,7 +421,8 @@ class O3SimAdjuster:
             return dict(faaspr=True, rng=self.rng)
         if p == "qaware":
             kw = dict(qaware=True, origin_weight=float(self.churn.get("origin_weight", 1.0)), tau=float(self.churn.get("tau", 1.0)),
-                      queue_term=bool(self.churn.get("queue_term", True)), affinity=bool(self.churn.get("affinity", True)))
+                      queue_term=bool(self.churn.get("queue_term", True)), affinity=bool(self.churn.get("affinity", True)),
+                      struct=self.churn.get("pstruct"), size_aware=bool(self.churn.get("size_aware", False)))
         elif p == "kmedian":
             kw = dict(kmedian=True, epoch=self.epoch, origin_weight=float(self.churn.get("origin_weight", 1.0)),
                       incremental=bool(self.churn.get("incremental", True)), improve=int(self.churn.get("improve", 300)))
@@ -453,7 +463,6 @@ class O3SimAdjuster:
         else:
             self._fc, wf_rate = None, workflow_rates(sim.sc, sim.now, sim.now + self.horizon)
             lam_f = function_rates(sim.sc, sim.now, sim.now + self.horizon)
-        aff = affinity_greedy_placement(sim.sc, rates=np.maximum(wf_rate, 1e-9))
         # backlog is sized to clear within clear_s = 120 s regardless of the look-ahead (speed study: H changes only the cost of
         # judging, not how aggressive the busiest-first proposal is; identical to before for H = 120)
         bot = bottleneck_first_placement(sim, lam_f, self.clear_s, util_cap=self.util_cap, wf_rate=wf_rate,
@@ -470,6 +479,9 @@ class O3SimAdjuster:
                                                                    rng=self.rng if self.churn.get("placement") == "random" else None)], lam_f, 0
         if self.cand_mode in ("nosim", "keep_bottleneck"):
             return ["keep", "bottleneck"], [cur, bot], lam_f, 0
+        # computed only where it is used (2026-11-02): the published affinity rule assumes equal container sizes and refuses weighted
+        # scenarios; it is deterministic, so skipping it in the nosim / keep_bottleneck / baseline modes changes no result
+        aff = affinity_greedy_placement(sim.sc, rates=np.maximum(wf_rate, 1e-9))
         names, cands = ["keep", "affinity", "bottleneck", "half_affinity", "half_bottleneck"], [cur, aff, bot, half_way(cur, aff), half_way(cur, bot)]
         n_local = max(0, self.K - len(cands))
         return names, cands, lam_f, n_local
@@ -699,22 +711,40 @@ class O3SimAdjuster:
             return self._queue_balance(sim, sol, rule, max_moves or self.churn.get("rebal_max", 10 ** 9))
         if self.churn.get("move_terms"):
             return self._rebalance_terms(sim, sol, max_moves or self.churn.get("rebal_max", 10 ** 9))
+        if self.churn.get("fast_rebal", True) and self._fast_ok():
+            return self._rebalance_fast(sim, sol, max_moves or self.churn.get("rebal_max", 10 ** 9))
         qs = sorted(((len(sim.queue[k][f]), f, k) for k in range(sim.N) for f in range(sim.F) if sim.queue[k][f]), reverse=True)
         moved, cap = 0, max_moves or self.churn.get("rebal_max", 10 ** 9)
         lam = self.churn.get("lam", 1.0)                        # 2026-10-26, lambda-sweep probe; default 1.0 == unweighted (original rule)
+        ww = float(self.churn.get("wait_w", 1.0))               # 2026-11-02, weight on the predicted queue wait; default 1.0 == original
         log_lam = self.churn.get("log_lambda_components")
+        log_ctx = self.churn.get("log_move_ctx")
+        tz = float(self.churn.get("tail_z", 0.0))               # 2026-11-02, M1: score = estimate + tz * sd of the start time (0.78 mu sqrt(ahead per container + 1))
+
+        def tail(f, kk, ah):
+            return tz * 0.78 * float(sim.exec_time[f]) * (ah / max(int(sol.cnt[f, kk]), 1) + 1.0) ** 0.5
+        self._np = getattr(self, "_np", 0) + 1
         sfa = bool(self.churn.get("slack_frac_aware"))
         urgency_gain = float(self.churn.get("urgency_gain", 0.0))
         pingpong_penalty = float(self.churn.get("pingpong_penalty", 0.0))
         frac_penalty = float(self.churn.get("frac_penalty", 0.0))
         # prio_aet (2026-10-28, diagnostic): under Sim(queue_priority=...) a run does not start in queue order, so count as "ahead"
         # only the runs that would start before it (higher key, or equal key and older); default: queue position (FIFO)
-        qp = sim.queue_priority if self.churn.get("prio_aet") else None
+        # prio_aet_peek (2026-11-03): same, but the key is read without refreshing the dispatcher's statistics (QueuePriority.peek)
+        peek = bool(self.churn.get("prio_aet_peek"))
+        qp = sim.queue_priority if (self.churn.get("prio_aet") or peek) else None
+        log_pm = bool(self.churn.get("log_prio_mismatch")) and sim.queue_priority is not None
         kc = {}
+        vp = float(self.churn.get("veto_p", 0.0))               # 2026-11-04, move-veto experiment; 0.0 == original rule
+        if vp:
+            if not hasattr(self, "_vrng"):
+                self._vrng = np.random.default_rng(int(self.churn.get("veto_seed", 0)))
+                self._vetoed, self._randomised, self.veto_log = set(), set(), []
+            vrng, vetoed, randomised = self._vrng, self._vetoed, self._randomised
 
         def key(r):
             if r not in kc:
-                kc[r] = qp(sim, r)
+                kc[r] = sim.queue_priority.peek(sim, r) if (peek or (log_pm and qp is None)) else qp(sim, r)
             return kc[r]
 
         def ahead(rq, f, kk, here):
@@ -731,7 +761,12 @@ class O3SimAdjuster:
             for rq in reversed(list(sol.queue(f, k))):
                 if moved >= cap:
                     break
-                a0 = sol.aet(rq, k, lam=lam, ahead=ahead(rq, f, k, True) if qp else None)
+                if vp and (rq.req.id, rq.task) in vetoed:               # move-veto experiment: a vetoed task is never moved
+                    continue
+                a0 = sol.aet(rq, k, lam=lam, wait_w=ww, ahead=ahead(rq, f, k, True) if qp else None)
+                if tz:
+                    qk0 = sol.queue(f, k)
+                    a0 += tail(f, k, qk0.index(rq) if rq in qk0 else len(qk0))
                 threshold = a0
                 if sfa:
                     threshold = a0 + urgency_gain * max(0.0, -self._slack(sim, rq)) - pingpong_penalty * rq.n_moves
@@ -740,7 +775,9 @@ class O3SimAdjuster:
                 for k2 in hosts:
                     if sol.free[k2] < rq.total:
                         continue
-                    a = sol.aet(rq, k2, lam=lam, ahead=ahead(rq, f, k2, False) if qp else None)
+                    a = sol.aet(rq, k2, lam=lam, wait_w=ww, ahead=ahead(rq, f, k2, False) if qp else None)
+                    if tz:
+                        a += tail(f, k2, len(sol.queue(f, k2)))
                     if sfa and k2 != rq.req.plan[rq.task]:
                         a += frac_penalty
                     if log_lam:
@@ -752,10 +789,58 @@ class O3SimAdjuster:
                     # (the lambda probe's Gate 0 re-scores these offline for hypothetical lam' without re-simulating)
                     self.lambda_log.append((round(sim.now, 2), sol.aet(rq, k, parts=True), cand_log,
                                              best[1] if best is not None else None))
+                if log_ctx:
+                    if self._np % 4 == 0:                               # every 4th pass, all its decisions (pass structure kept)
+                        qk = sol.queue(f, k)
+                        self.ctx_log.append((self._np, round(sim.now, 2), f, float(sim.exec_time[f]), qk.index(rq) if rq in qk else len(qk),
+                                             int(sol.cnt[f, k]), sol.aet(rq, k, parts=True),
+                                             [(k2, sol.aet(rq, k2, parts=True), len(sol.queue(f, k2)), int(sol.cnt[f, k2]))
+                                              for k2 in hosts if sol.free[k2] >= rq.total],
+                                             best[1] if best is not None else None))
                 if best is None:
                     break                                               # requests further ahead wait less: stop this queue
+                if log_pm:                                              # logging only (2026-11-03): FIFO versus priority-order "ahead" for this move
+                    qk, k2_ = sol.queue(f, k), best[1]
+                    qd = sol.queue(f, k2_)
+                    i_f = qk.index(rq) if rq in qk else len(qk)
+                    kr_ = key(rq)
+                    i_p = sum(1 for j, r in enumerate(qk) if r is not rq and (key(r) > kr_ or (key(r) == kr_ and j < i_f)))
+                    d_f, d_p = len(qd), sum(1 for r in qd if key(r) >= kr_)
+                    p0, p1 = sol.aet(rq, k, parts=True), sol.aet(rq, k2_, parts=True)
+                    wf_, tt_ = rq.req.wf, rq.task
+                    qpr = sim.queue_priority
+                    tier_ = qpr.tier(sim, rq, sim.now - rq.req.t_arr + qpr._rem_crit(sim, wf_)[tt_]) if qpr.mode == "full" else -1
+                    self.__dict__.setdefault("pm_log", []).append((
+                        round(sim.now, 3), rq.req.id, tt_, f, i_f, i_p, len(qk), d_f, d_p, tier_,
+                        float(p0[0]), float(p0[1]), float(sol.service_estimate(f, k, i_p)), float(p0[2]),
+                        float(p1[0]), float(p1[1]), float(sol.service_estimate(f, k2_, d_p)), float(p1[2])))
+                if self.churn.get("log_move_why"):                      # logging only (2026-11-03): why this move; nothing here changes the dynamics
+                    qk = sol.queue(f, k)
+                    p0, p1 = sol.aet(rq, k, parts=True), sol.aet(rq, best[1], parts=True)
+                    wf_, tt_ = rq.req.wf, rq.task
+                    self.__dict__.setdefault("why_log", []).append((
+                        round(sim.now, 3), rq.req.id, tt_, f, rq.n_moves, qk.index(rq) if rq in qk else len(qk), len(qk),
+                        int(sol.cnt[f, k]), int(sol.cnt[f, best[1]]), len(sol.queue(f, best[1])),
+                        float(p0[0]), float(p0[1]), float(p0[2]), float(p1[0]), float(p1[1]), float(p1[2]),
+                        int(k == rq.req.plan[tt_]), int(best[1] == rq.req.plan[tt_]),
+                        -1.0 if rq.t_first is None else round(sim.now - rq.t_first, 3), float(a0), float(best[0]),
+                        int(any(rq.req.plan[c] == best[1] for c in wf_.children[tt_])), int(any(rq.req.plan[c] == k for c in wf_.children[tt_]))))
                 if self.churn.get("log_gain"):
                     self.gain_log.append((round(sim.now, 2), float(a0 - best[0])))
+                if vp and rq.n_moves == 0 and (rq.req.id, rq.task) not in randomised:
+                    # move-veto experiment (2026-11-04): at a task's first accepted move, veto it with probability veto_p (own RNG, so no
+                    # other random draw changes); a vetoed task stays where it is for good. veto_p = 0 (default) leaves the rule untouched.
+                    randomised.add((rq.req.id, rq.task))
+                    veto = bool(vrng.random() < vp)
+                    qk_ = sol.queue(f, k)
+                    qpr = sim.queue_priority
+                    tier_ = (qpr.tier(sim, rq, sim.now - rq.req.t_arr + qpr._rem_crit(sim, rq.req.wf)[rq.task])
+                             if (qpr is not None and qpr.mode == "full") else -1)
+                    self.veto_log.append((round(sim.now, 3), rq.req.id, rq.task, f, float(a0 - best[0]), tier_,
+                                          qk_.index(rq) if rq in qk_ else len(qk_), len(qk_), int(veto)))
+                    if veto:
+                        vetoed.add((rq.req.id, rq.task))
+                        continue
                 q = list(sol.queue(f, k))
                 q.remove(rq)
                 sol.set_queue(f, k, q)
@@ -763,6 +848,82 @@ class O3SimAdjuster:
                 sol.set_node(rq, best[1])
                 sol.add_free(k, +rq.total)
                 sol.add_free(best[1], -rq.total)
+                moved += 1
+        self.rebal_moves = getattr(self, "rebal_moves", 0) + moved
+        return sol if moved else None
+
+    def _fast_ok(self):
+        """The fast path replicates the plain AET rule (lam, wait_w) only; any diagnostic switch falls back to the original loop."""
+        c = self.churn
+        return not (c.get("prio_aet") or c.get("prio_aet_peek") or c.get("log_prio_mismatch") or c.get("log_move_why") or c.get("log_gain")
+                    or c.get("log_lambda_components") or c.get("log_move_ctx") or float(c.get("tail_z", 0.0)) or c.get("slack_frac_aware")
+                    or float(c.get("veto_p", 0.0)))
+
+    def _rebalance_fast(self, sim, sol, cap):
+        """Speed-only twin of the plain AET loop in rebalance_step (2026-11-04). Same arithmetic in the same order, so the moves are
+        bit-identical (checked by comparing whole results); what changes is the cost: input/output transfer terms are vectorised over
+        the candidate nodes (accumulated in the original order), service_estimate is cached per (f, k, ahead) for the pass (availability
+        entries do not change inside a pass), the position of a request in its own queue is read from the tail instead of searched."""
+        net = sim.net
+        h, epd, bw = net.h, net.epd, net.bw
+        lam = self.churn.get("lam", 1.0)
+        ww = float(self.churn.get("wait_w", 1.0))
+        self._np = getattr(self, "_np", 0) + 1
+        svc_cache = {}
+
+        def svc_at(f, k, ahead):
+            key = (f, k, ahead)
+            v = svc_cache.get(key)
+            if v is None:
+                v = svc_cache[key] = sol.service_estimate(f, k, ahead)
+            return v
+        qs = sorted(((len(sim.queue[k][f]), f, k) for k in range(sim.N) for f in range(sim.F) if sim.queue[k][f]), reverse=True)
+        moved = 0
+        for _, f, k in qs:
+            hosts = [int(x) for x in np.flatnonzero(sol.cnt[f]) if int(x) != k]
+            if not hosts:
+                continue
+            hv = np.asarray(hosts)
+            mu = sim.exec_time[f]
+
+            def svc_row(k2):                                            # estimate at host k2 for its current queue length (the same for every request here)
+                v = svc_at(f, k2, len(sol.queue(f, k2)))
+                return mu + ww * (v - mu) if ww != 1.0 else v
+            sv = np.array([svc_row(k2) for k2 in hosts])                # only the destination's queue grows when a request moves: update that entry
+            for rq in reversed(list(sol.queue(f, k))):
+                if moved >= cap:
+                    break
+                wf, loc = rq.req.wf, sol.node_of(rq)
+                inp = 0.0
+                for sz in rq.sizes:
+                    inp = inp + h[loc] * (epd + sz / bw)
+                if not len(rq.sizes):
+                    inp = np.zeros(h.shape[0])
+                out = 0.0
+                for c in wf.children[rq.task]:
+                    out = out + h[:, rq.req.plan[c]] * (epd + wf.ss[(rq.task, c)] / bw)
+                if not len(wf.children[rq.task]):
+                    out = np.zeros(h.shape[0])
+                qk = sol.queue(f, k)
+                ahead0 = len(qk) - 1 if (qk and qk[-1] is rq) else (qk.index(rq) if rq in qk else len(qk))
+                s0 = svc_at(f, k, ahead0)
+                if ww != 1.0:
+                    s0 = mu + ww * (s0 - mu)
+                a0 = float(inp[k]) + s0 + lam * float(out[k])
+                ok = sol.free[hv] >= rq.total
+                if not ok.any():
+                    break
+                a = np.where(ok, inp[hv] + sv + lam * out[hv], np.inf)
+                j = int(np.argmin(a))
+                if not a[j] < a0:
+                    break                                               # requests further ahead wait less: stop this queue
+                k2 = hosts[j]
+                sol.set_queue(f, k, list(qk[:-1]) if qk[-1] is rq else [r for r in qk if r is not rq])
+                sol.set_queue(f, k2, list(sol.queue(f, k2)) + [rq])
+                sol.set_node(rq, k2)
+                sol.add_free(k, +rq.total)
+                sol.add_free(k2, -rq.total)
+                sv[j] = svc_row(k2)
                 moved += 1
         self.rebal_moves = getattr(self, "rebal_moves", 0) + moved
         return sol if moved else None

@@ -65,3 +65,11 @@ class Scenario:
     def __post_init__(self):
         if self.fw is None:
             self.fw = np.ones(len(self.functions))
+
+    def __setstate__(self, state):
+        """A pickle made before fw existed restores a __dict__ with no 'fw' key at all, and unpickling never re-runs
+        __post_init__ -- so without this, sc.fw silently stays absent/None and crashes downstream (need @ sc.fw etc).
+        Found 2026-10-29 loading an Oct-15 scenario pickle under the current code."""
+        self.__dict__.update(state)
+        if self.__dict__.get("fw") is None:
+            self.fw = np.ones(len(self.functions))

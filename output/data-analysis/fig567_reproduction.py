@@ -2,6 +2,11 @@
 
   python -I output/data-analysis/fig567_reproduction.py run [--seeds 1-5] [--workers 10]
   python -I output/data-analysis/fig567_reproduction.py analyze
+  add --protocol v2 to either for the protocol of 2026-11-03 (results/fig567_v2, fig567_reproduction_v2.json):
+    fixed request count (run length 300 s / arrival scale, warm-up 10% of it; Figs. 6-7 run at scale 1, so 300 s / 30 s as before),
+    Heu and RL release every container after its task (keep_warm=0: Xu et al. 2023 Alg. 1 l. 9 creates an instance per request;
+    DFPS p. 11 "aggressive removal of idle instances"), and utilisation also as busy / alive-container time (util_alive).
+    Why: knowledge/synthesis/fig5-7-reproduction-gap.md (probes 1-2). Capacity model CAP-U.
 
 Not part of the pre-registered headroom plan; a reproduction add-on. Setting as G2 (Table 2, 300 s runs, 30 s warm-up, drained):
   Fig. 5  arrival scale 0.25, 0.5, ..., 2.0          (80 nodes, 15 applications)
@@ -92,8 +97,19 @@ def job(args):
         return args[1] + " FAILED"
 
 
+def timing(proto, sc):
+    """(run length, warm-up): v1 = the scenario's 300 s / 30 s; v2 = fixed request count (300 s / scale, warm-up 10%)."""
+    if proto == "v2":
+        d = ASSUME["A21_run_length_s"] / float(sc.meta["scale"])
+        return d, 0.1 * d
+    return ASSUME["A21_run_length_s"], ASSUME["A21_warmup_s"]
+
+
 def _job(args):
-    sc_path, out_path, seed, method = args
+    sc_path, out_path, seed, method = args[:4]
+    proto = args[4] if len(args) > 4 else "v1"
+    if proto == "v2":
+        return _job_v2(sc_path, out_path, seed, method)
     if Path(out_path).exists():
         return out_path
     sc = pickle.load(open(sc_path, "rb"))
@@ -122,8 +138,45 @@ def _job(args):
     return out_path
 
 
+def _job_v2(sc_path, out_path, seed, method):
+    from fig5_pattern_probe import AcctOnDemand
+    from experiments.run import load_rl_policy
+    from dfps.heu import HeuPolicy
+    import torch
+    torch.set_num_threads(1)
+    sc = pickle.load(open(sc_path, "rb"))
+    dur, warm = timing("v2", sc)
+    rho = offered_util(sc)
+    overloaded = bool(rho >= 0.8 or (sc.meta["kind"] == "pareto" and sc.meta["scale"] >= 0.5) or sc.meta["scale"] >= 2.0)
+    t = time.time()
+    if method in ("HEU", "RL", "RL_CAL"):
+        pt = "rl_policy_cal.pt" if method == "RL_CAL" else "rl_policy.pt"
+        pol = HeuPolicy(seed=seed + 500) if method == "HEU" else load_rl_policy(str(ROOT / "results" / pt), seed + 600)
+        sim = AcctOnDemand(sc, pol, seed=seed + 400, duration=dur, warmup=warm, keep_warm=0)
+    else:
+        x_sr, x_sg, _ = initial_placements(sc, seed, ASSUME["A06_generations"], "abs")
+        kw = sim_kwargs("B_STAR", ASSUME)
+        kw["warmup"] = warm
+        retry, cap = (1.0, 10) if overloaded else (0.0, None)
+        adj = make_adjuster("B_STAR", ASSUME, seed=seed + 300) if method == "DFPS" else None
+        sim = Sim(sc, x_sr if method == "SR" else x_sg, adjuster=adj, seed=seed + 400, retry_min_interval=retry,
+                  retry_max_attempts=cap, **kw)
+    r = sim.run()
+    sim.check_invariants()
+    r["wall_s"] = time.time() - t
+    busy = r["utilization"] * float(sc.ecc.sum()) * (dur - warm)
+    r["util_alive"] = busy / r["provisioned_slot_s"] if r.get("provisioned_slot_s") else None
+    Path(out_path).write_text(json.dumps(dict(method=method, seed=seed, overloaded=overloaded, offered_util=rho, protocol="v2",
+                                              capacity_model="CAP-U", duration=dur, warmup=warm,
+                                              meta={k: v for k, v in sc.meta.items() if k != "per_app_rate"}, result=r)))
+    return out_path
+
+
 def run(a):
+    global RUNS
     lo, hi = (int(x) for x in a.seeds.split("-"))
+    if a.protocol == "v2":
+        RUNS = ROOT / "results" / "fig567_v2"
     RUNS.mkdir(parents=True, exist_ok=True)
     dags, jobs = None, []
     for (kind, s, ne, nw) in cells():
@@ -135,13 +188,16 @@ def run(a):
                 if dags is None:
                     from calibrate_fig5 import dag_depth
                     dags = [d for d in json.load(open(ROOT / "data" / CAL_DAGS)) if dag_depth(d) <= CAL_MAXDEPTH]
-                sc = build_scenario(seed, kind, s, ne=ne, n_workflows=nw, duration_s=ASSUME["A21_run_length_s"], dags=dags, function_mapping=CAL_MAPPING,
+                d = ASSUME["A21_run_length_s"] / (s if a.protocol == "v2" else 1.0)
+                sc = build_scenario(seed, kind, s, ne=ne, n_workflows=nw, duration_s=d, dags=dags, function_mapping=CAL_MAPPING,
                                     pool_size=ASSUME["A17_function_pool_size"])
+                if a.protocol == "v2":
+                    sc.meta = dict(sc.meta, capacity_model="CAP-U", protocol="v2")
                 pickle.dump(sc, open(sc_path, "wb"))
             for m in METHODS:
                 if gt and m in G2_NAME:
                     continue                                          # taken from G2 in analyze
-                jobs.append((str(sc_path), str(RUNS / f"{tg}.{m}.json"), seed, m))
+                jobs.append((str(sc_path), str(RUNS / f"{tg}.{m}.json"), seed, m, a.protocol))
     del dags
     # slowest first (overloaded: low node counts, many apps, high scales, Pareto) so the tail is short
     jobs.sort(key=lambda j: ("pareto" not in j[0], "_n20_" not in j[1] and "_n40_" not in j[1]))
@@ -169,6 +225,9 @@ def load():
 
 
 def analyze(a):
+    global RUNS
+    if a.protocol == "v2":
+        RUNS = ROOT / "results" / "fig567_v2"
     rows = load()
     figs = {"fig5": ("scale", SCALES), "fig6": ("ne", NETS), "fig7": ("nw", APPS)}
     out = {}
@@ -184,12 +243,14 @@ def analyze(a):
                     pts.append(dict(x=x, n=len(rs),
                                     makespan=float(np.mean([r["avg_makespan"] for r in rs])) if rs else None,
                                     util=float(np.mean([r["utilization"] for r in rs]) * 100) if rs else None,
+                                    util_alive=float(np.mean([r["util_alive"] for r in rs]) * 100)
+                                    if rs and all(r.get("util_alive") is not None for r in rs) else None,
                                     cold=float(np.mean([r["cold_starts"] for r in rs])) if rs else None,
                                     unfinished_max=int(max(r.get("n_unfinished", 0) for r in rs)) if rs else None))
                 series[m] = pts
             out[fig][kind] = series
     OUT.mkdir(parents=True, exist_ok=True)
-    (OUT / "fig567_reproduction_cal.json").write_text(json.dumps(out, indent=1))
+    (OUT / ("fig567_reproduction_v2.json" if a.protocol == "v2" else "fig567_reproduction_cal.json")).write_text(json.dumps(out, indent=1))
     for fig in out:
         for kind in KINDS:
             print(fig, kind)
@@ -203,5 +264,6 @@ if __name__ == "__main__":
     ap.add_argument("cmd", choices=["run", "analyze"])
     ap.add_argument("--seeds", default="1-5")
     ap.add_argument("--workers", type=int, default=10)
+    ap.add_argument("--protocol", choices=["v1", "v2"], default="v1")
     a = ap.parse_args()
     run(a) if a.cmd == "run" else analyze(a)

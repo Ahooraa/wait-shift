@@ -80,10 +80,20 @@ class QueuePriority:
             proj = sim.now - run.req.t_arr + self._rem_crit(sim, run.req.wf)[run.task]
             self.tier_counts[self.tier(sim, run, proj)] += 1
 
+    def peek(self, sim, run):
+        """The key the next dispatch would use, WITHOUT refreshing the online statistics (2026-11-03): a caller that is not the dispatcher
+        (the request mover's estimate) must not move the refresh instant, or it would change which snapshot the dispatcher sees."""
+        if self.mode == "gate":
+            return (self.gating(run),)
+        return self._key(sim, run)
+
     def __call__(self, sim, run):
         if self.mode == "gate":
             return (self.gating(run),)
         self._refresh(sim)
+        return self._key(sim, run)
+
+    def _key(self, sim, run):
         wf = run.req.wf
         proj = sim.now - run.req.t_arr + self._rem_crit(sim, wf)[run.task]
         tr = self.tier(sim, run, proj)

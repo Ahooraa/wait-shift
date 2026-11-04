@@ -1,0 +1,22 @@
+=== (a) timing rung: P99 vs the geometric mean of three null runs at 4 s (18 of 18 cases with all nulls) ===
+  period   n  P99 vs null           95% CI  better  moves/req    cold     P95
+     1 s  18        +0.8% [ -0.4, +2.0]%   6/18   5.45 vs 3.21   -0.0%   -1.4%
+   0.5 s  18        +4.3% [ +1.9, +6.7]%   5/18   7.41 vs 3.21   +0.0%   +1.5%
+verdict M3 (idle-initiated pull): DEAD (<3% better or interval includes zero) [based on 18 cases]
+
+=== (b) estimate error, 18 logged cases ===
+  split 0: test rmse current 6.33 s -> recalibrated 5.85 s (7.7% lower); R2 0.353 -> 0.449; coef transfer 1.16, wait 0.50, intercept +0.50
+  split 1: test rmse current 6.15 s -> recalibrated 5.53 s (10.1% lower); R2 0.338 -> 0.465; coef transfer 1.14, wait 0.56, intercept +0.62
+
+  per (family, load) cell, all logged seeds: coefficients, and lateness of idle-predicted destinations by transfer time
+  F1 50% (n= 83921): transfer 1.06 wait 0.64                  lateness by transfer <2/2-5/5-10/>10 s:  +0.1  +0.2  +0.5  +1.5  
+  F1 70% (n=154108): transfer 1.09 wait 0.57                  lateness by transfer <2/2-5/5-10/>10 s:  +0.3  +0.7  +1.1  +1.4  
+  F1 85% (n=207257): transfer 1.07 wait 0.63                  lateness by transfer <2/2-5/5-10/>10 s:  +1.0  +1.6  +2.4  +2.6  [>=+2 s at >10 s]
+  F2 50% (n= 93877): transfer 1.08 wait 0.44                  lateness by transfer <2/2-5/5-10/>10 s:  +0.1  +0.3  +0.8  +1.1  
+  F2 70% (n=172523): transfer 1.13 wait 0.47 [b>1.1, c<0.8]   lateness by transfer <2/2-5/5-10/>10 s:  +0.4  +0.7  +1.5  +2.5  [>=+2 s at >10 s]
+  F2 85% (n=239386): transfer 1.09 wait 0.58                  lateness by transfer <2/2-5/5-10/>10 s:  +1.0  +1.6  +2.5  +5.0  [>=+2 s at >10 s]
+
+  cells with b > 1.1 and c < 0.8: 1 of 6 (needs 4); cells with lateness >= +2 s at transfers over 10 s: 3 of 6 (needs 4)
+  mean rmse reduction over the two case splits: 8.9% (needs 5%)
+verdict M5 (re-weighted estimate): does NOT replicate -> dropped
+verdict M2 (transit-aware): dropped (lateness pattern does not hold)

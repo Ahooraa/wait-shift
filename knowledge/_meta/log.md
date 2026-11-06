@@ -817,3 +817,86 @@ author: llm
 
 ## [2026-11-04] decision | FROZEN-3 = FROZEN-2 + gain-ordered pass + transfer_only (user decision, despite NOT CONFIRMED)
 - Adopted for consistent cost reduction (moves -8%, median -1.5-2%, 24/24); P99 not claimed. Results tagged `mover_pass`. See [[workflow-aware-decision-rules]].
+
+## [2026-11-04] decision | baselines for the final table: Heu cite-and-contrast; RL / RL_CAL kept
+- Heu: "no queue model and no dynamic adjustment; porting would require inventing components it does not specify" -> cited, not run ([[baseline-matrix]]).
+- RL, RL_CAL kept with B* and the textbook stack. CAP-W1 coverage: B* and RL 18/18; RL_CAL and textbook stack CAP-U only; FROZEN-3 rho 0.7/0.85 only.
+
+## [2026-11-05] synthesis | user | independent baselines CAP-W1
+- Page created: [[independent-baselines-capw1]] (draft): audit of the Graph-Aware, FaaSPR and HEFT ports against the full texts, and the protocol. Nothing run.
+- Finding: the repository named in the Graph-Aware paper's data-availability statement returns 404 on 5 Nov 2026.
+
+## [2026-11-05] synthesis | user | FaaSPR path-sufficiency check
+- Nine runs (3 development cases x 60/300/1500 paths), results in `results/capW1_suff/`. Rule fixed in advance: use 1,500 paths for the held-out run. See [[independent-baselines-capw1]], section 5.
+- Memory cause of the laptop slowdowns found and fixed: capw1_light.prep_job held 3.4 GB of parsed Alibaba JSON per worker; the new prep parses once in the parent.
+
+## [2026-11-05] result | user | held-out run, first pass: 224 of 240 finished; 16 FaaSPR runs crashed, port fixed, rerun
+- Crash in `faaspr_placement_w`'s rescue step (heaviest function fitted on no node after one eviction); both FaaSPR arms, same 8 cases. Rescue extended to several evictions on one node; runs that finished are bit-identical. See [[independent-baselines-capw1]], section 6 (run log).
+
+## [2026-11-05] result | user | held-out run, independent baselines under CAP-W1 (240 runs, seeds 7-10)
+- P99 ratio to FROZEN-3 (geometric mean): textbook stack 1.24, RL 2.96, B* 3.15, FaaSPR 3.93 (storage-relaxed 4.77), Graph-Aware on S-P 6.07, HEFT-like on S-P 14.9, Graph-Aware on S-S 30.0, HEFT-like on S-S 49.2. FROZEN-3 lower in 24/24 cases against every independent system and the stack, 21/24 against B*, 23/24 against RL. Caveats and FaaSPR health counters: [[independent-baselines-capw1]], section 6.
+
+## [2026-11-05] audit | user | Graph-Aware and FaaSPR ports re-checked against the papers
+- Both papers re-read, each element compared with the code ([[independent-baselines-capw1]], section 7). FaaSPR follows its algorithms; three possible handicaps tested on development cases (cluster fill, rate window, `aggre` scale): none found. Graph-Aware: structure as in the paper; the lowest-index tie-break has no measurable effect on it.
+- **Defect found in the HEFT-like port:** 85-88% of its decisions are exact ties resolved to the lowest node index; on one case P99 5,763 s -> 1,783 s with a neutral tie-break. The held-out HEFT rows (14.9, 49.2) are not valid as reported; re-run pending the user's decision.
+
+## [2026-11-05] decision | user | tie-break v2 for Graph-Aware and HEFT-like; four arms re-run
+- `break_ties`: exact ties go to the lowest queue estimate, then random (v1: lowest node index). New arms ga_p2, heft_p2, ga_s2, heft_s2 on the 24 held-out cases (96 runs); v1 results kept and reported beside them. v1 arms verified unchanged. See [[independent-baselines-capw1]], section 7.
+
+## [2026-11-05] result | user | held-out run, tie-break v2 for Graph-Aware and HEFT-like (96 runs, no errors)
+- P99 ratio to FROZEN-3 (geometric mean): Graph-Aware S-P 5.87 (v1 6.07), HEFT-like S-P 6.87 (v1 14.9), Graph-Aware S-S 28.6 (v1 30.0), HEFT-like S-S 27.1 (v1 49.2). Paired v2/v1: Graph-Aware 0.97 and 0.95, HEFT-like 0.46 and 0.55. FROZEN-3 lower in 24/24 against all four. v2 rows replace v1 rows in any quoted table; FaaSPR rows unchanged. See [[independent-baselines-capw1]], sections 6-7.
+
+## [2026-11-06] plan | user | FROZEN-3 against FaaSPR under FaaSPR's own setting
+- Protocol written before any run: [[faaspr-paper-setting]] (8 servers, 402 GB, 203.8 req/min, elastic 60 s scaler, three Fig. 7 shapes x rho 0.4/0.55/0.7 x seeds 7-10; arms faaspr, f3_fixed, f3_elastic; 108 runs).
+- Code: `queue_aware_placement(fill_leftover=...)`, off only with `elastic` (the elastic flag did nothing for FROZEN-3 under weighted containers); default unchanged, stored FROZEN-3 case reproduced exactly. Script `output/data-analysis/faaspr_paper_setting.py`.
+
+## [2026-11-06] result | user | FROZEN-3 against FaaSPR under FaaSPR's own setting (108 runs, no errors)
+- P99 ratio FaaSPR / FROZEN-3: 2.32 (budget filled), 2.19 [1.98, 2.44] at equal memory (277 GB); mean makespan 1.80 and 1.58; FROZEN-3 lower in 36/36. FaaSPR's LP slack share 0.07 (its regime reproduced). See [[faaspr-paper-setting]], section 5.
+
+## [2026-11-06] plan | user | on-demand re-comparison of FROZEN-3 against the baselines (held-out set)
+- Protocol written before the run ([[independent-baselines-capw1]], section 8): arms frozen3_od, stack_od, ga_p2_od, heft_p2_od, faaspr_od (120 runs); RL, B* and S-S kept as they are and labelled. New code: `output/data-analysis/capw1_ondemand.py`, a flag-gated elastic qaware path in `baseline_layout` (`elastic_qaware`), nothing existing changed.
+
+## [2026-11-06] result | user | on-demand re-comparison on the held-out set (120 runs, no errors)
+- All scalable systems on-demand, P99 ratio to FROZEN-3 on-demand: stack 1.26, FaaSPR 3.57, Graph-Aware 5.92, HEFT-like 6.46; RL 2.59, B* 2.76 (not on-demand-comparable). FROZEN-3 lower in 21-24/24. FROZEN-3 on-demand costs 14% P99 against filled (30% at rho 0.5, 1% at rho 0.85) and saves 2-35% of the memory; the filled stack is roughly level with on-demand FROZEN-3 (1.09). See [[independent-baselines-capw1]], section 8.
+
+## [2026-11-06] plan | user | faster capacity loop for on-demand FROZEN-3
+- Step 1: re-layout every 30 s and 15 s on the 18 development cases (results/capW1_ondemand, arms frozen3_od_e30, frozen3_od_e15). See [[independent-baselines-capw1]], section 8.
+
+## [2026-11-06] result | user | on-demand FROZEN-3 re-layout period, step 1 (36 runs, development cases)
+- P99 over filled: 1.22 at 60 s, 1.15 at 30 s, 1.13 at 15 s; cold starts 1,567, 2,127, 2,470. Most of the loss recovered at rho 0.7 and 0.85, almost none at rho 0.5 (1.36, 1.35, 1.31). See [[independent-baselines-capw1]], section 8.
+
+## [2026-11-06] decision | user | textbook stack removed from slide 2's charts
+- User: it is a mix of our own parts and not a good baseline to show. Slide 2's bars, title, card, metric note and speaker note updated; other slides that mention the stack not yet changed. The stack stays in the wiki as an ablation-style comparison.
+
+## [2026-11-06] result | user | on-demand FROZEN-3, utilisation target at a 30 s period (36 runs, development cases)
+- P99 over filled: 1.15 (target 0.8), 1.03 (0.65), 1.00 (0.5); memory share 0.83, 0.91, 0.97. At rho 0.5: 1.35 / 1.10 / 1.00 for 64 / 78 / 95% of the memory. Lower target buys tail latency with memory. See [[independent-baselines-capw1]], section 8.
+
+## [2026-11-06] plan | user | trigger-based add and shrink for on-demand FROZEN-3
+- Design and arms written before the runs ([[independent-baselines-capw1]], section 8, step 2): `fast_scale`, parameters from `fast_step`, shrink margin 1.25 fixed in advance; 54 development runs.
+
+## [2026-11-06] result | user | trigger-based add and shrink for on-demand FROZEN-3 (54 runs, development cases)
+- P99 over filled: 1.22 (60 s) -> 1.07 with trigger; 1.15 (30 s) -> 1.05; target 0.65 at 30 s 1.03 -> 1.00. Cold starts 1,567 -> 2,124, 2,127 -> 2,761, 2,254 -> 2,442 (filled 2,091). Trigger beats the faster period at equal cold starts. See [[independent-baselines-capw1]], section 8.
+
+## [2026-11-06] diagnosis | user | where the trigger's extra cold starts come from (12 runs)
+- Cold starts = container adds. 56% of the trigger's adds were removed again by the slow re-layout within 120 s and 52% re-created what it had just removed: the two loops fight. The trigger's shrink almost never fires (137 removals). See [[independent-baselines-capw1]], section 8.
+
+## [2026-11-06] plan | user | hold for the trigger's containers (fast_hold) in on-demand mode
+- Written before the runs ([[independent-baselines-capw1]], section 8, step 3): arms frozen3_od_fs_h120 and _h60, 36 development runs; success and failure criteria stated in advance. Code: on-demand branch of the hold in `bottleneck_first_placement` (held containers are extra), hold recorded by `fast_scale`; fixed-budget path unchanged.
+
+## [2026-11-06] result | user | hold for the trigger's containers (36 runs, development cases; 19 re-run after a fix)
+- Hold 120 s: P99 1.05 (trigger-only 1.07), cold starts 1,825 (2,124; filled 2,091), memory 0.88. Undone trigger adds fell from 56% to 23%; re-creations of just-removed containers stayed at 50%: the slow loop's shrink is the remaining cause. See [[independent-baselines-capw1]], section 8.
+
+## [2026-11-06] plan | user | gentler shrink (shrink_delay = 2) for the slow re-layout
+- Written before the runs ([[independent-baselines-capw1]], section 8, step 4): arms frozen3_od_fs_h120_sd2 and frozen3_od_sd2, 36 development runs, success and failure criteria stated in advance. Code: `O3SimAdjuster._floors`, gated by churn `shrink_delay`.
+
+## [2026-11-06] result | user | gentler shrink (shrink_delay = 2), 36 runs on development cases
+- Trigger + hold 120 s + gentler shrink: P99 1.05 over filled, cold starts 1,607 (hold-only 1,825; no trigger 1,567; filled 2,091), memory 0.90 (0.77 / 0.96 / 0.98 by load). Extra cold starts over no trigger fell from 3,413 to 192. The memory saving is mostly at rho 0.5. See [[independent-baselines-capw1]], section 8.
+
+## [2026-11-07] plan | user | 30 s re-layout at target 0.7; time and compute scalability
+- Written before the runs ([[independent-baselines-capw1]], section 8, step 5): arm frozen3_od_e30_u70 on 18 development cases; decision times at 80-640+ servers; feasibility rule fixed in advance (p99 of each decision at most 10% of its period; routing 10 ms).
+
+## [2026-11-07] result | user | on-demand FROZEN-3, 30 s re-layout at target 0.7 (18 runs, development cases)
+- P99 over filled 1.06 [1.01, 1.11], cold starts 2,216, memory 0.89 (0.73 / 0.95 / 0.98 by load). Same P99 and memory as trigger + hold + shrink delay (1.05, 0.90), with 38% more cold starts. See [[independent-baselines-capw1]], section 8.
+
+## [2026-11-07] result | user | controller cost: lazy re-layout scoring and MV-3
+- Measured: re-layout about N^2.9, move pass N^1.8, limits failed by 320-640 servers. MV-3 (exact, event hashes equal 6/6) and lazy scoring (P99 0.988 [0.973, 1.001] on 18 development cases): re-layout N^1.6, largest call at 640 servers 107 s to 2.2 s, move pass p99 3.3 s to 1.16 s. Passes at 320 servers; at 640 only the move pass fails. See [[independent-baselines-capw1]], section 8.

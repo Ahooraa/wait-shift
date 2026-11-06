@@ -955,11 +955,13 @@ model gets a new version (CAP-W2, ...), never a silent edit. Definitions: `knowl
 
 ### Mover implementation versions
 Every result of a run with the request mover carries `mover_impl` (written by `Sim` from the adjuster): **MV-2** = vectorised mover
-(`O3SimAdjuster._rebalance_fast`, default since 4 Nov 2026); **MV-1** = the original loop (also what any diagnostic switch such as
+(count order: `O3SimAdjuster._rebalance_fast`, default since 4 Nov 2026; gain order, FROZEN-3: the vectorised engine in `_order_cf`, which has no MV-1 counterpart); **MV-1** = the original loop (also what any diagnostic switch such as
 `prio_aet`, `tail_z`, `slack_frac_aware`, `veto_p` or a `log_*` flag falls back to, or `churn["fast_rebal"] = False`). MV-2 reproduces MV-1
 field by field (event hash, moves, P99; 6 of 6 full-length cases), so results of the two may be pooled; results without the tag are MV-1.
 The wall-clock fields `adjust_ms_*`, `plan_ms_*` and `wall_s` differ by design. Details: `knowledge/synthesis/workflow-aware-decision-rules.md`
 ("Mover speed-up without behaviour change").
+
+**MV-3** (7 Nov 2026, off unless `churn["fast_order"]`): the gain-ordered pass with per-function estimate arrays updated only where a move changes a queue; event hashes equal MV-2 in 6 of 6 cases, so results may be pooled. Re-layout scoring has a separate switch: `fast_place` (same formula, rounding can tip exact ties) and `lazy_place` (re-prices only the candidate about to be accepted, an approximation; P99 0.988 [0.973, 1.001] on 18 development cases). Results using them carry `_fo`, `_fp`, `_lz` in the arm name.
 
 ### Controller versions
 **FROZEN-3** (4 Nov 2026, the paper's controller) = FROZEN-2 + gain-ordered request-move pass (`pass_order="gain"`), run with the

@@ -1,0 +1,16 @@
+Held-out CAP-W1, seeds 7-10. P99 makespan ratio system / FROZEN-3 (geometric mean [95% bootstrap CI over case log-ratios], wins of FROZEN-3)
+system     cases                        all  rho 0.5  rho 0.7 rho 0.85   mean P99 (s)
+faaspr        24     3.93 [  3.22,   4.77] 24/24     3.14     4.64     4.16      786.6
+faaspr_rs     24     4.77 [  3.83,   5.93] 24/24     3.65     5.96     5.01     1001.7
+stack         24     1.24 [  1.20,   1.29] 24/24     1.20     1.24     1.28      282.2
+B_STAR        24     3.15 [  2.40,   4.02] 21/24     2.43     3.61     3.57      637.0
+RL            24     2.96 [  2.36,   3.63] 23/24     2.70     3.12     3.09      569.5
+ga_p          24     6.07 [  5.11,   7.19] 24/24     5.59     6.70     5.99     1161.5
+heft_p        24    14.93 [ 11.68,  19.18] 24/24    18.33    15.65    11.60     2807.2
+ga_s          24    29.95 [ 22.14,  40.06] 24/24    30.38    31.34    28.21     5975.3
+heft_s        24    49.18 [ 38.65,  62.72] 24/24    56.38    53.12    39.70     9888.9
+frozen3       24                                                            216.5
+
+FaaSPR health (in-run counters; printed with every table): LP slack share, repaired requests, unplannable requests, parked
+faaspr     24 cases: slack LPs 0.45, repaired requests 0.22, unplannable 0.10, parked/arrived 0.50
+faaspr_rs  24 cases: slack LPs 0.34, repaired requests 0.00, unplannable 0.00, parked/arrived 0.00

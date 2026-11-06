@@ -399,7 +399,7 @@ def _cover_gain(dem_f, h, cur_min):
 
 
 def queue_aware_placement(sc, rates=None, counts=None, cur=None, o_w=None, origin_weight=1.0, busy=None, tau=1.0,
-                          queue_term=True, util_clip=0.97, affinity=True, struct=None, size_aware=False):
+                          queue_term=True, util_clip=0.97, affinity=True, struct=None, size_aware=False, fill_leftover=True, fast_cost=False, lazy=False):
     """Capacity- and queue-aware incremental placement (2026-10-23): the k-median of `kmedian_placement` with a cost that
     knows containers have finite capacity.
 
@@ -476,29 +476,139 @@ def queue_aware_placement(sc, rates=None, counts=None, cur=None, o_w=None, origi
         wait = mu[f] * uc / (1.0 - uc) + 100.0 * mu[f] * np.maximum(0.0, u - util_clip)  # M/M/1 wait, steep beyond the clip
         return transfer + (lam * wait).sum(axis=1)
 
+    pre = {}
+
+    def prep(f):
+        q = pre.get(f)
+        if q is None:
+            r = share(f)
+            active = np.flatnonzero(r > 0)
+            q = pre[f] = (r[active], W[active], B[active])
+        return q
+
+    def cost_now(f, Sb, Tb):
+        return float((Tb / np.maximum(Sb, 1e-12) * prep(f)[0]).sum() * t_hop_f[f])
+
+    def cost_one(f, Sb, Tb, k, sign):
+        ra, Wa, Ba = prep(f)
+        return float(((Tb + sign * Ba[:, k]) / np.maximum(Sb + sign * Wa[:, k], 1e-12) * ra).sum() * t_hop_f[f])
+
+    # lazy (7 Nov 2026): keep each candidate's last gain and re-price only the candidate about to be accepted, O(D) instead of O(K D) per container.
+    # Exact only if a candidate's gain never rises when another container of the function is placed; not guaranteed here, so decisions may differ.
+    lazy_on = lazy and fast_cost and not queue_term and hetero
+
+    def score(f, c, idx=None, sign=0.0):
+        """Cost of f's layout c with one container added (sign +1) or removed (-1) at each node in idx; idx None = the layout c itself.
+        fast_cost (7 Nov 2026, transfer term only): a one-container change shifts each demand point's two sums by one known term, so every
+        candidate is priced from a shared base in O(K D) after one O(N D) base, instead of one dense O(K N D) product; the formula is the same."""
+        if not (fast_cost and not queue_term):
+            if idx is None:
+                return costs(f, c, np.zeros((1, N)))
+            delta = np.zeros((len(idx), N))
+            delta[np.arange(len(idx)), idx] = sign
+            return costs(f, c, delta)
+        ra, Wa, Ba = prep(f)
+        Sb, Tb = Wa @ c, Ba @ c                                         # [D]
+        if idx is None:
+            return np.array([(Tb / np.maximum(Sb, 1e-12) * ra).sum() * t_hop_f[f]])
+        Sd = np.maximum(Sb[None, :] + sign * Wa[:, idx].T, 1e-12)       # [K, D]
+        Td = Tb[None, :] + sign * Ba[:, idx].T
+        return (Td / Sd * ra[None, :]).sum(axis=1) * t_hop_f[f]
+
     X = cur.copy()
     for f in np.flatnonzero(cur.sum(axis=0) > n_f):                 # shrink: give up the container whose loss is smallest
         for _ in range(int(X[:, f].sum() - n_f[f])):
             hosts = np.flatnonzero(X[:, f] > 0)
             if X[:, f].sum() <= 1:
                 break
-            delta = np.zeros((len(hosts), N))
-            delta[np.arange(len(hosts)), hosts] = -1.0
-            cost = costs(f, X[:, f].astype(float), delta)
+            if lazy_on:
+                break
+            cost = score(f, X[:, f].astype(float), hosts, -1.0)
             X[hosts[int(np.argmin(cost))], f] -= 1
+        if lazy_on and X[:, f].sum() > n_f[f]:
+            c = X[:, f].astype(float)
+            ra, Wa, Ba = prep(f)
+            Sb, Tb = Wa @ c, Ba @ c
+            hosts = np.flatnonzero(c > 0)
+            loss, stamp, ver = np.full(N, np.inf), np.full(N, -1), 0
+            loss[hosts] = score(f, c, hosts, -1.0) - cost_now(f, Sb, Tb)
+            stamp[hosts] = 0
+            for _ in range(int(c.sum() - n_f[f])):
+                if c.sum() <= 1:
+                    break
+                base = cost_now(f, Sb, Tb)
+                while True:
+                    k = int(np.argmin(loss))
+                    if stamp[k] == ver:
+                        break
+                    loss[k], stamp[k] = cost_one(f, Sb, Tb, k, -1.0) - base, ver
+                X[k, f] -= 1
+                c[k] -= 1.0
+                Sb, Tb = Sb - Wa[:, k], Tb - Ba[:, k]
+                ver += 1
+                if c[k] <= 0:
+                    loss[k] = np.inf
     free = (ecc - X @ fw) if hetero else ecc - X.sum(axis=1)
     need = n_f - X.sum(axis=0)
     assert (free >= -1e-9).all() and (hetero or need.sum() <= free.sum())
 
     gains, dirty = {}, set(np.flatnonzero(need > 0).tolist())
+    if lazy_on:
+        lg, lstamp, lver, lsum = {}, {}, {}, {}
+
+        def full(f):
+            c = X[:, f].astype(float)
+            ra, Wa, Ba = prep(f)
+            lsum[f] = (Wa @ c, Ba @ c)
+            avail = np.flatnonzero(free > 1e-9)
+            g = np.full(N, -np.inf)
+            new = score(f, c, avail, 1.0)
+            g[avail] = (cost_now(f, *lsum[f]) - new) if c.sum() > 0 else -new
+            lg[f], lver[f], lstamp[f] = g, 0, np.zeros(N, dtype=int)
+
+        for f in np.flatnonzero(need > 0):
+            full(int(f))
+        while need.sum() > 0:
+            best, bf, bk = -np.inf, None, None
+            for f in np.flatnonzero(need > 0):
+                f = int(f)
+                g = lg[f].copy()
+                g[free < fw[f] - 1e-9] = -np.inf
+                k = int(np.argmax(g))
+                if g[k] > best:
+                    best, bf, bk = float(g[k]), f, k
+            if bf is None:                                               # as in the exact loop below: nothing fits anywhere
+                f0 = int(np.flatnonzero(need > 0)[np.argmax(need[need > 0])])
+                if X[:, f0].sum() > 0:
+                    need[f0] = 0
+                    continue
+                donors = [(fw[g], k, g) for k in range(N) for g in np.flatnonzero(X[k]) if X[:, g].sum() > 1 and free[k] + fw[g] >= fw[f0] - 1e-9]
+                if not donors:
+                    raise ValueError("no feasible layout: a function with no instance fits nowhere")
+                _, k, g = min(donors)
+                X[k, g] -= 1
+                free[k] += fw[g]
+                if int(g) in lg:
+                    full(int(g))
+                bf, bk = f0, k
+            elif lstamp[bf][bk] != lver[bf]:                             # stale: re-price this one candidate, then choose again
+                Sb, Tb = lsum[bf]
+                new = cost_one(bf, Sb, Tb, bk, 1.0)
+                lg[bf][bk] = (cost_now(bf, Sb, Tb) - new) if X[:, bf].sum() > 0 else -new
+                lstamp[bf][bk] = lver[bf]
+                continue
+            X[bk, bf] += 1
+            free[bk] -= fw[bf]
+            need[bf] -= 1
+            _, Wa, Ba = prep(bf)
+            lsum[bf] = (lsum[bf][0] + Wa[:, bk], lsum[bf][1] + Ba[:, bk])
+            lver[bf] += 1
     while need.sum() > 0:
         avail = np.flatnonzero(free > 1e-9) if hetero else np.flatnonzero(free > 0)
         for f in list(dirty):
             c = X[:, f].astype(float)
-            delta = np.zeros((len(avail), N))
-            delta[np.arange(len(avail)), avail] = 1.0
-            base = costs(f, c, np.zeros((1, N)))[0] if c.sum() > 0 else None
-            new = costs(f, c, delta)
+            base = score(f, c)[0] if c.sum() > 0 else None
+            new = score(f, c, avail, 1.0)
             g = np.full(N, -np.inf)
             g[avail] = (base - new) if base is not None else -new
             gains[f] = g
@@ -535,7 +645,9 @@ def queue_aware_placement(sc, rates=None, counts=None, cur=None, o_w=None, origi
         # D-7 for unequal sizes: keep adding the best-gain container that FITS until none does. The sizing rule's counts cannot
         # tile every node exactly (the leftover on a node is smaller than any container the rule still wanted), so the counts
         # are a floor and the leftover goes where it reduces cost most.
-        while True:
+        # fill_leftover=False (6 Nov 2026, FaaSPR-setting experiment, elastic arm only): the counts are the answer and memory beyond
+        # them stays empty; the default True is the fixed-budget behaviour of every earlier run, unchanged.
+        while fill_leftover:
             fit = np.flatnonzero(free >= fw.min() - 1e-9)
             if fit.size == 0:
                 break
@@ -545,10 +657,8 @@ def queue_aware_placement(sc, rates=None, counts=None, cur=None, o_w=None, origi
                 if ks.size == 0:
                     continue
                 c = X[:, f].astype(float)
-                delta = np.zeros((len(ks), N))
-                delta[np.arange(len(ks)), ks] = 1.0
-                new = costs(f, c, delta)
-                g = (costs(f, c, np.zeros((1, N)))[0] - new) if c.sum() > 0 else -new
+                new = score(f, c, ks, 1.0)
+                g = (score(f, c)[0] - new) if c.sum() > 0 else -new
                 j = int(np.argmax(g))
                 if g[j] > best:
                     best, bf, bk = float(g[j]), f, int(ks[j])
@@ -1072,4 +1182,249 @@ def faaspr_placement(sc, rates=None, counts=None, cur=None, hg_limit=4, aggre=1e
             placed[g, j2] -= 1
             placed[g, src] += 1
     assert (placed.sum(axis=1) == n_f).all() and (placed >= 0).all()
+    return placed.T.copy()
+
+
+FAASPR_W_DIAG = {"calls": 0, "shortfall": 0, "lost_functions": 0}      # instances that fitted nowhere (fragmentation), per process
+
+
+def faaspr_placement_w(sc, rates=None, counts=None, cur=None, hg_limit=4, aggre=1e-3, rng=None):
+    """FaaSPR's placement for the weighted (CAP-W1) capacity model, "FP-2" (5 Nov 2026). Jia et al., IEEE/ACM ToN 2025, Sec. IV,
+Algorithms 1 and 2. Returns X [N, F] with a weighted capacity sum(X[k] * fw) <= ecc[k]; slots may stay empty (the platform's own
+scaler decides the counts, FaaSPR does not fill the cluster).
+
+Differences from `faaspr_placement` (the equal-slot port used up to 4 Nov): (1) capacity is in sc.fw units, as the paper's
+memory-based resources (a horizontal group needs sum(f.resource * f.num_in_group) <= free memory of the server); (2) the counts need
+not sum to the slot budget; (3) no minimum-replication floor (that was an adaptation to a storage deadlock seen under CAP-U);
+(4) an instance that fits nowhere is skipped and counted in FAASPR_W_DIAG["shortfall"], never forced.
+Kept adaptations, as in the equal-slot port: counts split over the workflows that use a function in proportion to rate x
+occurrences (the paper's functions belong to one workflow); switch/foreach control logic not modelled; edge weight uses the
+network-mean hop count (the paper only says "average data size of the last 1000 invocations"); cold-start reuse ratio uses the
+group's actual share."""
+    rng = np.random.default_rng(0) if rng is None else rng
+    N, F = sc.network.ne, len(sc.functions)
+    rates = expected_workflow_rates(sc) if rates is None else np.asarray(rates, dtype=float)
+    n_f = np.asarray(counts, dtype=int)
+    fw = np.asarray(sc.fw, dtype=float)
+    assert (n_f >= 1).all() and float(n_f @ fw) <= float(sc.ecc.sum()) + 1e-6
+    shortfall = []
+    cur = np.zeros((F, N), dtype=int) if cur is None else np.asarray(cur, dtype=int).T      # callers pass [N, F] (sim.cnt.T)
+    cold = np.array([f.cold_start for f in sc.functions])
+    mu = np.array([f.exec_time for f in sc.functions])
+    hop = float(sc.network.h.mean())
+    bw, epd = sc.network.bw, sc.network.epd
+    W = len(sc.workflows)
+    # 1. split each function's instances over the workflows that use it
+    share = np.zeros((W, F))
+    for w, (wf, r) in enumerate(zip(sc.workflows, rates)):
+        for t in range(wf.n):
+            share[w, wf.ft[t]] += max(r, 1e-9)
+    nw = np.zeros((W, F), dtype=int)
+    for f in range(F):
+        s = share[:, f]
+        if s.sum() <= 0:
+            continue
+        q = n_f[f] * s / s.sum()
+        base = np.floor(q).astype(int)
+        for w in np.argsort(-(q - base))[: n_f[f] - base.sum()]:
+            base[w] += 1
+        nw[:, f] = base
+    placed = np.zeros((F, N), dtype=int)              # all workflows so far
+    free = sc.ecc.astype(float).copy()
+
+    def split(parts):
+        """Cut a {function: count} dict in two halves (counts kept exact); None if it is a single instance."""
+        a, b = {}, {}
+        for f, c in parts.items():
+            a[f] = (c + 1) // 2
+            if c - a[f] > 0:
+                b[f] = c - a[f]
+        if not b:
+            ks = list(parts)
+            if len(ks) < 2:
+                return None
+            a, b = {ks[0]: parts[ks[0]]}, {k: parts[k] for k in ks[1:]}
+        return a, b
+
+    def priority(parts, P, nw_w, edge_w, free_loc):
+        p = np.zeros(N)
+        for f, c in parts.items():
+            reuse = np.minimum(np.maximum(cur[f] - placed[f] - P[f], 0), c)
+            p += reuse / c * cold[f]
+            for g, wgt in edge_w.get(f, ()):
+                if g not in parts and nw_w[g] > 0:
+                    p += P[g] / nw_w[g] * wgt
+            p += (placed[f] + P[f]) * aggre
+        p[free_loc < sum(fw[f] * c for f, c in parts.items()) - 1e-9] = -np.inf
+        return p
+
+    def hgroups(vg, nw_w):
+        fs = [f for f in vg if nw_w[f] > 0]
+        if not fs:
+            return []
+        hn = max(1, min(min(nw_w[f] // hg_limit for f in fs), N))
+        out = []
+        for i in range(hn):
+            part = {f: nw_w[f] // hn + (1 if i < nw_w[f] % hn else 0) for f in fs}
+            part = {f: c for f, c in part.items() if c > 0}
+            if part:
+                out.append(part)
+        return out
+
+    def place_wf(vgroups, nw_w, edge_w, strict):
+        P = np.zeros((F, N), dtype=int)
+        fr = free.copy()
+        for vg in vgroups:
+            todo = hgroups(vg, nw_w)
+            while todo:
+                parts = todo.pop(0)
+                pr = priority(parts, P, nw_w, edge_w, fr)
+                if np.isfinite(pr).any():
+                    j = int(np.argmax(pr))
+                elif strict:
+                    return None
+                else:
+                    halves = split(parts)
+                    if halves is None:
+                        j = int(np.argmax(fr))                                   # one instance: any server with room for it
+                        if fr[j] < sum(fw[f] * c for f, c in parts.items()) - 1e-9:
+                            shortfall.extend(f for f, c in parts.items() for _ in range(c))
+                            continue
+                    else:
+                        todo = [halves[0], halves[1]] + todo
+                        continue
+                for f, c in parts.items():
+                    P[f, j] += c
+                fr[j] -= sum(fw[f] * c for f, c in parts.items())
+        return P
+
+    for w in [int(x) for x in rng.permutation(W)]:
+        wf = sc.workflows[w]
+        nw_w = nw[w]
+        if nw_w.sum() == 0:
+            continue
+        edge_w = {}
+        for (u, v), size in wf.ss.items():
+            a, b = wf.ft[u], wf.ft[v]
+            if a != b:
+                wgt = (epd + size / bw) * hop
+                edge_w.setdefault(a, []).append((b, wgt))
+                edge_w.setdefault(b, []).append((a, wgt))
+        fns = sorted({wf.ft[t] for t in range(wf.n) if nw_w[wf.ft[t]] > 0})
+        vg_of = {f: i for i, f in enumerate(fns)}                                # vertical group id per function
+
+        def crit_edges():
+            fin = [0.0] * wf.n
+            pred = [None] * wf.n
+            for t in range(wf.n):
+                best, bp = 0.0, None
+                for u in wf.parents[t]:
+                    c = fin[u] + (0.0 if vg_of.get(wf.ft[u]) == vg_of.get(wf.ft[t]) else (epd + wf.ss[(u, t)] / bw) * hop)
+                    if c > best:
+                        best, bp = c, u
+                fin[t] = best + mu[wf.ft[t]]
+                pred[t] = bp
+            t = int(np.argmax(fin))
+            es = []
+            while pred[t] is not None:
+                u = pred[t]
+                if vg_of.get(wf.ft[u]) is not None and vg_of.get(wf.ft[t]) is not None and vg_of[wf.ft[u]] != vg_of[wf.ft[t]]:
+                    es.append(((epd + wf.ss[(u, t)] / bw) * hop, wf.ft[u], wf.ft[t]))
+                t = u
+            return sorted(es, reverse=True)
+
+        def groups():
+            g = {}
+            for f in fns:
+                g.setdefault(vg_of[f], []).append(f)
+            return list(g.values())
+
+        merged = True
+        while merged:
+            merged = False
+            for _, a, b in crit_edges():
+                saved = dict(vg_of)
+                old_b = vg_of[b]
+                for f in fns:
+                    if vg_of[f] == old_b:
+                        vg_of[f] = vg_of[a]
+                if place_wf(groups(), nw_w, edge_w, True) is not None:
+                    merged = True
+                    break
+                vg_of.clear()
+                vg_of.update(saved)
+        P = place_wf(groups(), nw_w, edge_w, True)
+        if P is None:
+            P = place_wf(groups(), nw_w, edge_w, False)
+        placed += P
+        free -= (P * fw[:, None]).sum(axis=0)
+    # functions that no workflow uses still get their instances: where a live one can be reused, else the server with most room
+    for f in range(F):
+        for _ in range(int(n_f[f] - placed[f].sum())):
+            cand = np.flatnonzero((free >= fw[f] - 1e-9) & (cur[f] - placed[f] > 0))
+            if cand.size:
+                j = int(cand[np.argmax(free[cand])])
+            else:
+                j = int(np.argmax(free))
+                if free[j] < fw[f] - 1e-9:
+                    shortfall.append(f)
+                    continue
+            placed[f, j] += 1
+            free[j] -= fw[f]
+    # simulator invariant: every function keeps at least one instance. A function whose only instance fitted nowhere (fragmentation)
+    # takes the room of one instance of a function that has several (the paper's platform would fail the placement and retry)
+    for f in range(F):
+        if placed[f].sum() > 0:
+            continue
+        best = None
+        for g in range(F):
+            if g == f or placed[g].sum() <= 1:
+                continue
+            for j in np.flatnonzero(placed[g] > 0):
+                if free[j] + fw[g] >= fw[f] - 1e-9:
+                    key = (placed[g].sum(), -fw[g])
+                    if best is None or key > best[0]:
+                        best = (key, g, int(j))
+        if best is not None:
+            _, g, j = best
+            placed[g, j] -= 1
+            free[j] += fw[g]
+            placed[f, j] += 1
+            free[j] -= fw[f]
+            FAASPR_W_DIAG["rescued"] = FAASPR_W_DIAG.get("rescued", 0) + 1
+        else:
+            # held-out run, 5 Nov 2026 (8 of 24 cases crashed here): the heaviest function (weight 3.27 against a median 1.41) fits on no node
+            # even after one eviction. Evict several instances on ONE node: the node needing the fewest evictions (then the least weight),
+            # taking instances of the most-replicated functions first and never a function's last instance. Only reached where the single-
+            # eviction rule above found nothing, so every run that rescued before is unchanged.
+            tot = placed.sum(axis=1).astype(int)
+            best2 = None
+            for j in range(placed.shape[1]):
+                need = fw[f] - free[j]
+                evict, got, left = [], 0.0, tot.copy()
+                for g in sorted((g for g in range(F) if g != f and placed[g, j] > 0), key=lambda g: (-left[g], -fw[g])):
+                    while got < need - 1e-9 and placed[g, j] - evict.count(g) > 0 and left[g] > 1:
+                        evict.append(g)
+                        got += fw[g]
+                        left[g] -= 1
+                    if got >= need - 1e-9:
+                        break
+                if got >= need - 1e-9:
+                    key = (len(evict), float(sum(fw[g] for g in evict)))
+                    if best2 is None or key < best2[0]:
+                        best2 = (key, int(j), list(evict))
+            if best2 is not None:
+                _, j, evict = best2
+                for g in evict:
+                    placed[g, j] -= 1
+                    free[j] += fw[g]
+                placed[f, j] += 1
+                free[j] -= fw[f]
+                FAASPR_W_DIAG["rescued"] = FAASPR_W_DIAG.get("rescued", 0) + 1
+                FAASPR_W_DIAG["rescued_multi"] = FAASPR_W_DIAG.get("rescued_multi", 0) + 1
+                FAASPR_W_DIAG["evicted"] = FAASPR_W_DIAG.get("evicted", 0) + len(evict)
+    FAASPR_W_DIAG["calls"] += 1
+    FAASPR_W_DIAG["shortfall"] += len(shortfall)
+    FAASPR_W_DIAG["lost_functions"] += int(sum(1 for f in range(F) if placed[f].sum() == 0))
+    assert ((placed * fw[:, None]).sum(axis=0) <= sc.ecc + 1e-6).all() and (placed >= 0).all()
     return placed.T.copy()

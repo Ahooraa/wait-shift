@@ -17,7 +17,7 @@ import numpy as np
 from .solution import IDLE
 
 from .controllers import (affinity_greedy_placement, affinity_placement_v2, demand_points, kmedian_placement, origin_weights,
-                          proportional_counts, queue_aware_placement, faaspr_placement, placement_cost)
+                          proportional_counts, queue_aware_placement, faaspr_placement, faaspr_placement_w, placement_cost)
 from .d3 import candidates, kendall_tau_b
 from .traces import function_rates, workflow_rates
 
@@ -131,7 +131,17 @@ def bottleneck_first_placement(sim, lam_f, horizon, util_cap=0.8, wf_rate=None, 
         if key is not None:
             sizing_cache[key] = need
     if hold_floor is not None and (np.asarray(hold_floor) > need).any():
-        need = apply_hold_floor(need, hold_floor, demand, util_cap)
+        if elastic:
+            # on-demand (6 Nov 2026): the held containers are extra, no function pays for them; if they do not all fit the cluster, the held
+            # increments are trimmed, heaviest first, until they do (apply_hold_floor counts containers, not weight, so it cannot be used here)
+            want = np.maximum(need, np.asarray(hold_floor, dtype=int))
+            fwv, cap = np.asarray(sc.fw, dtype=float), float(sc.ecc.sum())
+            while float(want @ fwv) > cap + 1e-9 and (want > need).any():
+                g = int(np.argmax(np.where(want > need, (want - need) * fwv, -1.0)))
+                want[g] -= 1
+            need = want
+        else:
+            need = apply_hold_floor(need, hold_floor, demand, util_cap)
     rates = np.maximum(workflow_rates(sc, sim.now, sim.now + horizon) if wf_rate is None else wf_rate, 1e-9)
     if rng is not None:
         return random_placement(sc, need, rng)
@@ -139,6 +149,7 @@ def bottleneck_first_placement(sim, lam_f, horizon, util_cap=0.8, wf_rate=None, 
         if place.pop("faaspr", False):                                  # FaaSPR's grouping + migration-minimizing placement (port)
             return faaspr_placement(sc, rates=rates, counts=need, cur=sim.cnt.T, **place)
         if place.pop("qaware", False):                                  # capacity- and queue-aware (needs the busy slots per function)
+            place.pop("elastic_qaware", None)                           # a baseline_layout flag (hpa modes), not a placement argument
             return queue_aware_placement(sc, rates=rates, counts=need, cur=sim.cnt.T, busy=demand, **place)
         fn = kmedian_placement if place.pop("kmedian", False) else affinity_placement_v2
         return fn(sc, rates=rates, counts=need, cur=sim.cnt.T, **place)
@@ -214,6 +225,8 @@ def baseline_layout(sim, lam_f, wf_rate, kind, clear_s=120.0, util_cap=0.8, krak
     backlog = backlog_per_function(sim)
     if kind == "hpa":
         need, demand = np.ceil(load / util_cap), load
+    elif kind == "concurrency":                                          # FaaSPR's scaler (Sec. II-A): concurrency = request rate x duration
+        need, demand = np.ceil(load), load
     elif kind == "fifer":
         B = max(1.0, np.floor(sim.slo_factor - 1.0))
         n_cur = np.maximum(1, sim.cnt.sum(axis=1)).astype(float)
@@ -231,10 +244,18 @@ def baseline_layout(sim, lam_f, wf_rate, kind, clear_s=120.0, util_cap=0.8, krak
     if elastic:                                                          # the rule's own container count; slots beyond it stay empty
         need = np.maximum(1, np.asarray(need, dtype=int))
         n_f = proportional_counts(np.maximum(demand, 1e-9), S, fw=sc.fw) if float(need @ sc.fw) > S else need
+        if place and place.get("faaspr_w"):                              # FaaSPR's own placement, weighted capacity (FP-2)
+            return faaspr_placement_w(sc, rates=np.maximum(wf_rate, 1e-9), counts=n_f, cur=sim.cnt.T, rng=place.get("rng"))
+        if place and place.get("elastic_qaware"):                        # on-demand re-comparison (6 Nov 2026): keep the data-affinity (qaware) placement, counts not filled
+            place = {k: v for k, v in place.items() if k != "elastic_qaware"}
+            place.pop("qaware", None)
+            return queue_aware_placement(sc, rates=np.maximum(wf_rate, 1e-9), counts=n_f, cur=sim.cnt.T, busy=demand, **place)
         return kmedian_placement(sc, rates=np.maximum(wf_rate, 1e-9), counts=n_f, cur=sim.cnt.T, origin_weight=0.0)
     n_f = _fit_counts(need, np.maximum(demand, 1e-9), S, fw=sc.fw)
     if rng is not None:                                                  # data-oblivious placement (off-the-shelf stack)
         return random_placement(sc, n_f, rng)
+    if place and place.get("faaspr_w"):                                  # FaaSPR's own placement, weighted capacity (FP-2), counts from the same sizing
+        return faaspr_placement_w(sc, rates=np.maximum(wf_rate, 1e-9), counts=n_f, cur=sim.cnt.T, rng=place.get("rng"))
     if place and place.get("faaspr"):
         place = dict(place)
         place.pop("faaspr")
@@ -313,6 +334,8 @@ class O3SimAdjuster:
         # 250 s on 2 more); results without a tag are MV-1.
         self.mover_impl = ("MV-2" if (self.churn.get("fast_rebal", True) and self._fast_ok() and self.churn.get("rebal_rule", "aet") == "aet"
                                       and not self.churn.get("move_terms")) else "MV-1")
+        if self.churn.get("fast_order") and self.churn.get("pass_order") == "gain" and self._fast_ok():
+            self.mover_impl = "MV-3"                                    # 7 Nov 2026: gain-ordered pass with per-function estimate arrays; event hashes equal MV-2
         # pass order of the request mover (2026-11-04), recorded in every result: "gain" (FROZEN-3) or "count" (FROZEN-2 and earlier;
         # results without the field are "count")
         self.mover_pass = "gain" if (self.churn.get("pass_order") == "gain" and self._fast_ok()) else "count"
@@ -418,14 +441,20 @@ class O3SimAdjuster:
     def place_kwargs(self, sim):
         """Keyword arguments for `affinity_placement_v2`, or None for the published affinity rule (placement ablation 2026-10-23)."""
         p = self.churn.get("placement")
-        if p not in ("v2", "kmedian", "qaware", "faaspr"):
+        if p not in ("v2", "kmedian", "qaware", "faaspr", "faaspr_w"):
             return None
         if p == "faaspr":
             return dict(faaspr=True, rng=self.rng)
+        if p == "faaspr_w":
+            return dict(faaspr_w=True, rng=self.rng)
         if p == "qaware":
             kw = dict(qaware=True, origin_weight=float(self.churn.get("origin_weight", 1.0)), tau=float(self.churn.get("tau", 1.0)),
                       queue_term=bool(self.churn.get("queue_term", True)), affinity=bool(self.churn.get("affinity", True)),
-                      struct=self.churn.get("pstruct"), size_aware=bool(self.churn.get("size_aware", False)))
+                      struct=self.churn.get("pstruct"), size_aware=bool(self.churn.get("size_aware", False)),
+                      fill_leftover=not bool(self.churn.get("elastic")),     # weighted scenarios: elastic = do not fill the leftover memory
+                      fast_cost=bool(self.churn.get("fast_place") or self.churn.get("lazy_place")), lazy=bool(self.churn.get("lazy_place")))
+            if self.churn.get("elastic_qaware"):
+                kw["elastic_qaware"] = True                      # baseline_layout only (hpa modes): see there
         elif p == "kmedian":
             kw = dict(kmedian=True, epoch=self.epoch, origin_weight=float(self.churn.get("origin_weight", 1.0)),
                       incremental=bool(self.churn.get("incremental", True)), improve=int(self.churn.get("improve", 300)))
@@ -468,15 +497,15 @@ class O3SimAdjuster:
             lam_f = function_rates(sim.sc, sim.now, sim.now + self.horizon)
         # backlog is sized to clear within clear_s = 120 s regardless of the look-ahead (speed study: H changes only the cost of
         # judging, not how aggressive the busiest-first proposal is; identical to before for H = 120)
-        bot = bottleneck_first_placement(sim, lam_f, self.clear_s, util_cap=self.util_cap, wf_rate=wf_rate,
+        bot = None if (self.cand_mode == "concurrency" or self.churn.get("placement") == "faaspr_w") else bottleneck_first_placement(sim, lam_f, self.clear_s, util_cap=self.util_cap, wf_rate=wf_rate,
                                          rng=self.rng if self.churn.get("placement") == "random" else None,
                                          place=self.place_kwargs(sim), elastic=bool(self.churn.get("elastic")),
-                                         hold_floor=self.hold_floor(sim), sizing_cache=self.sizing_cache)
+                                         hold_floor=self._floors(sim, lam_f), sizing_cache=self.sizing_cache)
         if self.cand_mode == "local_sim":
             mu = np.array([f.exec_time for f in sim.sc.functions])
             loc = candidates(cur, lam_f, mu, self.rng, K=self.K)[1:]
             return ["keep"] + [f"local{j + 1}" for j in range(len(loc))], [cur] + loc, lam_f, 0
-        if self.cand_mode in ("hpa", "fifer", "kraken"):
+        if self.cand_mode in ("hpa", "fifer", "kraken", "concurrency"):
             return ["keep", self.cand_mode], [cur, baseline_layout(sim, lam_f, wf_rate, self.cand_mode,
                                                                    elastic=bool(self.churn.get("elastic")), place=self.place_kwargs(sim),
                                                                    rng=self.rng if self.churn.get("placement") == "random" else None)], lam_f, 0
@@ -493,7 +522,7 @@ class O3SimAdjuster:
         import time as _t
         t0 = _t.perf_counter()
         names, cands, lam_f, n_local = self.candidates(sim)
-        if self.cand_mode in ("nosim", "hpa", "fifer", "kraken"):
+        if self.cand_mode in ("nosim", "hpa", "fifer", "kraken", "concurrency"):
             cur, target = cands[0], cands[1]
             slots = float(sim.sc.ecc.sum())
             n_change = int(max(np.maximum(0, target - cur).sum(), np.maximum(0, cur - target).sum()))   # equal unless capacity is elastic
@@ -574,6 +603,22 @@ class O3SimAdjuster:
             self.fine_moves = getattr(self, "fine_moves", 0) + moved
         return None
 
+    def _floors(self, sim, lam_f):
+        """Floor for the slow re-layout: the trigger's hold, and (churn `shrink_delay` = K > 0, 6 Nov 2026) a gentler shrink: a function whose
+        sizing need is below its current count keeps the current count until that has been true at K consecutive re-layouts. Growth is never
+        delayed. Called once per re-layout (the streak is counted here)."""
+        floor = self.hold_floor(sim)
+        k = int(self.churn.get("shrink_delay", 0))
+        if k <= 0:
+            return floor
+        mu = np.array([f.exec_time for f in sim.sc.functions])
+        n_cur = sim.cnt.sum(axis=1).astype(int)
+        below = np.maximum(1, np.ceil(lam_f * mu / self.util_cap)) < n_cur
+        prev = getattr(self, "_below_streak", np.zeros(len(n_cur), dtype=int))
+        self._below_streak = np.where(below, prev + 1, 0)
+        delay = np.where(self._below_streak < k, n_cur, 0)
+        return delay if floor is None else np.maximum(floor, delay)
+
     def hold_floor(self, sim):
         """Containers per function that the slow re-layout may not go below because an emergency fix raised them less than
         `fast_hold` seconds ago (asymmetric rule: scale up fast, scale down slowly); None if no hold is active."""
@@ -603,6 +648,78 @@ class O3SimAdjuster:
         for a in sim.sc.arrivals[lo:hi]:
             cnt[a[1]] += 1.0
         return cnt / Lw
+
+    def fast_scale(self, sim):
+        """Trigger-based add and shrink between two re-layouts, for on-demand capacity (6 Nov 2026, user request).
+
+        `fast_step` only converts containers inside a full cluster. With on-demand sizing there is free memory and surplus to give back, so the
+        slow 60 s loop is the only way capacity changes, and a rise in demand waits for it. This checks every move tick (cooldown `fast_cooldown`):
+          add     a function whose queue would take longer than `fast_trigger` cold starts to drain AND whose short-window sizing,
+                  ceil((short-window load + queued work / fast_clear) / util_cap), exceeds its containers gets up to the deficit, worst drain first,
+                  within the free memory plus what the shrink releases; at most `fast_budget` containers per action
+          shrink  a function with nothing queued whose count exceeds (1 + `fast_shrink_margin`) x max(short-window, long-window need) releases the excess
+          place   the frozen soft-routing placement with the new counts, leftover not filled; the slow re-layout starts from the live layout.
+        Parameters are the `fast_step` defaults; the shrink margin (0.25) is new. Nothing tuned."""
+        c = self.churn
+        if sim.now < self.warmup or sim.now >= sim.duration or sim.now - self._last_fast < float(c.get("fast_cooldown", 10.0)):
+            return
+        from .controllers import queue_aware_placement as _qa
+        fw = np.asarray(sim.sc.fw, dtype=float)
+        mu = np.array([f.exec_time for f in sim.sc.functions])
+        cs = np.array([f.cold_start for f in sim.sc.functions])
+        n = sim.cnt.sum(axis=1).astype(float)
+        backlog = backlog_per_function(sim)
+        clear = float(c.get("fast_clear", 30.0))
+        self.window_rates(sim, 1.0)                                    # makes sure self._A exists
+        lam_s = self._A @ self.window_rates(sim, float(c.get("fast_window", 20.0)))
+        lam_l = self._A @ self.window_rates(sim, 120.0)
+        need_s = np.maximum(1.0, np.ceil((lam_s * mu + backlog * mu / clear) / self.util_cap))
+        need_l = np.maximum(1.0, np.ceil((lam_l * mu + backlog * mu / self.clear_s) / self.util_cap))
+        drain = backlog * mu / np.maximum(n, 1.0)
+        emerg = (drain > float(c.get("fast_trigger", 1.0)) * cs) & (need_s > n)
+        level = np.ceil(np.maximum(need_s, need_l) * (1.0 + float(c.get("fast_shrink_margin", 0.25))))
+        held = self.hold_floor(sim)
+        if held is not None:
+            level = np.maximum(level, held)
+        surplus = np.where((~emerg) & (backlog == 0) & (n > level), n - level, 0.0)
+        budget = float(c.get("fast_budget", 40))
+        take = np.zeros(len(n))
+        left = budget
+        for f in np.argsort(-surplus):
+            if surplus[f] <= 0 or left <= 0:
+                break
+            take[f] = min(surplus[f], left)
+            left -= take[f]
+        room = float(sim.sc.ecc.sum() - n @ fw + take @ fw)
+        add = np.zeros(len(n))
+        left = budget
+        for f in np.argsort(-drain):
+            if not emerg[f] or left <= 0:
+                continue
+            k = min(need_s[f] - n[f], left, np.floor(room / fw[f] + 1e-9))
+            if k > 0:
+                add[f] = k
+                left -= k
+                room -= k * fw[f]
+        if add.sum() + take.sum() <= 0:
+            return
+        rec = dict(t=round(sim.now, 2), n_emerg=int(emerg.sum()), added=int(add.sum()), removed=int(take.sum()), applied=0)
+        counts = (n + add - take).astype(int)
+        assert (counts >= 1).all() and float(counts @ fw) <= float(sim.sc.ecc.sum()) + 1e-6
+        kw = self.place_kwargs(sim)
+        assert kw and kw.pop("qaware", False), "fast_scale needs the soft-routing placement"
+        kw.pop("elastic_qaware", None)
+        wf_rate = np.maximum(self.window_rates(sim, 120.0), 1e-9)
+        X = _qa(sim.sc, rates=wf_rate, counts=counts, cur=sim.cnt.T, busy=lam_s * mu + backlog * mu / clear, **kw)
+        if (X != sim.cnt.T).any():
+            sim.apply_placement(X)
+            self._last_fast = sim.now
+            rec["applied"] = 1
+            hold_s = float(c.get("fast_hold", 0.0))
+            if hold_s > 0:                                              # scale up fast, scale down slowly: the slow loop may not take these back for hold_s seconds
+                for f in np.flatnonzero(add > 0):
+                    self.hold[int(f)] = (int(n[f] + add[f]), sim.now + hold_s)
+        self.fast_log.append(rec)
 
     def fast_step(self, sim):
         """Emergency fixes between two re-layouts (2026-10-24): a SMALL, TRIGGERED capacity change from a short window.
@@ -892,6 +1009,18 @@ class O3SimAdjuster:
             sol = base if base is not None else Sol(sim)
             cache, hcache = {}, {}
             st = dict(evals=0, blocked_any=0, blocked_changed=0)
+            use_vec = mode == "V3" and bool(self.churn.get("fast_order"))     # MV-3 (7 Nov 2026): same numbers as the host loop below, no Python loop per candidate
+            vecs = {}
+
+            def vec(f):
+                v = vecs.get(f)
+                if v is None:
+                    v = np.full(N, np.inf)
+                    for k2 in np.flatnonzero(sol.cnt[f]):
+                        k2 = int(k2)
+                        v[k2] = svc(f, k2, len(sol.queue(f, k2)))
+                    vecs[f] = v
+                return v
 
             def svc(f, k, ah):
                 key = (f, k, ah)
@@ -903,8 +1032,13 @@ class O3SimAdjuster:
             def hosts_of(f, k):
                 key = (f, k)
                 if key not in hcache:
-                    hs = [int(x) for x in np.flatnonzero(sol.cnt[f]) if int(x) != k]
-                    hcache[key] = (hs, np.asarray(hs))
+                    if use_vec:                                         # same hosts in the same order, without a Python loop
+                        hv_ = np.flatnonzero(sol.cnt[f])
+                        hv_ = hv_[hv_ != k]
+                        hcache[key] = (hv_.tolist(), hv_)
+                    else:
+                        hs = [int(x) for x in np.flatnonzero(sol.cnt[f]) if int(x) != k]
+                        hcache[key] = (hs, np.asarray(hs))
                 return hcache[key]
 
             def evaluate(rq, f, k):
@@ -925,7 +1059,7 @@ class O3SimAdjuster:
                 qk = sol.queue(f, k)
                 ah = len(qk) - 1 if (qk and qk[-1] is rq) else (qk.index(rq) if rq in qk else len(qk))
                 a0 = float(inp[k]) + svc(f, k, ah) + lam * float(out[k])
-                sv = np.array([svc(f, k2, len(sol.queue(f, k2))) for k2 in hosts])
+                sv = vec(f)[hv] if use_vec else np.array([svc(f, k2, len(sol.queue(f, k2))) for k2 in hosts])
                 base = inp[hv] + sv + lam * out[hv]
                 ok = sol.free[hv] >= rq.total
                 if mode == "V0":
@@ -951,6 +1085,9 @@ class O3SimAdjuster:
                 sol.add_free(k2, -rq.total)
                 moves.append((rq.req.id, rq.task, k2))
                 tot[0] += g
+                if use_vec and f in vecs:                                   # only these two queues changed
+                    vecs[f][k] = svc(f, k, len(sol.queue(f, k)))
+                    vecs[f][k2] = svc(f, k2, len(sol.queue(f, k2)))
             qs = sorted(((len(sim.queue[k][f]), f, k) for k in range(sim.N) for f in range(sim.F) if sim.queue[k][f]), reverse=True)
             if mode in ("V0", "V1", "V2"):
                 if mode == "V2":
@@ -1350,6 +1487,8 @@ class O3SimAdjuster:
                     self.calib_log.append((sim.now, self._placement_mismatch(sim), self._true_placement_mismatch(sim)))
             if self.churn.get("fast"):
                 self.fast_step(sim)                                     # triggered emergency capacity fix from a short window
+            if self.churn.get("fast_scale"):
+                self.fast_scale(sim)                                    # on-demand: triggered add / shrink between two re-layouts
             if self.churn.get("fine"):
                 return self.fine_step(sim)                              # independent variant: own small moves instead of B*'s annealing
             if self.churn.get("rebal"):

@@ -1,0 +1,26 @@
+
+Sweep A: functions and workflows fixed (30, 15)
+    N    F    W  done  sim s  wall s |  relayout ms: median  later max first+all max |  move ms: median      p99  queued moves/pass | route ms: median     p99
+   80   30   15  True    320       6 |                 15.4       20.5         100.1 |             43.2     76.7     398        171 |             0.25    0.99
+  160   30   15  True    336      13 |                100.9      203.4         278.1 |             99.4    157.6     581        267 |             0.30    1.48
+  320   30   15  True    324      39 |                609.8      934.3        5006.8 |            311.1    431.0    1049        575 |             0.32    2.14
+  640   30   15  True    372     308 |               6593.7     7141.3      107395.5 |           1773.9   3347.6    5118       1232 |             0.31    3.94
+ 1280   30   15 False     60    1428 |            1379637.0  1379637.0     1379637.0 |           3052.7   4643.1    3586       1870 |             0.45    3.95
+  growth exponent with N (median): relayout 3.89, move 1.64, route 0.18
+  N=   80 feasible? relayout max     100.1 ms (limit 3000): True; move p99     76.7 ms (limit 400): True; route p99   0.99 ms (limit 10): True
+  N=  160 feasible? relayout max     278.1 ms (limit 3000): True; move p99    157.6 ms (limit 400): True; route p99   1.48 ms (limit 10): True
+  N=  320 feasible? relayout max    5006.8 ms (limit 3000): False; move p99    431.0 ms (limit 400): False; route p99   2.14 ms (limit 10): True
+  N=  640 feasible? relayout max  107395.5 ms (limit 3000): False; move p99   3347.6 ms (limit 400): False; route p99   3.94 ms (limit 10): True
+  N= 1280 feasible? relayout max 1379637.0 ms (limit 3000): False; move p99   4643.1 ms (limit 400): False; route p99   3.95 ms (limit 10): True
+
+Sweep B: functions and workflows scaled with servers
+    N    F    W  done  sim s  wall s |  relayout ms: median  later max first+all max |  move ms: median      p99  queued moves/pass | route ms: median     p99
+   80   30   15  True    320       6 |                 15.4       20.5         100.1 |             43.2     76.7     398        171 |             0.25    0.99
+  160   60   30  True    356      34 |                250.7      298.1        1278.9 |            218.6    402.7     724        298 |             0.74    3.49
+  320  120   60  True    372      96 |               1801.7     2690.7       10678.2 |            556.2   1177.6    1528        668 |             0.73    3.65
+  640  240  120  True    384     394 |              27322.5    29518.2       97886.3 |           1266.5   3217.0    3098       1490 |             0.74    3.91
+  growth exponent with N (median): relayout 3.52, move 1.60, route 0.47
+  N=   80 feasible? relayout max     100.1 ms (limit 3000): True; move p99     76.7 ms (limit 400): True; route p99   0.99 ms (limit 10): True
+  N=  160 feasible? relayout max    1278.9 ms (limit 3000): True; move p99    402.7 ms (limit 400): False; route p99   3.49 ms (limit 10): True
+  N=  320 feasible? relayout max   10678.2 ms (limit 3000): False; move p99   1177.6 ms (limit 400): False; route p99   3.65 ms (limit 10): True
+  N=  640 feasible? relayout max   97886.3 ms (limit 3000): False; move p99   3217.0 ms (limit 400): False; route p99   3.91 ms (limit 10): True

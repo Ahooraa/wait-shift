@@ -124,11 +124,28 @@ def resource_fit(sim, r):
     return _plan_tasks(sim, r, choose)
 
 
-def heft_like(sim, r):
+def break_ties(sim, f, ks, tied):
+    """Tie-break of the independent baselines, v2 (5 Nov 2026). `tied` = positions in `ks` of the candidates that share the best score.
+    Neither paper says how to choose among exact ties; the v1 ports took the first one, i.e. the lowest node index, which herded tasks
+    onto the same few nodes whenever many candidates tie (HEFT-like: 85-88% of decisions). v2: the candidate with the lowest queue
+    estimate (the same start-time estimate the scores use), then one of the remaining ones at random (sim.sched_rng)."""
+    tied = np.asarray(tied)
+    fs = sim.fst_vec(f)[ks][tied]
+    tied = tied[fs <= fs.min() + 1e-9]
+    return int(tied[0]) if len(tied) == 1 else int(sim.sched_rng.choice(tied))
+
+
+def heft_like_v2(sim, r):
+    """HEFT-like with the v2 tie-break (`break_ties`); everything else as `heft_like`."""
+    return heft_like(sim, r, tie="fst")
+
+
+def heft_like(sim, r, tie="index"):
     """HEFT-like (Liang et al. 2026, Sec. 5.1.4, after Topcuoglu et al. 2002): tasks in decreasing upward rank, each to the node with
     the earliest estimated finish time. rank_u(t) = w_t + max_s (c_ts + rank_u(s)) with w_t = mean exec time and c_ts = state size / bw x
     mean hop count. EFT_k = max(avail_k, max_p(EFT_p + stt(p -> k))) + w_t, avail_k = now + FST plus the work this plan already put on k
-    (HEFT's processor-availability update). Unlike greedy_eft it takes the max of data-ready and node-ready times, not their sum."""
+    (HEFT's processor-availability update). Unlike greedy_eft it takes the max of data-ready and node-ready times, not their sum.
+    tie="index" (v1): exact ties go to the lowest node index; tie="fst" (v2): see `break_ties`."""
     wf = r.wf
     net, mu = sim.net, sim.exec_time
     hbar = float(net.h[np.triu_indices(net.ne, 1)].mean()) if net.ne > 1 else 0.0
@@ -154,7 +171,7 @@ def heft_like(sim, r):
             ready = net.h[r.origin, ks] * (net.epd + wf.input_size / net.bw)
         avail = sim.fst_vec(f)[ks] + np.array([extra.get((f, int(k)), 0.0) for k in ks]) / sim.cnt[f, ks]
         fin = np.maximum(avail, ready) + mu[f]
-        i = int(np.argmin(fin))
+        i = int(np.argmin(fin)) if tie == "index" else break_ties(sim, f, ks, np.flatnonzero(fin <= fin.min() + 1e-9))
         k = int(ks[i])
         plan[t], eft[t] = k, float(fin[i])
         extra[(f, k)] = extra.get((f, k), 0.0) + mu[f]
@@ -176,12 +193,14 @@ class GraphAware:
       (4) l_comm (Eq. 16): sum over predecessors on other nodes of d_ki / b + lambda_lat * tau. Ours is store-and-forward per hop,
           hops x (epd + d / bw), with lambda_lat = 1; epd = 0 (DFPS assumption), so the latency term vanishes.
       (5) normalisation "within the current scheduling instance" (Sec. 4.3, Eq. 20) -> min-max over the candidate set of each decision.
-      (6) the paper gives no default coefficients ("fixed default values chosen a priori", Sec. 5.1.6); alpha = 1 and beta is chosen
-          on development cases (its Sec. 5.6 range is 0.2-1.1)."""
+      (6) the paper gives no default coefficients ("fixed default values chosen a priori", Sec. 5.1.6). Up to 4 Nov beta was chosen on
+          development cases under CAP-U (beta = 4, graphaware_sweep.py); that fit is retired (5 Nov). Default now alpha = 1, beta = 1.1,
+          the top of the paper's own Sec. 5.6 sweep (0.2-1.1, where larger was better), with no tuning on any scenario."""
 
-    def __init__(self, alpha=1.0, beta=1.0, gamma=0.0, eta=0.0):
+    def __init__(self, alpha=1.0, beta=1.1, gamma=0.0, eta=0.0, tie="index"):
         assert gamma == 0.0 and eta == 0.0, "cost and correction terms are not modelled (caveats 1-2)"
-        self.alpha, self.beta = float(alpha), float(beta)
+        assert tie in ("index", "fst")
+        self.alpha, self.beta, self.tie = float(alpha), float(beta), tie     # tie "index" = v1 (lowest node index), "fst" = v2 (`break_ties`)
 
     @staticmethod
     def _norm(x):
@@ -196,7 +215,7 @@ class GraphAware:
             l_exec = sim.fst_vec(f)[ks] + occ + sim.exec_time[f]
             l_comm = _transfer(sim, ks, src)
             s = -self.alpha * self._norm(l_exec) - self.beta * self._norm(l_comm)
-            k = int(ks[int(np.argmax(s))])
+            k = int(ks[int(np.argmax(s))]) if self.tie == "index" else int(ks[break_ties(sim, f, ks, np.flatnonzero(s >= s.max() - 1e-9))])
             extra[(f, k)] = extra.get((f, k), 0.0) + sim.exec_time[f]
             return k
         return _plan_tasks(sim, r, choose)
@@ -205,7 +224,7 @@ class GraphAware:
 # Comm.-Cost-Aware Greedy (Liang et al. 2026, Sec. 5.1.4: "local execution suitability, predecessor communication penalty, and execution
 # cost") is exactly greedy_eft here: FST + transfer, in seconds, with no node prices.
 DISPATCHERS = {"greedy_eft": greedy_eft, "locality": locality, "jsq": jsq, "random": random_node, "resource_fit": resource_fit,
-               "heft_like": heft_like, "ccag": greedy_eft, "transfer_only": transfer_only, "mover_aet": mover_aet}
+               "heft_like": heft_like, "heft_like_v2": heft_like_v2, "ccag": greedy_eft, "transfer_only": transfer_only, "mover_aet": mover_aet}
 
 
 class FaaSPRRouter:
@@ -402,3 +421,176 @@ class FaaSPRRouter:
         else:
             self.n_pure += 1
         return plan
+
+
+class FaaSPRRouterPaper(FaaSPRRouter):
+    """FaaSPR's routing, "FP-2" (5 Nov 2026): Jia et al., IEEE/ACM ToN 2025, Sec. V, Constraints 1-3*, the final LP and the multi-stage rule.
+    Per workflow (the paper: "the scheduler applies the routing algorithm to each workflow in parallel"), minimise sum_k l_k o_k s.t.
+    (1) sum_k o_k >= O_w, (2) the load on every (function, server) at most alpha * P_ij / t_i (alpha = 0.9), (3*) paths sorted by latency,
+    o_k = 0 for k > x, with x the SMALLEST index for which the LP is feasible (binary search, as the paper's overhead paragraph). A request
+    draws a path with probability o_k / sum o.
+    Differences from `FaaSPRRouter` (CAP-U port): exact x-index threshold instead of an 8-value relative grid; one LP per workflow instead of
+    one shared LP, with each function's capacity split over the workflows that use it in proportion to rate x occurrences (the paper's
+    functions belong to one workflow; the same split as `faaspr_placement_w`); load counts the multiplicity of a function on a server in a
+    path; the rate window is the scaling interval (60 s).
+    Adaptations kept, printed under every table: (a) paths are SAMPLED (`n_paths` per workflow: deterministic earliest-arrival greedy, noisy
+    local-first, capacity-proportional random, and co-located paths on the servers hosting most of the workflow's functions), because
+    exhaustive enumeration is impossible at 80 servers and about 36 hosts per function; the paper reduces it by placing instances together
+    and by server groups of 8, neither of which is reproduced here; (b) if even the full path set cannot cover the rate (the paper has no
+    overload rule), the LP is solved with a heavily penalised coverage slack at x = r and `n_slack` counts it; (c) the per-task storage
+    repair of `FaaSPRRouter.__call__` (our model's input-state budget has no counterpart in the paper); `n_pure` and the repaired shares
+    report how often it fires."""
+
+    def __init__(self, n_paths=300, alpha=0.9, window=60.0, refresh=60.0, seed=0):
+        super().__init__(n_paths=n_paths, alpha=alpha, window=window, refresh=refresh, seed=seed)
+        self.x_frac = []                                # x / r per workflow and solve
+        self.n_wf_solves, self.n_wf_slack, self.slack_share = 0, 0, []   # workflow LPs, those that needed the coverage slack, uncovered share of their rate
+        self.solve_log = []                              # (sim.now, workflow LPs, workflow LPs that needed slack, mean uncovered share)
+        self.win = dict(pure=0, rep_req=0, rep_tasks=0, unplanned=0, arrived=0)   # routing counters inside the run (before sim.duration); the drain after it is excluded
+
+    def __call__(self, sim, r):
+        b = (self.n_pure, self.n_repaired_req, self.n_repaired_tasks, self.n_unplanned)
+        plan = super().__call__(sim, r)
+        if sim.now < sim.duration:
+            self.win["arrived"] += 1
+            self.win["pure"] += self.n_pure - b[0]
+            self.win["rep_req"] += self.n_repaired_req - b[1]
+            self.win["rep_tasks"] += self.n_repaired_tasks - b[2]
+            self.win["unplanned"] += self.n_unplanned - b[3]
+        return plan
+
+    def _gen(self, sim, wf):
+        cnt, net, rng = sim.cnt, sim.net, self.rng
+        F = sim.F
+        hosts = [np.flatnonzero(cnt[f]) for f in range(F)]
+        seen, out = set(), []
+
+        def add(nodes):
+            key = tuple(int(k) for k in nodes)
+            if key not in seen:
+                seen.add(key)
+                out.append((np.array(key), self._latency(sim, wf, key)))
+
+        def local_first(noise):
+            nodes = np.zeros(wf.n, dtype=int)
+            for t in range(wf.n):
+                f = wf.ft[t]
+                ks = hosts[f]
+                if not wf.parents[t]:
+                    w = cnt[f, ks].astype(float)
+                    nodes[t] = ks[rng.choice(len(ks), p=w / w.sum())] if noise else ks[int(np.argmax(w))]
+                else:
+                    c = sum(net.h[nodes[p], ks] * (net.epd + wf.ss[(p, t)] / net.bw) for p in wf.parents[t])
+                    if noise:
+                        c = c * (1.0 + noise * rng.random(len(ks)))
+                    nodes[t] = ks[int(np.argmin(c - 1e-6 * cnt[f, ks]))]
+            return nodes
+
+        add(local_first(0.0))
+        fs = sorted({wf.ft[t] for t in range(wf.n)})
+        held = np.zeros(sim.N)
+        for f in fs:
+            held[hosts[f]] += 1
+        order = np.argsort(-held + rng.random(sim.N) * 1e-3)
+        for j in order[: max(1, self.n_paths // 10)]:               # co-located paths on the best-covered servers
+            nodes = np.zeros(wf.n, dtype=int)
+            for t in range(wf.n):
+                f = wf.ft[t]
+                if cnt[f, j] > 0:
+                    nodes[t] = j
+                elif not wf.parents[t]:
+                    ks = hosts[f]
+                    nodes[t] = ks[int(np.argmin(net.h[j, ks]))]
+                else:
+                    ks = hosts[f]
+                    c = sum(net.h[nodes[p], ks] * (net.epd + wf.ss[(p, t)] / net.bw) for p in wf.parents[t])
+                    nodes[t] = ks[int(np.argmin(c))]
+            add(nodes)
+        tries = 0
+        while len(out) < self.n_paths and tries < 4 * self.n_paths:
+            tries += 1
+            if tries % 2:
+                add(local_first(rng.uniform(0.0, 1.5)))
+            else:
+                nodes = np.zeros(wf.n, dtype=int)
+                for t in range(wf.n):
+                    f = wf.ft[t]
+                    ks = hosts[f]
+                    w = cnt[f, ks].astype(float)
+                    nodes[t] = ks[rng.choice(len(ks), p=w / w.sum())]
+                add(nodes)
+        return out
+
+    def _solve(self, sim, rates):
+        import time as _t
+        from scipy.optimize import linprog
+        from scipy.sparse import coo_matrix, vstack
+        t0 = _t.perf_counter()
+        W, F, mu = len(sim.sc.workflows), sim.F, sim.exec_time
+        occ = np.zeros((W, F))
+        for w, wf in enumerate(sim.sc.workflows):
+            for t in range(wf.n):
+                occ[w, wf.ft[t]] += 1.0
+        load = occ * rates[:, None]
+        share = load / np.maximum(load.sum(axis=0), 1e-12)
+        self.paths, self.prob = {}, {}
+        slack_any = False
+        for w, wf in enumerate(sim.sc.workflows):
+            cols = sorted(self._gen(sim, wf), key=lambda c: c[1])
+            n = len(cols)
+            lat = np.array([c[1] for c in cols])
+            index, rows, cs, vals = {}, [], [], []
+            for k, (nodes, _) in enumerate(cols):
+                mult = {}
+                for t in range(wf.n):
+                    key = (wf.ft[t], int(nodes[t]))
+                    mult[key] = mult.get(key, 0) + 1
+                for key, m in mult.items():
+                    rows.append(index.setdefault(key, len(index)))
+                    cs.append(k)
+                    vals.append(float(m))
+            R = coo_matrix((vals, (rows, cs)), shape=(len(index), n)).tocsr()
+            cap = np.array([self.alpha * sim.cnt[f, j] / mu[f] * share[w, f] for (f, j) in index])
+            rate = float(rates[w])
+            Aub = vstack([R, coo_matrix(-np.ones((1, n)))]).tocsr()
+            bub = np.concatenate([cap, [-rate]])
+
+            def solve(x, c):
+                ub = np.where(np.arange(n) < x, np.inf, 0.0)
+                return linprog(c, A_ub=Aub, b_ub=bub, bounds=list(zip(np.zeros(n), ub)), method="highs")
+
+            zero = np.zeros(n)
+            lo, hi = 1, n
+            if solve(n, zero).status != 0:                  # even all paths cannot cover the rate: slack LP at x = r
+                slack_any = True
+                self.n_wf_slack += 1
+                R2 = vstack([R, coo_matrix(-np.ones((1, n)))]).tocsr()
+                from scipy.sparse import hstack
+                A2 = hstack([R2, coo_matrix(np.concatenate([np.zeros(len(index)), [-1.0]]).reshape(-1, 1))]).tocsr()
+                res = linprog(np.concatenate([lat, [1e4]]), A_ub=A2, b_ub=bub, bounds=[(0, None)] * (n + 1), method="highs")
+                o = np.maximum(res.x[:n], 0.0) if res.status == 0 else np.ones(n) / n
+                self.slack_share.append(float(res.x[n] / max(rate, 1e-12)) if res.status == 0 else 1.0)
+                x = n
+            else:
+                while lo < hi:
+                    mid = (lo + hi) // 2
+                    if solve(mid, zero).status == 0:
+                        hi = mid
+                    else:
+                        lo = mid + 1
+                x = lo
+                res = solve(x, lat)
+                o = np.maximum(res.x, 0.0) if res.status == 0 else np.ones(x)
+            if o.sum() <= 1e-12:
+                o = (np.arange(n) < x).astype(float)
+            self.paths[w] = [c[0] for c in cols]
+            self.prob[w] = o / o.sum()
+            self.x_frac.append(x / n)
+            self.n_wf_solves += 1
+        self.n_solves += 1
+        self.n_slack += int(slack_any)
+        k0 = len(self.slack_share) - (self.n_wf_slack - getattr(self, "_slack_prev", 0))
+        self.solve_log.append((float(sim.now), W, self.n_wf_slack - getattr(self, "_slack_prev", 0),
+                               float(np.mean(self.slack_share[k0:])) if self.n_wf_slack - getattr(self, "_slack_prev", 0) else 0.0))
+        self._slack_prev = self.n_wf_slack
+        self.solve_ms.append((_t.perf_counter() - t0) * 1e3)

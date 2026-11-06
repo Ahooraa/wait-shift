@@ -1,0 +1,40 @@
+FaaSPR's own setting (8 servers, 402 GB, 203.8 req/min, 3,600 s). Ratio FaaSPR / FROZEN-3 (geometric mean [95% bootstrap CI]; wins of FROZEN-3)
+
+P99 makespan, FaaSPR / f3_fixed: all 36 cases 2.32 [2.10, 2.58], FROZEN-3 lower in 36/36
+   chain5       2.23  (12 cases)
+   fan6         2.62  (12 cases)
+   tree6        2.13  (12 cases)
+   _r0.4_       2.21  (12 cases)
+   _r0.55_      2.30  (12 cases)
+   _r0.7_       2.45  (12 cases)
+
+mean makespan, FaaSPR / f3_fixed: all 36 cases 1.80 [1.72, 1.90], FROZEN-3 lower in 36/36
+   chain5       1.75  (12 cases)
+   fan6         1.89  (12 cases)
+   tree6        1.78  (12 cases)
+   _r0.4_       1.74  (12 cases)
+   _r0.55_      1.82  (12 cases)
+   _r0.7_       1.85  (12 cases)
+
+P99 makespan, FaaSPR / f3_elastic: all 36 cases 2.19 [1.98, 2.44], FROZEN-3 lower in 36/36
+   chain5       2.13  (12 cases)
+   fan6         2.46  (12 cases)
+   tree6        2.02  (12 cases)
+   _r0.4_       2.00  (12 cases)
+   _r0.55_      2.20  (12 cases)
+   _r0.7_       2.40  (12 cases)
+
+mean makespan, FaaSPR / f3_elastic: all 36 cases 1.58 [1.50, 1.67], FROZEN-3 lower in 36/36
+   chain5       1.55  (12 cases)
+   fan6         1.64  (12 cases)
+   tree6        1.55  (12 cases)
+   _r0.4_       1.39  (12 cases)
+   _r0.55_      1.61  (12 cases)
+   _r0.7_       1.76  (12 cases)
+
+Mean P99 (s) / mean makespan (s) / provisioned memory (GB, time average) per arm:
+  faaspr      n=36  P99    304.4  mean    96.4  memory  277.0 GB  cold starts    1727
+  f3_fixed    n=36  P99    126.4  mean    53.1  memory  399.9 GB  cold starts      27
+  f3_elastic  n=36  P99    132.2  mean    59.5  memory  277.0 GB  cold starts    1007
+
+FaaSPR health over 36 cases (setting-fidelity check: slack-LP share per solve, median 0.07, mean 0.08): workflow-solves needing slack 0.08, repaired requests 0.00, unplannable 0.00, parked 0.00, distinct paths in the last solve 1298

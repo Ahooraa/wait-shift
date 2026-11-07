@@ -900,3 +900,18 @@ author: llm
 
 ## [2026-11-07] result | user | controller cost: lazy re-layout scoring and MV-3
 - Measured: re-layout about N^2.9, move pass N^1.8, limits failed by 320-640 servers. MV-3 (exact, event hashes equal 6/6) and lazy scoring (P99 0.988 [0.973, 1.001] on 18 development cases): re-layout N^1.6, largest call at 640 servers 107 s to 2.2 s, move pass p99 3.3 s to 1.16 s. Passes at 320 servers; at 640 only the move pass fails. See [[independent-baselines-capw1]], section 8.
+
+## [2026-11-07] result | user | controller cost: exact speed-ups and second approximation on lazy scoring
+- Exact speed-ups hash-equal 6/6. Demand-point thinning M = 32: P99 1.007 [0.992, 1.021] on 18 development cases (M = 16 fails, 1.029). Typical re-layout at 1,280 servers 1,206 to 73 ms; growth N^1.77 to N^0.70 (fixed functions), N^2.67 to N^1.32 (scaled). The move pass is the only decision still over its limit at 640 servers. See [[independent-baselines-capw1]], section 8.
+
+## [2026-11-07] plan | user | the two-loop 2x2 under CAP-W1 with the current controller, FIFO queues
+- Written before the runs ([[independent-baselines-capw1]], section 9): 72 runs on 18 development cases; cell D against stored FROZEN-3 gives the cost of removing the queue order.
+
+## [2026-11-07] result | user | the two-loop 2x2 under CAP-W1, FIFO queues (72 runs, development cases)
+- P99 3,899 / 1,527 / 1,431 / 118 s; moves x2.55 alone, x12.10 with re-layout; both x33, 4.74 times the product; interaction -1.56 [-1.79, -1.32]. Removing the queue order: P99 1.017 [0.995, 1.040]. Thinning M = 32 at scale: mean makespan +3.9% (320 servers), +6.6% (640). See [[independent-baselines-capw1]], section 9.
+
+## [2026-11-07] plan | user | robustness checks of the two-loop 2x2
+- Written before the runs ([[independent-baselines-capw1]], section 9): queue-aware router in the no-move cells, 3,600 s runs, held-out seeds, mechanism split; 156 runs, outcomes stated in advance.
+
+## [2026-11-07] result | user | robustness checks of the two-loop 2x2 (156 runs)
+- Held-out: 6,452 / 2,225 / 1,776 / 186 s, interaction -1.19 [-1.52, -0.88]. Queue-aware no-move cell still x8.92 above D: claim stands. 3,600 s: D stable (x0.97), A and B grow with run length, so x33 understates and is not stable. Queue order on held-out costs 5% (1.053 [1.024, 1.084]), more than the development reading. The pre-registered mechanism expectation failed as written; a post hoc reading against idle containers supports it, unconfirmed. See [[independent-baselines-capw1]], section 9.

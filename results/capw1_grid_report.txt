@@ -1,0 +1,54 @@
+errors: 0
+
+=== Development cases, seeds 1-3: 18 of 18 cases complete
+P99 geometric mean (s): A fixed 3899 | B fixed+moves 1527 | C re-layout 1431 | D both 118
+  moves on a fixed layout: x2.55 [2.18, 3.02], better in 18/18
+  moves with re-layout: x12.10 [10.56, 13.96], better in 18/18
+  re-layout without moves: x2.73 [2.36, 3.09], better in 18/18
+  re-layout with moves: x12.92 [10.25, 16.07], better in 18/18
+  both together: x32.99 [28.54, 37.79], better in 18/18
+  log interaction -1.56 [-1.79, -1.32]; both together over the product of the separate effects: x4.74
+  rho 0.5 P99 A 2893 B 854 C 1234 D 96
+  rho 0.7 P99 A 4233 B 1726 C 1474 D 114
+  rho 0.85 P99 A 4842 B 2416 C 1611 D 150
+Queue order: FIFO (D) over FROZEN-3 (criticality): P99 1.017 [0.995, 1.040], FIFO lower in 8/18; mean makespan 1.003
+  rho 0.5 FIFO / criticality P99 1.003
+  rho 0.7 FIFO / criticality P99 1.001
+  rho 0.85 FIFO / criticality P99 1.047
+
+=== Held-out cases, seeds 7-10: 24 of 24 cases complete
+P99 geometric mean (s): A fixed 6452 | B fixed+moves 2225 | C re-layout 1776 | D both 186
+  moves on a fixed layout: x2.90 [2.55, 3.30], better in 24/24
+  moves with re-layout: x9.55 [7.40, 12.18], better in 24/24
+  re-layout without moves: x3.63 [3.09, 4.33], better in 24/24
+  re-layout with moves: x11.96 [8.48, 16.71], better in 24/24
+  both together: x34.70 [26.35, 45.15], better in 24/24
+  log interaction -1.19 [-1.52, -0.88]; both together over the product of the separate effects: x3.29
+  rho 0.5 P99 A 5036 B 1441 C 1295 D 131
+  rho 0.7 P99 A 6309 B 2443 C 1700 D 180
+  rho 0.85 P99 A 8451 B 3127 C 2543 D 271
+Queue order: FIFO (D) over FROZEN-3 (criticality): P99 1.053 [1.024, 1.084], FIFO lower in 4/24; mean makespan 1.007
+  rho 0.5 FIFO / criticality P99 1.024
+  rho 0.7 FIFO / criticality P99 1.065
+  rho 0.85 FIFO / criticality P99 1.070
+Mechanism (mean over cases). Share of queued work per tick; critical-path time of the slowest 1% of requests (s):
+  A: queued     6288 (first half     4928, second     7649) | stranded 0.05 wrong-function 0.10 shortage 0.85 | tail makespan    7614 wait    4965 exec    33 | all makespan   2450 wait   1482 exec    29
+  B: queued     5218 (first half     4254, second     6182) | stranded 0.02 wrong-function 0.16 shortage 0.82 | tail makespan    2730 wait     991 exec    35 | all makespan   1237 wait    706 exec    29
+  C: queued     5661 (first half     4143, second     7179) | stranded 0.13 wrong-function 0.02 shortage 0.85 | tail makespan    2291 wait    2173 exec    33 | all makespan    469 wait    422 exec    30
+  D: queued      813 (first half      997, second      629) | stranded 0.39 wrong-function 0.15 shortage 0.46 | tail makespan     274 wait     195 exec    70 | all makespan     63 wait     26 exec    34
+
+=== Queue-aware router (greedy_eft) in the no-move cells, 18 development cases
+  Aq: P99 3343 s; better than transfer_only (A) by x1.17 [1.12, 1.21]; still worse than D (both loops) by x28.28 [24.91, 32.16], D lower in 18/18
+  Cq: P99 1055 s; better than transfer_only (C) by x1.36 [1.18, 1.58]; still worse than D (both loops) by x8.92 [8.00, 9.97], D lower in 18/18
+  rho 0.5 P99 Aq 2458 Cq 793 D 96
+  rho 0.7 P99 Aq 3531 Cq 1219 D 114
+  rho 0.85 P99 Aq 4307 Cq 1213 D 150
+  interaction with the queue-aware no-move cells: -1.40 [-1.62, -1.18]
+
+=== Run length, trace repeated to 3,600 s, 6 development cases (seed 1), same cases at 900 s beside it
+  A: P99 900 s run    3461 s | 3,600 s run   11863 s | growth x3.43
+  B: P99 900 s run    1423 s | 3,600 s run    7075 s | growth x4.97
+  C: P99 900 s run    1388 s | 3,600 s run    3365 s | growth x2.43
+  D: P99 900 s run      97 s | 3,600 s run      94 s | growth x0.97
+  900 s: both together x35.7; moves with re-layout x14.3; re-layout with moves x14.7; interaction -1.77 [-2.19, -1.38]
+  3,600 s: both together x125.7; moves with re-layout x35.7; re-layout with moves x75.0; interaction -3.06 [-3.44, -2.64]

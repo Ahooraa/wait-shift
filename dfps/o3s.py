@@ -452,7 +452,8 @@ class O3SimAdjuster:
                       queue_term=bool(self.churn.get("queue_term", True)), affinity=bool(self.churn.get("affinity", True)),
                       struct=self.churn.get("pstruct"), size_aware=bool(self.churn.get("size_aware", False)),
                       fill_leftover=not bool(self.churn.get("elastic")),     # weighted scenarios: elastic = do not fill the leftover memory
-                      fast_cost=bool(self.churn.get("fast_place") or self.churn.get("lazy_place")), lazy=bool(self.churn.get("lazy_place")))
+                      fast_cost=bool(self.churn.get("fast_place") or self.churn.get("lazy_place")), lazy=bool(self.churn.get("lazy_place")),
+                      thin=int(self.churn.get("place_thin", 0)))
             if self.churn.get("elastic_qaware"):
                 kw["elastic_qaware"] = True                      # baseline_layout only (hpa modes): see there
         elif p == "kmedian":
@@ -1011,6 +1012,8 @@ class O3SimAdjuster:
             st = dict(evals=0, blocked_any=0, blocked_changed=0)
             use_vec = mode == "V3" and bool(self.churn.get("fast_order"))     # MV-3 (7 Nov 2026): same numbers as the host loop below, no Python loop per candidate
             vecs = {}
+            if use_vec:
+                sol._av.update(sim.all_availability())                  # one scan per pass instead of one per (function, node)
 
             def vec(f):
                 v = vecs.get(f)
@@ -1046,6 +1049,22 @@ class O3SimAdjuster:
                 if not hosts:
                     return None
                 wf, loc = rq.req.wf, sol.node_of(rq)
+                if use_vec:                                             # the same element-wise arithmetic, on the hosts and the source node only
+                    inp_k = inp_v = out_k = out_v = 0.0
+                    for sz in rq.sizes:
+                        d = epd + sz / bw
+                        inp_k = inp_k + h[loc, k] * d
+                        inp_v = inp_v + h[loc, hv] * d
+                    for c in wf.children[rq.task]:
+                        d, pc = epd + wf.ss[(rq.task, c)] / bw, rq.req.plan[c]
+                        out_k = out_k + h[k, pc] * d
+                        out_v = out_v + h[hv, pc] * d
+                    qk = sol.queue(f, k)
+                    ah = len(qk) - 1 if (qk and qk[-1] is rq) else (qk.index(rq) if rq in qk else len(qk))
+                    a0 = float(inp_k) + svc(f, k, ah) + lam * float(out_k)
+                    a = np.where(sol.free[hv] >= rq.total, inp_v + vec(f)[hv] + lam * out_v, np.inf)
+                    j = int(np.argmin(a))
+                    return (a0 - float(a[j]), hosts[j]) if a[j] < a0 else None
                 inp = 0.0
                 for sz in rq.sizes:
                     inp = inp + h[loc] * (epd + sz / bw)

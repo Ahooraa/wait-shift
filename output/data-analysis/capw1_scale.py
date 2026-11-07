@@ -25,7 +25,9 @@ ROOT = HERE.parents[1]
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(ROOT))
 FAST = os.environ.get("FASTPATH", "")             # "1": fast_order + fast_place; "2": fast_order + lazy_place; results kept apart
-OUT = ROOT / "results" / {"": "capW1_scale", "1": "capW1_scale_fast", "2": "capW1_scale_lazy"}[FAST]
+THIN = int(os.environ.get("THIN", "0"))           # second approximation: the THIN heaviest demand points per function
+TAG = os.environ.get("TAG", "")                   # keeps a re-measurement apart from an earlier sweep
+OUT = ROOT / "results" / ({"": "capW1_scale", "1": "capW1_scale_fast", "2": "capW1_scale_lazy"}[FAST] + (f"_t{THIN}" if THIN else "") + TAG)
 DURATION, WARMUP = 240.0, 60.0
 RHO, TARGET, EPOCH, MOVE_S = 0.7, 0.7, 30.0, 4.0
 SWEEP_A = [(n, 30, 15) for n in (80, 160, 320, 640, 1280)]
@@ -128,6 +130,8 @@ def one(N, F, W, seed=1):
         churn.update(fast_order=True, fast_place=True)
     elif FAST == "2":
         churn.update(fast_order=True, lazy_place=True)
+    if THIN:
+        churn.update(place_thin=THIN)
     adj = O3.O3SimAdjuster(make_adjuster("B_STAR", A, seed=seed + 300), MOVE_S, epoch=EPOCH, horizon=30.0, K=8, seed=seed + 800, warmup=WARMUP, blind=True, cand_mode="nosim", churn=churn)
     kw["interval"] = adj.next_interval
     sim = Sim(sc, X0.copy(), adjuster=adj, seed=seed + 400, **kw)

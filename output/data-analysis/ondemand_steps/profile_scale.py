@@ -9,7 +9,7 @@ import capw1_scale as S
 N = int(sys.argv[1])
 pr = cProfile.Profile()
 pr.enable()
-S.one(N, 30, 15, 2)
+S.one(N, int(sys.argv[2]) if len(sys.argv) > 2 else 30, int(sys.argv[3]) if len(sys.argv) > 3 else 15, 2)
 pr.disable()
 st = pstats.Stats(pr)
 total = st.total_tt
@@ -20,5 +20,5 @@ for (fn, line, name), (cc, nc, tt, ct, _) in st.stats.items():
 keep = ("queue_aware_placement", "costs", "share", "demand_points", "bottleneck_first_placement", "rebalance_step", "_order_cf", "engine", "evaluate", "hosts_of", "svc", "service_estimate",
         "apply_placement", "decide", "candidates", "__init__", "backlog_per_function", "workflow_rates", "forecast", "matmul", "fst_vec", "transfer_only", "route", "reb", "bfp")
 print(f"{'cumulative s':>12s} {'own s':>8s} {'calls':>10s}  function")
-for ct, tt, nc, f, line, name in sorted(rows, reverse=True)[:45]:
+for ct, tt, nc, f, line, name in sorted(rows, reverse=True)[:70]:
     print(f"{ct:12.2f} {tt:8.2f} {nc:10d}  {f}:{line} {name}")

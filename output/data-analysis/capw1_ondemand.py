@@ -64,6 +64,10 @@ def run_job(args):
         fast_order, fast_place, lazy_place = "_fo" in arm, "_fp" in arm, "_lz" in arm  # speed-ups (7 Nov 2026): _fo, _fp exact or rounding-level; _lz lazy re-layout scoring
         arm = arm.replace("_fo", "").replace("_fp", "").replace("_lz", "")
         import re as _re
+        _t = _re.search(r"_t(\d+)", arm)                     # _t32: re-layout scoring keeps the 32 heaviest demand points per function
+        place_thin = int(_t.group(1)) if _t else 0
+        if _t:
+            arm = arm[:_t.start()] + arm[_t.end():]
         _sd = _re.search(r"_sd(\d+)$", arm)                 # _sd2: a function shrinks only after its need was lower at 2 consecutive re-layouts
         shrink_delay = int(_sd.group(1)) if _sd else 0
         if _sd:
@@ -106,6 +110,8 @@ def run_job(args):
             churn["fast_place"] = True
         if lazy_place:
             churn["lazy_place"] = True
+        if place_thin:
+            churn["place_thin"] = place_thin
         if fs:
             churn["fast_scale"] = True
             churn["fast_hold"] = hold

@@ -399,7 +399,7 @@ def _cover_gain(dem_f, h, cur_min):
 
 
 def queue_aware_placement(sc, rates=None, counts=None, cur=None, o_w=None, origin_weight=1.0, busy=None, tau=1.0,
-                          queue_term=True, util_clip=0.97, affinity=True, struct=None, size_aware=False, fill_leftover=True, fast_cost=False, lazy=False):
+                          queue_term=True, util_clip=0.97, affinity=True, struct=None, size_aware=False, fill_leftover=True, fast_cost=False, lazy=False, thin=0):
     """Capacity- and queue-aware incremental placement (2026-10-23): the k-median of `kmedian_placement` with a cost that
     knows containers have finite capacity.
 
@@ -483,7 +483,11 @@ def queue_aware_placement(sc, rates=None, counts=None, cur=None, o_w=None, origi
         if q is None:
             r = share(f)
             active = np.flatnonzero(r > 0)
-            q = pre[f] = (r[active], W[active], B[active])
+            ra = r[active]
+            if thin and active.size > thin:                             # second approximation (7 Nov 2026): the `thin` heaviest demand points only, same total pull
+                top = np.sort(np.argpartition(-ra, thin - 1)[:thin])
+                ra, active = ra[top] * (ra.sum() / ra[top].sum()), active[top]
+            q = pre[f] = (ra, W[active], B[active])
         return q
 
     def cost_now(f, Sb, Tb):
@@ -568,19 +572,27 @@ def queue_aware_placement(sc, rates=None, counts=None, cur=None, o_w=None, origi
 
         for f in np.flatnonzero(need > 0):
             full(int(f))
+        bestg, bestk = np.full(F, -np.inf), np.zeros(F, dtype=int)
+
+        def refresh(f):                                                  # best feasible candidate of f; only changes at a re-pricing, or when its best node loses room
+            if need[f] <= 0:
+                bestg[f] = -np.inf
+                return
+            v = lg[f].copy()
+            v[free < fw[f] - 1e-9] = -np.inf
+            j = int(np.argmax(v))
+            bestg[f], bestk[f] = v[j], j
+
+        for f in np.flatnonzero(need > 0):
+            refresh(int(f))
         while need.sum() > 0:
-            best, bf, bk = -np.inf, None, None
-            for f in np.flatnonzero(need > 0):
-                f = int(f)
-                g = lg[f].copy()
-                g[free < fw[f] - 1e-9] = -np.inf
-                k = int(np.argmax(g))
-                if g[k] > best:
-                    best, bf, bk = float(g[k]), f, k
-            if bf is None:                                               # as in the exact loop below: nothing fits anywhere
+            bf = int(np.argmax(bestg))                                   # the first function holding the largest gain, as the scan it replaces
+            room_up = False
+            if bestg[bf] == -np.inf:                                     # as in the exact loop below: nothing fits anywhere
                 f0 = int(np.flatnonzero(need > 0)[np.argmax(need[need > 0])])
                 if X[:, f0].sum() > 0:
                     need[f0] = 0
+                    refresh(f0)
                     continue
                 donors = [(fw[g], k, g) for k in range(N) for g in np.flatnonzero(X[k]) if X[:, g].sum() > 1 and free[k] + fw[g] >= fw[f0] - 1e-9]
                 if not donors:
@@ -590,19 +602,29 @@ def queue_aware_placement(sc, rates=None, counts=None, cur=None, o_w=None, origi
                 free[k] += fw[g]
                 if int(g) in lg:
                     full(int(g))
-                bf, bk = f0, k
-            elif lstamp[bf][bk] != lver[bf]:                             # stale: re-price this one candidate, then choose again
-                Sb, Tb = lsum[bf]
-                new = cost_one(bf, Sb, Tb, bk, 1.0)
-                lg[bf][bk] = (cost_now(bf, Sb, Tb) - new) if X[:, bf].sum() > 0 else -new
-                lstamp[bf][bk] = lver[bf]
-                continue
+                bf, bk, room_up = f0, k, True
+            else:
+                bk = int(bestk[bf])
+                if lstamp[bf][bk] != lver[bf]:                           # stale: re-price this one candidate, then choose again
+                    Sb, Tb = lsum[bf]
+                    new = cost_one(bf, Sb, Tb, bk, 1.0)
+                    lg[bf][bk] = (cost_now(bf, Sb, Tb) - new) if X[:, bf].sum() > 0 else -new
+                    lstamp[bf][bk] = lver[bf]
+                    refresh(bf)
+                    continue
             X[bk, bf] += 1
             free[bk] -= fw[bf]
             need[bf] -= 1
             _, Wa, Ba = prep(bf)
             lsum[bf] = (lsum[bf][0] + Wa[:, bk], lsum[bf][1] + Ba[:, bk])
             lver[bf] += 1
+            if room_up:
+                for f in np.flatnonzero(need > 0):
+                    refresh(int(f))
+            else:
+                refresh(bf)
+                for f in np.flatnonzero((bestk == bk) & (bestg > -np.inf)):
+                    refresh(int(f))
     while need.sum() > 0:
         avail = np.flatnonzero(free > 1e-9) if hetero else np.flatnonzero(free > 0)
         for f in list(dirty):

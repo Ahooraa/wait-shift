@@ -199,6 +199,31 @@ class Sim:
             self._fst_cache[f] = v
         return v
 
+    def all_availability(self):
+        """The lists of `live_availability` for every (f, k) at once, one scan of the instances (7 Nov 2026, MV-3): same entries in the same order."""
+        out, ex, cs, now = {}, self.exec_time, self.cold_start, self.now
+        for k in range(self.N):
+            for lst in self.inst[k]:
+                for ins in lst:
+                    if ins.swap_to is not None:
+                        f = ins.swap_to
+                        e = (ex[ins.f] + cs[f], COLD)
+                    else:
+                        f = ins.f
+                        if ins.state == IDLE:
+                            e = (0.0, IDLE)
+                        elif ins.state == COLD:
+                            e = (max(0.0, ins.warm_at - now), COLD)
+                        else:
+                            e = (ex[f], BUSY)
+                    out.setdefault((f, k), []).append(e)
+            if self.hetero and self.pending_add[k]:
+                leaving = [ex[i.f] for lst in self.inst[k] for i in lst if i.swap_to is not None]
+                first = min(leaving) if leaving else 0.0
+                for f in set(self.pending_add[k]):
+                    out.setdefault((f, k), []).extend([(first + cs[f], COLD)] * self.pending_add[k].count(f))
+        return out
+
     def live_availability(self, f, k):
         """(relative availability, kind) of every instance whose FINAL type is f on node k (idle: 0; busy: mean residual
         mu_f of its running function (memoryless); cold: time until warm; a busy instance waiting to be swapped into f

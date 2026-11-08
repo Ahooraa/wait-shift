@@ -963,6 +963,8 @@ The wall-clock fields `adjust_ms_*`, `plan_ms_*` and `wall_s` differ by design. 
 
 **MV-3** (7 Nov 2026, off unless `churn["fast_order"]`): the gain-ordered pass with per-function estimate arrays updated only where a move changes a queue; event hashes equal MV-2 in 6 of 6 cases, so results may be pooled. Re-layout scoring has a separate switch: `fast_place` (same formula, rounding can tip exact ties) and `lazy_place` (re-prices only the candidate about to be accepted, an approximation; P99 0.988 [0.973, 1.001] on 18 development cases). Results using them carry `_fo`, `_fp`, `_lz` in the arm name.
 
+**Re-layout scoring tag** (8 Nov 2026): every result carries `place_impl`: **PL-1** = exact scoring of every candidate (the default; untagged results are PL-1), **PL-1f** = `fast_place`, **PL-2** = lazy scoring, **PL-3** = lazy + thinning (`place_thin`). The default controller is `frozen2.FROZEN3` = MV-3 mover + PL-1 (identical to earlier FROZEN-3 results, 42 of 42 event hashes). Lazy and thinned scoring are scale-only switches (`FROZEN3_LAZY`): lazy cost P99 x1.093 [1.034, 1.166] on the 24 held-out cases. Name the tag next to any result that uses them.
+
 ### Controller versions
 **FROZEN-3** (4 Nov 2026, the paper's controller) = FROZEN-2 + gain-ordered request-move pass (`pass_order="gain"`), run with the
 `transfer_only` dispatcher (`frozen2.FROZEN3`, `frozen2.FROZEN3_DISPATCHER`). Both parts are design decisions after confirmations that

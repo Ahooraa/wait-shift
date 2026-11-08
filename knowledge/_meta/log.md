@@ -915,3 +915,6 @@ author: llm
 
 ## [2026-11-07] result | user | robustness checks of the two-loop 2x2 (156 runs)
 - Held-out: 6,452 / 2,225 / 1,776 / 186 s, interaction -1.19 [-1.52, -0.88]. Queue-aware no-move cell still x8.92 above D: claim stands. 3,600 s: D stable (x0.97), A and B grow with run length, so x33 understates and is not stable. Queue order on held-out costs 5% (1.053 [1.024, 1.084]), more than the development reading. The pre-registered mechanism expectation failed as written; a post hoc reading against idle containers supports it, unconfirmed. See [[independent-baselines-capw1]], section 9.
+
+## [2026-11-08] result | user | default controller = MV-3 mover with exact re-layout scoring (84 runs)
+- MV-3 + exact scoring identical to the exact controller in 42/42 runs (event hash). Lazy scoring costs P99 x1.093 [1.034, 1.166] on the 24 held-out cases (x1.004 on development): scale-only switch, not default. New tag `place_impl` (PL-1/1f/2/3). Speed-up slides rewritten, original-vs-lazy table added. See [[independent-baselines-capw1]], section 9.

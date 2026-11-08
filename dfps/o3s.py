@@ -336,6 +336,11 @@ class O3SimAdjuster:
                                       and not self.churn.get("move_terms")) else "MV-1")
         if self.churn.get("fast_order") and self.churn.get("pass_order") == "gain" and self._fast_ok():
             self.mover_impl = "MV-3"                                    # 7 Nov 2026: gain-ordered pass with per-function estimate arrays; event hashes equal MV-2
+        # re-layout scoring tag (7 Nov 2026), recorded in every result: PL-1 = exact scoring of every candidate (all results before this tag),
+        # PL-1f = fast_place (same formula, rounding can tip exact ties), PL-2 = lazy scoring (re-price only the candidate about to be accepted),
+        # PL-3 = lazy + thinning to place_thin hosts per function.
+        self.place_impl = ("PL-3" if int(self.churn.get("place_thin", 0)) > 0 else "PL-2" if self.churn.get("lazy_place")
+                           else "PL-1f" if self.churn.get("fast_place") else "PL-1")
         # pass order of the request mover (2026-11-04), recorded in every result: "gain" (FROZEN-3) or "count" (FROZEN-2 and earlier;
         # results without the field are "count")
         self.mover_pass = "gain" if (self.churn.get("pass_order") == "gain" and self._fast_ok()) else "count"

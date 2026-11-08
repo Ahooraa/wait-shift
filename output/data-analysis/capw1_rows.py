@@ -66,13 +66,14 @@ def run_job(args):
             from dfps.o3s import O3SimAdjuster
             from dfps.sim import Sim
             from dfps.variants import make_adjuster, sim_kwargs
-            from frozen2 import FROZEN2, FROZEN3, FROZEN3_DISPATCHER, MOVE_PERIOD_S
+            from frozen2 import FROZEN2, FROZEN3, FROZEN3_EXACT, FROZEN3_LAZY, FROZEN3_DISPATCHER, MOVE_PERIOD_S
             kw = sim_kwargs("B_STAR", A)
             kw.update(warmup=WARMUP, duration=DURATION, retry_min_interval=1.0, retry_max_attempts=10)
-            if arm == "frozen3":
+            if arm in ("frozen3", "frozen3f", "frozen3m"):
                 kw["dispatcher"] = D.DISPATCHERS[FROZEN3_DISPATCHER]
                 kw["queue_priority"] = QueuePriority("full", aging=2.0)
-                cand, churn = "nosim", dict(FROZEN3, lam=0.5)
+                cand, churn = "nosim", dict({"frozen3": FROZEN3_EXACT, "frozen3f": FROZEN3_LAZY, "frozen3m": FROZEN3}[arm], lam=0.5)
+                # frozen3 = exact (MV-2), frozen3f = MV-3 + lazy scoring (PL-2), frozen3m = MV-3, exact scoring: the default since 8 Nov 2026
             elif arm == "stack":                                  # as final_ablation.py VARIANTS["stack"]: hpa sizing + jsq moves on FROZEN-2
                 cand, churn = "hpa", dict(FROZEN2, rebal_rule="jsq")
             else:

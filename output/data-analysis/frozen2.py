@@ -33,7 +33,12 @@ MOVE_PERIOD_S = {"F1": 4.0, "F2": 4.0}
 # dispatcher (dispatchers.DISPATCHERS[FROZEN3_DISPATCHER]), the router chosen the same day. Both choices are DESIGN DECISIONS taken
 # after pre-registered confirmations that were NOT CONFIRMED on P99 (knowledge/synthesis/workflow-aware-decision-rules.md):
 # gain order cuts moves ~8% (24 of 24 cases) and the median makespan 1.5-2% (24 of 24), P99 1.003 [0.984, 1.026], not shown within 2%.
-FROZEN3 = dict(FROZEN2, pass_order="gain")
+FROZEN3_EXACT = dict(FROZEN2, pass_order="gain")        # the controller of every result before 7 Nov 2026 (exact re-layout, MV-2 engine)
+# DEFAULT since 8 Nov 2026 (user decision): FROZEN3_EXACT + the MV-3 request mover (fast_order). MV-3 is exact: event hashes equal MV-2.
+# The re-layout keeps its EXACT scoring (PL-1). Lazy scoring (FROZEN3_LAZY, PL-2) and thinning (place_thin = 32, PL-3) are scale-only switches:
+# lazy cost P99 x1.093 [1.034, 1.166] on the 24 held-out cases (x1.004 on the 18 development cases), see independent-baselines-capw1, section 9.
+FROZEN3 = dict(FROZEN3_EXACT, fast_order=True)
+FROZEN3_LAZY = dict(FROZEN3, lazy_place=True)               # scale-only: re-layout under 3 s at ~1,280 servers; not the default
 FROZEN3_DISPATCHER = "transfer_only"
 M = "p99_makespan"
 

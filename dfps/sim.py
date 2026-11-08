@@ -860,7 +860,8 @@ class Sim:
                     plan_ms_mean=float(np.mean(self.plan_ms)) if self.plan_ms else float("nan"),
                     event_hash=self._hash.hexdigest(),
                     **({"mover_impl": self.adjuster.mover_impl} if getattr(self.adjuster, "mover_impl", None) else {}),
-                    **({"mover_pass": self.adjuster.mover_pass} if getattr(self.adjuster, "mover_pass", None) else {}))
+                    **({"mover_pass": self.adjuster.mover_pass} if getattr(self.adjuster, "mover_pass", None) else {}),
+                    **({"place_impl": self.adjuster.place_impl} if getattr(self.adjuster, "place_impl", None) else {}))
 
     def check_invariants(self):
         """Capacity (D-7), storage and bookkeeping invariants; raises AssertionError."""

@@ -918,3 +918,6 @@ author: llm
 
 ## [2026-11-08] result | user | default controller = MV-3 mover with exact re-layout scoring (84 runs)
 - MV-3 + exact scoring identical to the exact controller in 42/42 runs (event hash). Lazy scoring costs P99 x1.093 [1.034, 1.166] on the 24 held-out cases (x1.004 on development): scale-only switch, not default. New tag `place_impl` (PL-1/1f/2/3). Speed-up slides rewritten, original-vs-lazy table added. See [[independent-baselines-capw1]], section 9.
+
+## [2026-11-08] result | user | re-layout timing separated by switch; makespan effect of lazy scoring at scale
+- Exact scoring re-timed on current code (results/capW1_scale_cur/). Median re-layout, 80 / 160 / 320 / 640 servers: exact 17 / 96 / 762 / 11,230 ms, lazy 10 / 21 / 65 / 318 ms, lazy + M=32 10 / 15 / 22 / 36 ms. The exact speed-ups' own share is not separable. Lazy vs exact mean makespan at scale: x1.02 at 320 servers, x0.93 at 640 (seeds 0.80, 1.00, 1.00; seed 1 exact run is an outlier). Driver of the cost, from the code and a profile of one call: containers placed x free hosts x hosts x demand points per placement. See [[independent-baselines-capw1]].

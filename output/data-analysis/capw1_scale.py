@@ -28,7 +28,7 @@ FAST = os.environ.get("FASTPATH", "")             # "1": fast_order + fast_place
 THIN = int(os.environ.get("THIN", "0"))           # second approximation: the THIN heaviest demand points per function
 TAG = os.environ.get("TAG", "")                   # keeps a re-measurement apart from an earlier sweep
 BUDGET = os.environ.get("BUDGET", "")            # "fixed": the fixed-budget controller of the 42-case results (60 s re-layouts, every slot filled) instead of on-demand; results kept apart
-OUT = ROOT / "results" / ({"": "capW1_scale", "1": "capW1_scale_fast", "2": "capW1_scale_lazy", "4": "capW1_scale_incr", "5": "capW1_scale_fill1", "6": "capW1_scale_fill8"}[FAST] + (f"_t{THIN}" if THIN else "") + ("_fb" if BUDGET == "fixed" else "") + TAG)
+OUT = ROOT / "results" / ({"": "capW1_scale", "1": "capW1_scale_fast", "2": "capW1_scale_lazy", "4": "capW1_scale_incr", "5": "capW1_scale_fill1", "6": "capW1_scale_fill8", "7": "capW1_scale_mv4"}[FAST] + (f"_t{THIN}" if THIN else "") + ("_fb" if BUDGET == "fixed" else "") + TAG)
 DURATION, WARMUP = 240.0, 60.0
 RHO, TARGET, EPOCH, MOVE_S = 0.7, 0.7, (60.0 if BUDGET == "fixed" else 30.0), 4.0
 SWEEP_A = [(n, 30, 15) for n in (80, 160, 320, 640, 1280)]
@@ -85,7 +85,7 @@ def one(N, F, W, seed=1):
                    rho_w=sc.meta["rho_w"], relayout=stats(T["relayout"]), relayout_later=stats(T["relayout"][1:]), move=stats(T["move"]), route=stats(T["route"]),
                    queued_mean=float(np.mean(T["queued"])) if T["queued"] else 0.0, moves_per_pass=float(np.mean(T["moves"])) if T["moves"] else 0.0)
         if r:
-            row.update(p99_makespan=r["p99_makespan"], avg_makespan=r["avg_makespan"], n_completed=r["n_completed"], cold_starts=r["cold_starts"], mover_impl=r.get("mover_impl"), mover_pass=r.get("mover_pass"))
+            row.update(p99_makespan=r["p99_makespan"], avg_makespan=r["avg_makespan"], n_completed=r["n_completed"], cold_starts=r["cold_starts"], mover_impl=r.get("mover_impl"), mover_pass=r.get("mover_pass"), event_hash=r.get("event_hash"), mv4_stats=[int(x) for x in getattr(adj, "mv4_stats", [])])
         tmp = path.with_suffix(".tmp")
         tmp.write_text(json.dumps(row))
         tmp.replace(path)
@@ -127,6 +127,8 @@ def one(N, F, W, seed=1):
     kw = sim_kwargs("B_STAR", A)
     kw.update(warmup=WARMUP, duration=DURATION, retry_min_interval=1.0, retry_max_attempts=10, dispatcher=route, queue_priority=QueuePriority("full", aging=2.0))
     churn = dict(FROZEN3_PL1, lam=0.5) if BUDGET == "fixed" else dict(FROZEN3_PL1, lam=0.5, elastic=True, util_cap=TARGET)
+    if FAST == "7":                                            # FROZEN-4 with the MV-4 mover
+        churn.update(incr_place=True, fill_order="shortfall", fast_mv4=True)
     if FAST in ("5", "6"):                                     # PL-5 / PL-5p: shortfall-first fill
         churn.update(incr_place=True, fill_order="shortfall", fill_passes=8 if FAST == "6" else 0)
     if FAST == "1":

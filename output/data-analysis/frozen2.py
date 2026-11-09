@@ -44,9 +44,11 @@ FROZEN3_INCR = FROZEN3               # PL-4: exact formula, incremental sums, pr
 FROZEN3_LAZY = dict(FROZEN3_PL1, lazy_place=True)               # scale-only: re-layout under 3 s at ~1,280 servers; not the default
 # FROZEN-4 (9 Nov 2026, user decision; the paper's controller): FROZEN-3 with the shortfall-first re-layout fill (PL-5: the function furthest below
 # its target goes next, one container per pricing). DIFFERENT decisions from PL-4, hence a new controller version. FROZEN3 above stays as it was, so its results remain reproducible.
-FROZEN4 = dict(FROZEN3, fill_order="shortfall")                 # PL-5: one container per pricing
+FROZEN4 = dict(FROZEN3, fill_order="shortfall", fast_mv4=True)  # PL-5: one container per pricing; MV-4 mover (default since 9 Nov 2026, same decisions as MV-3)
 FROZEN4_P8 = dict(FROZEN4, fill_passes=8)                       # PL-5p: 8 passes, the scale option
 FROZEN3_FILL, FROZEN3_FILL8 = FROZEN4, FROZEN4_P8               # the names used while under test (arms fill1 = FROZEN-4, fill8 = its 8-pass option)
+FROZEN4_MV4 = FROZEN4                                           # the name used while under test (arm mv4)
+FROZEN4_MV3 = dict(FROZEN4, fast_mv4=False)                     # the same controller with the MV-3 mover, for comparison
 FROZEN3_DISPATCHER = "transfer_only"
 FROZEN4_DISPATCHER = FROZEN3_DISPATCHER
 M = "p99_makespan"

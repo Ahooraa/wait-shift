@@ -336,6 +336,9 @@ class O3SimAdjuster:
                                       and not self.churn.get("move_terms")) else "MV-1")
         if self.churn.get("fast_order") and self.churn.get("pass_order") == "gain" and self._fast_ok():
             self.mover_impl = "MV-3"                                    # 7 Nov 2026: gain-ordered pass with per-function estimate arrays; event hashes equal MV-2
+            from .mover_kernel import HAVE_NUMBA
+            if self.churn.get("fast_mv4") and HAVE_NUMBA:
+                self.mover_impl = "MV-4"                                # 9 Nov 2026: the same pass as a compiled kernel with early-stopped pricing; decisions equal to MV-3
         # re-layout scoring tag (7 Nov 2026), recorded in every result: PL-1 = exact scoring of every candidate (all results before this tag),
         # PL-1f = fast_place (same formula, rounding can tip exact ties), PL-2 = lazy scoring (re-price only the candidate about to be accepted),
         # PL-3 = lazy + thinning to the place_thin heaviest demand points per function.
@@ -842,7 +845,7 @@ class O3SimAdjuster:
         if self.churn.get("move_terms"):
             return self._rebalance_terms(sim, sol, max_moves or self.churn.get("rebal_max", 10 ** 9))
         if self.churn.get("pass_order") == "gain" and self._fast_ok():  # V3 follow-up (2026-11-04): gain-ordered pass; default off
-            mv = self._order_cf(sim, online_sol=sol)
+            mv = self._order_mv4(sim, sol) if self.mover_impl == "MV-4" else self._order_cf(sim, online_sol=sol)
             self.rebal_moves = getattr(self, "rebal_moves", 0) + len(mv)
             return sol if mv else None
         if self.churn.get("fast_rebal", True) and self._fast_ok():
@@ -1167,6 +1170,76 @@ class O3SimAdjuster:
             sm = set(mv)
             out[m] = (len(mv), float(g), len(sm & v0), len(sm))
         return out
+
+    def _order_mv4(self, sim, sol):
+        """MV-4 (9 Nov 2026): the gain-ordered pass of _order_cf (mode V3, MV-3) through dfps.mover_kernel. The caller only uses sol.rnode, filled in move order."""
+        from .mover_kernel import run_pass
+        net, N, F, queue = sim.net, sim.N, sim.F, sim.queue
+        if getattr(net, "_hf", None) is None:
+            net._hf = net.h.astype(np.float64)
+            off = net.h[~np.eye(N, dtype=bool)]
+            net._remote_hop1 = bool(off.size and off.min() >= 1)
+        epd, bw = net.epd, net.bw
+        c_d = self.__dict__.setdefault("_mv4_cache", {})
+        active, starts, runs, total, loc, in_n, in_d, out_n, out_d, out_pc, qlens, gone = [], [], [], [], [], [], [], [], [], [], [], []
+        for qid in sim.q_active:
+            f, k = divmod(qid, N)
+            q = queue[k][f]
+            if not q:
+                gone.append(qid)
+                continue
+            active.append(qid)
+            starts.append(len(runs))
+            qlens.append(len(q))
+            for rq in q:
+                wf, t = rq.req.wf, rq.task
+                key = (wf.id, t)
+                e = c_d.get(key)
+                if e is None:
+                    ch = wf.children[t]
+                    e = c_d[key] = ([epd + s / bw for s in rq.sizes], ch, [epd + wf.ss[(t, c)] / bw for c in ch])
+                runs.append(rq)
+                total.append(rq.total)
+                loc.append(rq.node)
+                in_n.append(len(e[0]))
+                in_d.extend(e[0])
+                out_n.append(len(e[1]))
+                out_d.extend(e[2])
+                plan = rq.req.plan
+                out_pc.extend([plan[c] for c in e[1]])
+        sim.q_active.difference_update(gone)
+        if not runs:
+            return []
+        Q = len(runs)
+        active, starts, qlens = np.array(active, dtype=np.int64), np.array(starts, dtype=np.int64), np.array(qlens, dtype=np.int64)
+        below = np.arange(-1, Q - 1, dtype=np.int64)
+        below[starts] = -1
+        tail, qlen = np.full(F * N, -1, dtype=np.int64), np.zeros(F * N, dtype=np.int64)
+        tail[active], qlen[active] = starts + qlens - 1, qlens
+        fi, hi = np.nonzero(sol.cnt)
+        hs_start = np.cumsum(np.concatenate(([0], np.bincount(fi, minlength=F))), dtype=np.int64)
+        slot = np.full(F * N, -1, dtype=np.int64)
+        slot[fi * N + hi] = np.arange(fi.size)
+        qi, vi = sim.availability_flat()
+        qi, vi = np.array(qi, dtype=np.int64), np.array(vi, dtype=np.float64)
+        o = np.lexsort((vi, qi))                                        # sorted per (f, k): a valid min-heap
+        qi, vi = qi[o], vi[o]
+        first = np.flatnonzero(np.concatenate(([True], qi[1:] != qi[:-1]))) if qi.size else np.zeros(0, dtype=np.int64)
+        P = first.size
+        av_idx = np.full(F * N, -1, dtype=np.int64)
+        av_idx[qi[first]] = np.arange(P)
+        av_start = np.concatenate((first, [qi.size])).astype(np.int64)
+        move_cap = 10 * Q + 10
+        pool = np.empty(16 * P + 4 * (P + Q + move_cap) + 64, dtype=np.float64)
+        cum = lambda n: np.cumsum(np.concatenate(([0], np.array(n, dtype=np.int64))), dtype=np.int64)
+        n, mr, mk, c = run_pass(N, float(self.churn.get("lam", 1.0)), net._remote_hop1, net._hf, np.array(sol.free, dtype=np.float64), np.asarray(sim.exec_time, dtype=np.float64), hs_start, hi.astype(np.int64), slot,
+                                av_idx, av_start, vi, pool, active, tail, qlen, below, np.array(total, dtype=np.float64), np.array(loc, dtype=np.int64),
+                                cum(in_n), np.array(in_d, dtype=np.float64), cum(out_n), np.array(out_d, dtype=np.float64), np.array(out_pc, dtype=np.int64), move_cap)
+        st = self.__dict__.setdefault("mv4_stats", np.zeros(5, dtype=np.int64))
+        st += c
+        for r, k2 in zip(mr[:n].tolist(), mk[:n].tolist()):
+            sol.rnode[runs[r]] = k2
+        return [None] * int(n)
 
     def _rebalance_fast(self, sim, sol, cap):
         """Speed-only twin of the plain AET loop in rebalance_step (2026-11-04). Same arithmetic in the same order, so the moves are

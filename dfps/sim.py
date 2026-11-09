@@ -113,6 +113,7 @@ class Sim:
         # state
         self.inst = [[[] for _ in range(self.F)] for _ in range(self.N)]
         self.queue = [[deque() for _ in range(self.F)] for _ in range(self.N)]
+        self.q_active, self.inst_active = set(), set()               # MV-4 (9 Nov 2026): keys of queues / instance lists that may be non-empty; an entry is added on append and dropped lazily by the scan
         self.cnt = np.zeros((self.F, self.N), dtype=int)
         self.storage_used = np.zeros(self.N)
         self.req_count = np.zeros((self.F, self.N), dtype=int)       # requests per (f,k) in the past interval
@@ -126,6 +127,7 @@ class Sim:
             for f in range(self.F):
                 for _ in range(int(X[k, f])):
                     self.inst[k][f].append(Instance(f, k, IDLE))
+                    self.inst_active.add(k * self.F + f)
                 self.cnt[f, k] = int(X[k, f])
         self._n_inst, self._t_acct, self.inst_s, self.n_add_blocked = int(np.asarray(X).sum()), 0.0, 0.0, 0
         # heterogeneous sizes (2026-11-02): containers already in the final count (cnt) that wait for room on their node, because
@@ -223,6 +225,37 @@ class Sim:
                 for f in set(self.pending_add[k]):
                     out.setdefault((f, k), []).extend([(first + cs[f], COLD)] * self.pending_add[k].count(f))
         return out
+
+    def availability_flat(self):
+        """The values of `all_availability` as two flat lists (f * N + k, availability), scanning only the non-empty instance lists (MV-4, 9 Nov 2026)."""
+        qi, vi, ex, cs, now, N, F, inst = [], [], self.exec_time, self.cold_start, self.now, self.N, self.F, self.inst
+        empty = []
+        for key in self.inst_active:
+            k, g = divmod(key, F)
+            lst = inst[k][g]
+            if not lst:
+                empty.append(key)
+                continue
+            for ins in lst:
+                if ins.swap_to is not None:
+                    f = ins.swap_to
+                    v = ex[ins.f] + cs[f]
+                else:
+                    f = ins.f
+                    v = 0.0 if ins.state == IDLE else (max(0.0, ins.warm_at - now) if ins.state == COLD else ex[f])
+                qi.append(f * N + k)
+                vi.append(v)
+        self.inst_active.difference_update(empty)
+        if self.hetero:
+            for k in range(N):
+                if self.pending_add[k]:
+                    leaving = [ex[i.f] for lst in inst[k] for i in lst if i.swap_to is not None]
+                    first = min(leaving) if leaving else 0.0
+                    for f in set(self.pending_add[k]):
+                        c = self.pending_add[k].count(f)
+                        qi.extend([f * N + k] * c)
+                        vi.extend([first + cs[f]] * c)
+        return qi, vi
 
     def live_availability(self, f, k):
         """(relative availability, kind) of every instance whose FINAL type is f on node k (idle: 0; busy: mean residual
@@ -346,6 +379,7 @@ class Sim:
         if first:
             run.t_first = self.now
         self.queue[k][f].append(run)
+        self.q_active.add(f * self.N + k)
         self.buckets[0, f, k] += 1
         self.req_count[f, k] += 1
         if first and self.trace is not None and getattr(self, "trace_snap", False):
@@ -637,6 +671,7 @@ class Sim:
         ins.warm_at = self.now + self.cold_start[g]
         ins.token += 1
         self.inst[ins.node][g].append(ins)
+        self.inst_active.add(ins.node * self.F + g)
         self.cold_starts_total += 1
         if self.in_window(self.now):
             self.cold_starts += 1
@@ -687,6 +722,7 @@ class Sim:
         self._acct()
         ins = Instance(f, k, COLD, warm_at=self.now + self.cold_start[f])
         self.inst[k][f].append(ins)
+        self.inst_active.add(k * self.F + f)
         self._n_inst += 1
         self.cold_starts_total += 1
         if self.in_window(self.now):

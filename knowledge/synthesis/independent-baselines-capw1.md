@@ -2,7 +2,7 @@
 title: "Independent baseline systems under CAP-W1: audit of the Graph-Aware, FaaSPR and HEFT ports, and the protocol"
 type: synthesis
 created: 2026-11-05
-updated: 2026-11-05
+updated: 2026-11-09
 status: draft
 author: llm
 tags: [baselines, capacity-model, faaspr, graph-aware, heft, audit, protocol]
@@ -492,6 +492,45 @@ Three objections to the result above: three of the four cells have P99 above the
 - **Lazy scoring (`frozen3f`, tag PL-2), P99 ratio to exact:** development 1.004 [0.990, 1.018] (lower in 8/18); **held-out 1.093 [1.034, 1.166]** (lower in 5/24); by load 1.008 / 1.153 / 1.123. Mean makespan x1.029 [1.015, 1.044], cold starts x0.991, moves x1.051 (held-out). The development reading (within noise, and the earlier 0.988) did not carry over to unseen seeds; lazy scoring is therefore a scale-only switch (`FROZEN3_LAZY`), not the default. Thinning (PL-3) was only ever checked on top of lazy scoring on development cases; its numbers are provisional.
 - **Timing, separated (8 Nov, same scenarios, one run per cell, median re-layout call; exact column re-timed on current code after the lazy and thinned runs):** exact 17 / 96 / 762 / 11,230 ms at 80 / 160 / 320 / 640 servers (30 functions), growth N^3.12 (80-640); lazy 10 / 21 / 65 / 318 ms, N^1.66; lazy + M=32 10 / 15 / 22 / 36 ms, N^0.60. Lazy vs exact 1.7x / 4.6x / 11.7x / 35x; thinning vs lazy 1.0x / 1.4x / 3.0x / 8.8x. Scaled functions: 160/60 6.0x and 1.6x; 320/120 6.7x and 2.9x; 640/240 7.5x and 11.1x (exact 13,048 ms, lazy 1,746, thin 158). The exact speed-ups' own share is NOT separable: exact scoring re-timed was not faster than the earlier sweep (762 vs 610 ms at 320; 11.2 vs 6.6 s at 640), so same-code spread is up to 1.7x. Results: results/capW1_scale_cur/.
 - Tags: results carry `place_impl` (PL-1 exact, PL-1f fast_place, PL-2 lazy, PL-3 lazy + thinning); untagged = PL-1.
+
+*Incremental re-layout scoring (PL-4, `incr_place`), test fixed before the runs (8 Nov 2026).* Diagnosis from recorded re-layout inputs: most hosts hold a fragment of free memory too small for the container, so the feasible candidates K_f are far fewer than the K hosts priced; the sums S_d, T_d were rebuilt per pricing though one placement changes them by one row. Lazy evaluation is not sound here: gains are mostly negative and rise towards zero (the best host's gain rose in 69-88% of grow steps). PL-4 keeps the formula and the greedy, updates the sums in O(D), prices only hosts where the container fits, caches each function's best. It has no parameter, so nothing is tuned. Arm `frozen3i` on the 18 development and the 24 held-out cases against `frozen3m` (PL-1). Accepted as a replacement only if, on each set separately, the P99 ratio has a geometric mean within 1% of 1 with a 95% interval containing 1, and cold starts and moves are within 1%. Ties in floating point may tip decisions, so identical event hashes are expected in most but not all runs. Timing: the same scale sweep as PL-1, PL-2 and PL-3.
+
+*PL-4 result (8 Nov 2026; 42 runs of `frozen3i`, then 168 placebo runs).*
+- **The rule fixed above is not met as written.** Single runs against `frozen3m`: development P99 0.9928 [0.9854, 0.9984] (geometric mean inside 1%, interval excludes 1, on the lower side); held-out P99 1.0113 [0.9855, 1.0525] (outside 1%). Cold starts 0.9982 / 1.0001 and moves 1.0001 / 0.9995, inside 1%. The held-out figure is set by one case, F1_r0.7_s7 at x1.517; without it 0.9936.
+- **What the differences are.** Event hash equal to exact in 20 of 42 runs. Replaying recorded inputs through both routines (74 calls), the first differing choice was found in 8 calls and was a floating-point tie every time (relative gap at most 1.1e-13). F1_r0.7_s7 differs in one call, in 4 containers, from such a tie; its P99 goes from 464 s to 703 s. That is the simulator's chaos, not the algorithm.
+- **Noise reading (post hoc, added after the rule failed; run-noise-floor).** Three runs per case and controller (move clock base, +1 ms, -1 ms), paired clock by clock: P99 PL-4 / exact development 0.9924 [0.9835, 0.9986] (sign-flip p 0.011), held-out 0.9839 [0.9695, 0.9957] (p 0.114); mean makespan 1.0002 and 0.9968; cold starts 0.9979 and 0.9995; moves 0.9996 and 0.9997. PL-4 is not worse on any of them; these small differences are not claimed as a gain (12 tests, no correction). The exact controller's own three runs differ in P99 by a median of x1.07 and up to x2.03 per case on the held-out seeds, so a 1% tolerance on P99 was tighter than the measurement allows.
+- **The placebo is not a pure null here.** The -1 ms clock lowers cold starts by 6% for both controllers (0.940 and 0.939), +1 ms by nothing; the held-out mean P99 moves x1.10 and x0.99 (exact) from the clock alone. Compare like with like, clock by clock.
+- **Lazy scoring re-read:** referenced to exact's three runs its held-out P99 is 1.060 [1.010, 1.118] (x1.093 against the single base run), mean makespan 1.021 [1.007, 1.036], moves 1.049 [1.028, 1.073]. Lazy was run on the base clock only.
+- **Timing, same scenarios, one run per cell, on-demand FROZEN-3 (30 s re-layout), median re-layout call, 80 / 160 / 320 / 640 / 1,280 servers, 30 functions:** exact 17 / 96 / 762 / 11,230 ms / not re-run; PL-4 11 / 21 / 59 / 525 / 4,613 ms; lazy 10 / 21 / 65 / 318 / 1,206 ms; lazy + M=32 10 / 15 / 22 / 36 / 73 ms. Functions scaled: 320/120 exact 1,120, PL-4 78; 640/240 exact 13,048, PL-4 650, lazy 1,746; 1,280/480 PL-4 6,922, lazy 15,618. Growth 80-640: exact N^3.12, PL-4 N^1.83 (sweep B N^1.92 against exact N^3.11); 80-1,280: PL-4 N^2.21. PL-4 against exact over seeds 1-3: 12-15x at 320 servers, 7-21x at 640; with functions scaled 8x / 14x / 20x at 160 / 320 / 640 (seed 1). Worst later call at 640: 535 ms; at 1,280: 6.5 s, over the 3 s limit. The first call from a random layout is much larger (16 s at 640, 115 s at 1,280). On these scenarios PL-4 reproduced exact makespan, P99 and cold starts exactly in 10 of 11 cells (640/240: P99 x0.987, from ties).
+- **Correction to the cost driver.** A running controller places only the containers that change (median 6-11% of all, not all of them), and the candidates priced were every host with any free space although a container fits on only a fraction. **Default since 8 Nov 2026 (user decision): `frozen2.FROZEN3` = MV-3 + PL-4.** `FROZEN3_PL1` keeps MV-3 + PL-1, which results before this date ran; those were not re-run.
+
+## 10. FROZEN-4: shortfall-first re-layout fill (9 Nov 2026, user decision)
+
+**Why.** PL-4's global best-gain order leaves about 2% of capacity unmet but concentrates it: the worst function is 13-56% short, up to 75%. PL-5 fills the function furthest below its target next, one container per pricing, and PL-5p does so in 8 passes. These are different decisions from PL-4, so this is a new controller version. Above 400 servers pricing goes through a factorisation of the hop matrix, exact on any network.
+
+**Where the gain comes from** (42 cases x 3 clocks against PL-4, 378 runs): fill order alone P99 -5.4% [-9.1, -2.1], mean -3.2%, cold starts -5.6%; leftover rule alone P99 -0.5% [-2.7, +1.4], mean -0.5%, cold starts -4.1%; both P99 -5.2%, mean -3.5%, cold starts -8.0%. One-at-a-time against 8-pass, head to head: P99 0.975 [0.952, 0.993], median case 0.995, mean 0.995.
+
+**Headroom.** A fragmentation oracle (every server has room for one more largest container, same budget) improves on PL-5 by mean -1.5% [-2.2, -0.9] and P99 -1.5% [-3.9, +0.9], with cold starts +2.9%; held-out mean -2.1%, development -0.6%. This is an upper bound and below the 2% rule set beforehand, so re-layout tuning is closed.
+
+**Results, FROZEN-4 / FROZEN-3** (246 new runs, no errors; report `results/frozen4_rerun_report.txt`, driver `output/data-analysis/frozen4_rerun.py`; study scripts `output/data-analysis/relayout_fill/`). The filled reference is PL-4 (`frozen3i`); the on-demand, grid and FaaSPR-setting references are the stored FROZEN-3 runs, which are PL-1, equal to PL-4 up to floating-point ties.
+
+| Set | n | P99 | Mean | Cold starts |
+|---|---|---|---|---|
+| Filled, held-out, base clock | 24 | 0.959 [0.905, 1.008] | 0.964 [0.940, 0.984] | 0.911 |
+| Filled, held-out, +1 ms | 24 | 0.886 [0.795, 0.966] | 0.958 | 0.909 |
+| Filled, held-out, -1 ms | 24 | 0.916 [0.858, 0.964] | 0.954 | 0.913 |
+| Filled, development, base clock | 18 | 0.986 [0.965, 1.006] | 0.972 [0.954, 0.987] | 0.930 |
+| On-demand, held-out | 24 | 0.964 [0.920, 1.008] | 0.973 [0.950, 0.992] | 0.998 |
+| On-demand, development | 18 | 0.966 [0.935, 0.998] | 0.972 [0.954, 0.988] | 0.998 |
+| On-demand 30 s, target 0.7, development | 18 | 0.980 [0.952, 1.004] | 0.974 [0.954, 0.990] | 0.994 |
+| Grid D (both loops, FIFO), held-out | 24 | 0.955 [0.886, 1.026] | 0.973 [0.953, 0.992] | 0.911 |
+| Grid C (re-layout only), held-out | 24 | 0.932 [0.829, 1.044] | 0.901 [0.828, 0.969] | 0.911 |
+| FaaSPR's setting, fixed | 36 | 1.000 [0.995, 1.005] | 1.001 | 0.935 [0.758, 1.147] |
+| FaaSPR's setting, elastic | 36 | 1.003 [0.999, 1.007] | 1.000 | 1.002 |
+
+Reading: mean latency improves by 2.5-4.5% wherever containers are scarce enough for the fill order to matter. Cold starts fall by 7-9% only with a filled budget, because the leftover rule acts there. P99 falls by 1-11% depending on the clock, and its median case is 0.967-0.997 on the filled sets, so a P99 gain should be stated with the median beside it. On FaaSPR's setting (8 servers, one workflow) the fill changes nothing measurable. Baseline ratios stay the same or widen slightly: held-out P99, filled, baseline / FROZEN-4 is B* 3.25, RL 3.05, FaaSPR 4.05, Graph-Aware 6.05, HEFT 7.08, against 3.12, 2.93, 3.89, 5.80, 6.80 for FROZEN-3. The two-loop finding is unchanged: both loops together give P99 0.028 of no-control on held-out seeds.
+
+**Scale** (640 and 1,280 servers, seeds 1-5, one clock each, machine busy, so timings are rough): no worse than PL-4 at any size. Median-seed P99 is 0.94-1.00, except 1,280 servers / 480 functions at 0.75 on-demand and 0.65 fixed-budget, where PL-4's P99 ranges 141-450 s against 113-125 s for PL-5. The cause of PL-4's instability there is not diagnosed. Later re-layouts stay under the 3 s limit (median 0.2-2.1 s); the first call does not (up to 11 s). The move pass (p99 1.2-3.6 s against 0.4 s) is the next limit.
 
 ## Evidence base
 The papers read on 5 Nov 2026 (Graph-Aware text; FaaSPR PDF through `pdftotext`), the existing code (`dfps/dispatchers.py`,

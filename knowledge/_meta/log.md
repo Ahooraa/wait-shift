@@ -921,3 +921,12 @@ author: llm
 
 ## [2026-11-08] result | user | re-layout timing separated by switch; makespan effect of lazy scoring at scale
 - Exact scoring re-timed on current code (results/capW1_scale_cur/). Median re-layout, 80 / 160 / 320 / 640 servers: exact 17 / 96 / 762 / 11,230 ms, lazy 10 / 21 / 65 / 318 ms, lazy + M=32 10 / 15 / 22 / 36 ms. The exact speed-ups' own share is not separable. Lazy vs exact mean makespan at scale: x1.02 at 320 servers, x0.93 at 640 (seeds 0.80, 1.00, 1.00; seed 1 exact run is an outlier). Driver of the cost, from the code and a profile of one call: containers placed x free hosts x hosts x demand points per placement. See [[independent-baselines-capw1]].
+
+## [2026-11-08] result | user | incremental re-layout scoring PL-4: same greedy and objective, N^3.1 to N^1.8
+- New switch `incr_place` (tag PL-4), arm `frozen3i`, not default. 12-15x at 320 and 7-21x at 640 servers against exact scoring (seeds 1-3); first differing choices on recorded inputs were floating-point ties (8 of 8). The acceptance rule fixed in advance was not met as written (one tied choice moved one case's P99 by 52%); placebo reading: P99 PL-4 / exact 0.992 development, 0.984 held-out. Lazy evaluation is unsound for this objective: gains rise in 69-88% of grow steps. See [[independent-baselines-capw1]].
+
+## [2026-11-08] meta | user | default re-layout scoring is now PL-4
+- `frozen2.FROZEN3` = MV-3 + PL-4; `FROZEN3_PL1` is the former default. Earlier results not re-run. Speed-up slides updated. See [[independent-baselines-capw1]].
+
+## [2026-11-09] result | user | FROZEN-4 adopted: shortfall-first re-layout fill (PL-5)
+- `frozen2.FROZEN4` = FROZEN-3 + PL-5; `FROZEN4_P8` is the 8-pass option; `FROZEN3` unchanged. 246 re-runs, no errors (`results/frozen4_rerun_report.txt`). Held-out, filled: mean about -4%, cold starts -9%, P99 -4 to -11% by clock (median case 0.967-0.996). On-demand: mean about -3%. FaaSPR's setting: no change. Fragmentation oracle: under 2% left, re-layout tuning closed. Slides and figures not updated. See [[independent-baselines-capw1]], section 10.

@@ -532,6 +532,33 @@ Reading: mean latency improves by 2.5-4.5% wherever containers are scarce enough
 
 **Scale** (640 and 1,280 servers, seeds 1-5, one clock each, machine busy, so timings are rough): no worse than PL-4 at any size. Median-seed P99 is 0.94-1.00, except 1,280 servers / 480 functions at 0.75 on-demand and 0.65 fixed-budget, where PL-4's P99 ranges 141-450 s against 113-125 s for PL-5. The cause of PL-4's instability there is not diagnosed. Later re-layouts stay under the 3 s limit (median 0.2-2.1 s); the first call does not (up to 11 s). The move pass (p99 1.2-3.6 s against 0.4 s) is the next limit.
 
+## 11. MV-4: the request-move pass as a compiled kernel (9 Nov 2026)
+
+**Diagnosis** (cProfile, full simulator, FROZEN-4 on-demand, seed 1). `evaluate` takes 65-72% of a pass, at 63-81 us per call whether a function has 29 or 328 hosts, so the cost was NumPy call overhead and not pricing. MV-3 grows about linearly with cluster size (x3.9 from 320 to 1,280 servers).
+
+**Change.** `dfps/mover_kernel.py`, switch `fast_mv4`, tag MV-4: compiled pass, hosts sorted by wait estimate with an early stop, reuse of an evaluation when nothing it depends on changed, wait estimates as prefix tables, linked-stack queues, scans of non-empty queues and instance lists only. The decisions are unchanged: event hashes equal MV-3 in 126 of 126 full-length runs (42 cases x 3 clocks, FROZEN-4) and 15 of 15 scale runs.
+
+**Timing** (one process at a time, FROZEN-4 on-demand; move-pass median ms, MV-3 to MV-4; seeds 1 and 2):
+
+| Servers / functions | Seed 1 | Seed 2 |
+|---|---|---|
+| 160 / 30 | 58 to 3.3 | 65 to 3.5 |
+| 320 / 30 | 121 to 7.4 | 160 to 9.7 |
+| 640 / 30 | 516 to 30 | 291 to 19 |
+| 1,280 / 30 | 601 to 57 | 1,007 to 81 |
+| 2,560 / 30 | 2,379 to 349 | not run to 324 |
+| 320 / 120 | 167 to 9.6 | 185 to 10 |
+| 640 / 240 | 418 to 25 | 431 to 24 |
+| 1,280 / 480 | 799 to 59 | 871 to 61 |
+
+MV-4 p99 is 58-196 ms through 1,280 servers, inside the 0.4 s limit, and 505-528 ms at 2,560, over it. The slowest pass (350-660 ms) is the first one, which loads the compiled kernel.
+
+**The order did not fall.** Early stopping prices 27-39% of a function's hosts at every size, so it saves a factor of about three and the hosts priced per evaluation still double with the servers (19, 38, 74, 148, 292 from 160 to 2,560 servers). Reuse covers 1-7% of evaluations with 30 functions and 13-16% when functions scale with the servers. From 1,280 to 2,560 servers MV-4 grows x6 on seed 1 (x4 on seed 2) against x4 for MV-3 on seed 1, because pricing, no longer hidden by call overhead, grows with queued requests times hosts. The gain is a 7-18x smaller constant.
+
+**Default and stop at the staying cost** (9 Nov 2026, user decision). MV-4 is the default of `frozen2.FROZEN4`; `FROZEN4_MV3` keeps the MV-3 mover. The host scan also stops once no remaining host can beat leaving the request where it is. Event hashes still equal MV-3 in 126 of 126 full-length runs and in the 8 scale runs compared; median pass 3-18% lower than without the stop in 8 of 8 size and seed pairs, on a noisy grid.
+
+**Exact alternatives tested and not adopted** (FROZEN-4 on-demand; hosts priced per evaluation, seed 1; scratch kernels, not in the repository). Two-sided threshold search (wait list plus nearest-first lists from the input node and each child node): 0 wrong answers in about 4.1 million evaluations; hosts priced from 19.4 to 10.8 at 160 servers and from 292 to 134 at 2,560 (30 functions). The order did not fall (growth exponent in servers 0.91 against 0.98, one seed), and the median time was higher than MV-4 in 5 of 8 cases and higher than the staying-cost stop in 6 of 8; p99 at 2,560 servers 584-846 ms, over the 0.4 s limit. Even with the cheapest transfer of each request known exactly, a wait-ordered scan prices 223 hosts at 2,560 servers, because the servers within 3 or 4 hops grow with the cluster (dense transit core). Keeping the previous answer and pricing only the changed hosts: 0 mismatches against a full rescan in the runs checked, hosts priced 292 to 273 at 2,560 servers; about half the remaining full scans have no reusable answer and about half follow a winner that got worse. An exact search cannot go below the hosts of the function per evaluation on an arbitrary hop matrix; a lower order needs different decisions (capped search or one mover per region).
+
 ## Evidence base
 The papers read on 5 Nov 2026 (Graph-Aware text; FaaSPR PDF through `pdftotext`), the existing code (`dfps/dispatchers.py`,
 `dfps/controllers.py::faaspr_placement`, `output/data-analysis/graphaware_sweep.py`), and the CAP-W1 scenario files (80 nodes, 30

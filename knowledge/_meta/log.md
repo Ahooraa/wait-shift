@@ -930,3 +930,9 @@ author: llm
 
 ## [2026-11-09] result | user | FROZEN-4 adopted: shortfall-first re-layout fill (PL-5)
 - `frozen2.FROZEN4` = FROZEN-3 + PL-5; `FROZEN4_P8` is the 8-pass option; `FROZEN3` unchanged. 246 re-runs, no errors (`results/frozen4_rerun_report.txt`). Held-out, filled: mean about -4%, cold starts -9%, P99 -4 to -11% by clock (median case 0.967-0.996). On-demand: mean about -3%. FaaSPR's setting: no change. Fragmentation oracle: under 2% left, re-layout tuning closed. Slides and figures not updated. See [[independent-baselines-capw1]], section 10.
+
+## [2026-11-09] result | user | MV-4 compiled request-move pass, same decisions as MV-3
+- Switch `fast_mv4`, tag MV-4, not default. Event hashes equal MV-3 in 126 of 126 full-length runs and 15 of 15 scale runs. Move-pass median 7-18x lower (1,280 servers: 601-1,007 ms to 57-81 ms); p99 inside the 0.4 s limit through 1,280 servers, 505-528 ms at 2,560. Early stopping prices about a third of the hosts at every size, so the order did not fall. See [[independent-baselines-capw1]], section 11.
+
+## [2026-11-09] meta | user | MV-4 is the default mover of FROZEN-4, with a stop at the staying cost
+- `frozen2.FROZEN4` now sets `fast_mv4`; `FROZEN4_MV3` keeps the MV-3 mover. Event hashes equal MV-3 in 126 of 126 full-length runs with the stop, so earlier FROZEN-4 results stand. Two-sided threshold search and delta re-evaluation tested, exact, not adopted: the order did not fall and the time gain is absent or small. See [[independent-baselines-capw1]], section 11.

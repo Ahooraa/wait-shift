@@ -338,9 +338,12 @@ class O3SimAdjuster:
             self.mover_impl = "MV-3"                                    # 7 Nov 2026: gain-ordered pass with per-function estimate arrays; event hashes equal MV-2
         # re-layout scoring tag (7 Nov 2026), recorded in every result: PL-1 = exact scoring of every candidate (all results before this tag),
         # PL-1f = fast_place (same formula, rounding can tip exact ties), PL-2 = lazy scoring (re-price only the candidate about to be accepted),
-        # PL-3 = lazy + thinning to place_thin hosts per function.
+        # PL-3 = lazy + thinning to the place_thin heaviest demand points per function.
+        # PL-4 (8 Nov 2026) = incr_place: incremental sums, pricing only where the container fits; same objective and choices up to floating-point ties.
+        # PL-5 / PL-5p (9 Nov 2026) = fill_order "shortfall" on top of incr_place: the function furthest below target goes next, one container per pricing / fill_passes passes. DIFFERENT decisions from PL-4.
         self.place_impl = ("PL-3" if int(self.churn.get("place_thin", 0)) > 0 else "PL-2" if self.churn.get("lazy_place")
-                           else "PL-1f" if self.churn.get("fast_place") else "PL-1")
+                           else ("PL-5p" if self.churn.get("fill_passes") else "PL-5") if (self.churn.get("fill_order") and self.churn.get("incr_place"))
+                           else "PL-4" if self.churn.get("incr_place") else "PL-1f" if self.churn.get("fast_place") else "PL-1")
         # pass order of the request mover (2026-11-04), recorded in every result: "gain" (FROZEN-3) or "count" (FROZEN-2 and earlier;
         # results without the field are "count")
         self.mover_pass = "gain" if (self.churn.get("pass_order") == "gain" and self._fast_ok()) else "count"
@@ -458,7 +461,8 @@ class O3SimAdjuster:
                       struct=self.churn.get("pstruct"), size_aware=bool(self.churn.get("size_aware", False)),
                       fill_leftover=not bool(self.churn.get("elastic")),     # weighted scenarios: elastic = do not fill the leftover memory
                       fast_cost=bool(self.churn.get("fast_place") or self.churn.get("lazy_place")), lazy=bool(self.churn.get("lazy_place")),
-                      thin=int(self.churn.get("place_thin", 0)))
+                      thin=int(self.churn.get("place_thin", 0)), incr=bool(self.churn.get("incr_place")),
+                      fill=self.churn.get("fill_order"), fill_passes=int(self.churn.get("fill_passes", 0)))
             if self.churn.get("elastic_qaware"):
                 kw["elastic_qaware"] = True                      # baseline_layout only (hpa modes): see there
         elif p == "kmedian":

@@ -17,19 +17,19 @@ import capw1_independent as I  # noqa: E402
 
 SEEDS = (7, 8, 9, 10)
 ROWS, LIGHT = I.ROOT / "results" / "capW1_rows", I.ROOT / "results" / "capW1_light"
-ORDER = ("faaspr", "faaspr_rs", "frozen3", "frozen3f", "frozen3m", "stack", "B_STAR", "RL", "ga_p", "heft_p", "ga_s", "heft_s",
+ORDER = ("faaspr", "faaspr_rs", "frozen3", "frozen3f", "frozen3m", "frozen3i", "stack", "B_STAR", "RL", "ga_p", "heft_p", "ga_s", "heft_s",
          "ga_p2", "heft_p2", "ga_s2", "heft_s2")      # the last four: v2 tie-break (added 5 Nov 2026 after the audit); v1 results are kept
 FP_PATHS = 1500
 
 
 def path_of(tg, arm):
-    d = ROWS if arm in ("frozen3", "frozen3f", "frozen3m", "stack") else LIGHT if arm in ("B_STAR", "RL") else I.OUT
+    d = ROWS if arm in ("frozen3", "frozen3f", "frozen3m", "frozen3i", "stack") else LIGHT if arm in ("B_STAR", "RL") else I.OUT
     return d / f"{tg}.{arm}.json"
 
 
 def job(spec):
     tg, arm = spec
-    if arm in ("frozen3", "frozen3f", "frozen3m", "stack"):
+    if arm in ("frozen3", "frozen3f", "frozen3m", "frozen3i", "stack"):
         import capw1_rows as R
         return R.run_job((tg, arm))
     if arm in ("B_STAR", "RL"):

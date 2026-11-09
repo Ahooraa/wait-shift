@@ -135,7 +135,7 @@ def run_job(args):
         from dfps.o3s import O3SimAdjuster
         from dfps.sim import Sim
         from dfps.variants import make_adjuster, sim_kwargs
-        from frozen2 import FROZEN3, FROZEN3_DISPATCHER
+        from frozen2 import FROZEN3, FROZEN4, FROZEN3_DISPATCHER
         for _k in list(FAASPR_W_DIAG):
             FAASPR_W_DIAG[_k] = 0
         A = yaml.safe_load((ROOT / "config" / "assumptions.yaml").read_text(encoding="utf-8"))
@@ -151,11 +151,11 @@ def run_job(args):
             router = D.FaaSPRRouterPaper(seed=seed + 900, n_paths=N_PATHS, window=60.0)
             kw["dispatcher"] = router
             period, cand, churn = 60.0, "hpa", dict(no_inner=True, placement="faaspr_w", elastic=True)
-        elif arm in ("f3_fixed", "f3_elastic"):
+        elif arm in ("f3_fixed", "f3_elastic", "f4_fixed", "f4_elastic"):
             kw["dispatcher"] = D.DISPATCHERS[FROZEN3_DISPATCHER]
             kw["queue_priority"] = QueuePriority("full", aging=2.0)
-            period, cand, churn = 4.0, "nosim", dict(FROZEN3, lam=0.5)
-            if arm == "f3_elastic":
+            period, cand, churn = 4.0, "nosim", dict(FROZEN4 if arm.startswith("f4") else FROZEN3, lam=0.5)
+            if arm.endswith("_elastic"):
                 churn["elastic"] = True
         else:
             raise ValueError(arm)

@@ -48,7 +48,7 @@ def run_job(args):
         from dfps.o3s import O3SimAdjuster
         from dfps.sim import Sim
         from dfps.variants import make_adjuster, sim_kwargs
-        from frozen2 import FROZEN2, FROZEN3, FROZEN3_DISPATCHER, MOVE_PERIOD_S
+        from frozen2 import FROZEN2, FROZEN3, FROZEN4, FROZEN3_DISPATCHER, MOVE_PERIOD_S
         for _k in list(FAASPR_W_DIAG):
             FAASPR_W_DIAG[_k] = 0
         A = yaml.safe_load((ROOT / "config" / "assumptions.yaml").read_text(encoding="utf-8"))
@@ -84,10 +84,10 @@ def run_job(args):
             arm, util = arm.split("_u")[0], int(arm.split("_u")[1]) / 100.0
         if "_e" in arm:                                     # cadence test, development cases only: frozen3_od_e30 = re-layout every 30 s
             arm, epoch = arm.split("_e")[0], float(arm.split("_e")[1])
-        if arm == "frozen3_od":
+        if arm in ("frozen3_od", "frozen4_od"):
             kw["dispatcher"] = D.DISPATCHERS[FROZEN3_DISPATCHER]
             kw["queue_priority"] = QueuePriority("full", aging=2.0)
-            period, cand, churn = MOVE_PERIOD_S[fam], "nosim", dict(FROZEN3, lam=0.5, elastic=True)
+            period, cand, churn = MOVE_PERIOD_S[fam], "nosim", dict(FROZEN4 if arm == "frozen4_od" else FROZEN3, lam=0.5, elastic=True)
         elif arm == "stack_od":
             period, cand, churn = MOVE_PERIOD_S[fam], "hpa", dict(FROZEN2, rebal_rule="jsq", elastic=True, elastic_qaware=True)
         elif arm in ("ga_p2_od", "heft_p2_od"):

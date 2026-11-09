@@ -24,12 +24,13 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(ROOT))
-FAST = os.environ.get("FASTPATH", "")             # "1": fast_order + fast_place; "2": fast_order + lazy_place; results kept apart
+FAST = os.environ.get("FASTPATH", "")             # "1": fast_order + fast_place; "2": fast_order + lazy_place; "4": incr_place (PL-4); results kept apart
 THIN = int(os.environ.get("THIN", "0"))           # second approximation: the THIN heaviest demand points per function
 TAG = os.environ.get("TAG", "")                   # keeps a re-measurement apart from an earlier sweep
-OUT = ROOT / "results" / ({"": "capW1_scale", "1": "capW1_scale_fast", "2": "capW1_scale_lazy"}[FAST] + (f"_t{THIN}" if THIN else "") + TAG)
+BUDGET = os.environ.get("BUDGET", "")            # "fixed": the fixed-budget controller of the 42-case results (60 s re-layouts, every slot filled) instead of on-demand; results kept apart
+OUT = ROOT / "results" / ({"": "capW1_scale", "1": "capW1_scale_fast", "2": "capW1_scale_lazy", "4": "capW1_scale_incr", "5": "capW1_scale_fill1", "6": "capW1_scale_fill8"}[FAST] + (f"_t{THIN}" if THIN else "") + ("_fb" if BUDGET == "fixed" else "") + TAG)
 DURATION, WARMUP = 240.0, 60.0
-RHO, TARGET, EPOCH, MOVE_S = 0.7, 0.7, 30.0, 4.0
+RHO, TARGET, EPOCH, MOVE_S = 0.7, 0.7, (60.0 if BUDGET == "fixed" else 30.0), 4.0
 SWEEP_A = [(n, 30, 15) for n in (80, 160, 320, 640, 1280)]
 SWEEP_B = [(n, 30 * n // 80, 15 * n // 80) for n in (160, 320, 640, 1280)]
 LIMITS_MS = dict(relayout=3000.0, move=400.0, route=10.0)     # the feasibility rule fixed in the plan
@@ -65,7 +66,7 @@ def one(N, F, W, seed=1):
     from dfps.dispatch_priority import QueuePriority
     from dfps.sim import Sim
     from dfps.variants import make_adjuster, sim_kwargs
-    from frozen2 import FROZEN3
+    from frozen2 import FROZEN3_PL1
     OUT.mkdir(parents=True, exist_ok=True)
     path = OUT / f"N{N}_F{F}_W{W}_s{seed}.json"
     A = yaml.safe_load((ROOT / "config" / "assumptions.yaml").read_text(encoding="utf-8"))
@@ -125,11 +126,15 @@ def one(N, F, W, seed=1):
         return x
     kw = sim_kwargs("B_STAR", A)
     kw.update(warmup=WARMUP, duration=DURATION, retry_min_interval=1.0, retry_max_attempts=10, dispatcher=route, queue_priority=QueuePriority("full", aging=2.0))
-    churn = dict(FROZEN3, lam=0.5, elastic=True, util_cap=TARGET)
+    churn = dict(FROZEN3_PL1, lam=0.5) if BUDGET == "fixed" else dict(FROZEN3_PL1, lam=0.5, elastic=True, util_cap=TARGET)
+    if FAST in ("5", "6"):                                     # PL-5 / PL-5p: shortfall-first fill
+        churn.update(incr_place=True, fill_order="shortfall", fill_passes=8 if FAST == "6" else 0)
     if FAST == "1":
         churn.update(fast_order=True, fast_place=True)
     elif FAST == "2":
         churn.update(fast_order=True, lazy_place=True)
+    elif FAST == "4":
+        churn.update(incr_place=True)
     if THIN:
         churn.update(place_thin=THIN)
     adj = O3.O3SimAdjuster(make_adjuster("B_STAR", A, seed=seed + 300), MOVE_S, epoch=EPOCH, horizon=30.0, K=8, seed=seed + 800, warmup=WARMUP, blind=True, cand_mode="nosim", churn=churn)

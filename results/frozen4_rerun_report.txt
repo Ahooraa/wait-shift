@@ -1,0 +1,67 @@
+﻿Ratio FROZEN-4 / FROZEN-3 (below 1 = FROZEN-4 lower), geometric mean over cases [95% case bootstrap]
+-- filled, development, three clocks, reference PL-4 (frozen3i)
+  clock base                                     n=18  P99 0.986 [0.965, 1.006]  mean 0.972 [0.954, 0.987]  cold 0.930 [0.918, 0.943]  P99 lower/higher 10/8, median 0.997
+  clock _p1                                      n=18  P99 0.989 [0.969, 1.007]  mean 0.976 [0.958, 0.992]  cold 0.934 [0.924, 0.944]  P99 lower/higher 11/7, median 0.991
+  clock _p2                                      n=18  P99 0.983 [0.965, 0.999]  mean 0.969 [0.952, 0.983]  cold 0.932 [0.919, 0.944]  P99 lower/higher 11/7, median 0.985
+-- filled, held-out, three clocks, reference PL-4 (frozen3i)
+  clock base                                     n=24  P99 0.959 [0.905, 1.008]  mean 0.964 [0.940, 0.984]  cold 0.911 [0.894, 0.926]  P99 lower/higher 13/11, median 0.996
+  clock _p1                                      n=24  P99 0.886 [0.795, 0.966]  mean 0.958 [0.937, 0.977]  cold 0.909 [0.892, 0.923]  P99 lower/higher 17/7, median 0.967
+  clock _p2                                      n=24  P99 0.916 [0.858, 0.964]  mean 0.954 [0.929, 0.976]  cold 0.913 [0.900, 0.925]  P99 lower/higher 20/4, median 0.978
+-- on-demand
+  frozen4_od / frozen3_od, development           n=18  P99 0.966 [0.935, 0.998]  mean 0.972 [0.954, 0.988]  cold 0.998 [0.996, 1.001]  P99 lower/higher 14/4, median 0.973
+  frozen4_od / frozen3_od, held-out              n=24  P99 0.964 [0.920, 1.008]  mean 0.973 [0.950, 0.992]  cold 0.998 [0.991, 1.004]  P99 lower/higher 18/6, median 0.982
+  frozen4_od_e30_u70 / frozen3_od_e30_u70, development n=18  P99 0.980 [0.952, 1.004]  mean 0.974 [0.954, 0.990]  cold 0.994 [0.989, 0.999]  P99 lower/higher 9/9, median 1.000
+  frozen4_od_e30_u70 / frozen3_od_e30_u70, held-out no data
+-- two-loop grid
+  Cf4 / C, development                           n=18  P99 0.960 [0.887, 1.035]  mean 0.969 [0.940, 1.002]  cold 0.929 [0.916, 0.941]  P99 lower/higher 11/7, median 0.952
+  Cf4 / C, held-out                              n=24  P99 0.932 [0.829, 1.044]  mean 0.901 [0.828, 0.969]  cold 0.911 [0.894, 0.926]  P99 lower/higher 14/10, median 0.905
+  Df4 / D, development                           n=18  P99 0.993 [0.973, 1.013]  mean 0.976 [0.962, 0.989]  cold 0.929 [0.916, 0.940]  P99 lower/higher 11/7, median 0.990
+  Df4 / D, held-out                              n=24  P99 0.955 [0.886, 1.026]  mean 0.973 [0.953, 0.992]  cold 0.911 [0.894, 0.926]  P99 lower/higher 13/11, median 0.993
+  Cqf4 / Cq, development                         n=18  P99 0.917 [0.812, 1.019]  mean 0.957 [0.933, 0.982]  cold 0.929 [0.917, 0.941]  P99 lower/higher 10/8, median 0.956
+  Cqf4 / Cq, held-out                            no data
+  Cf4_L4 / C_L4, development                     n= 6  P99 0.976 [0.897, 1.065]  mean 1.003 [0.944, 1.065]  cold 0.940 [0.933, 0.947]  P99 lower/higher 4/2, median 0.932
+  Cf4_L4 / C_L4, held-out                        no data
+  Df4_L4 / D_L4, development                     n= 6  P99 1.006 [0.980, 1.037]  mean 0.979 [0.956, 0.998]  cold 0.940 [0.933, 0.947]  P99 lower/higher 3/3, median 1.004
+  Df4_L4 / D_L4, held-out                        no data
+-- two-loop grid with FROZEN-4: effect of each loop
+  Cf4 / A, development                           n=18  P99 0.352 [0.318, 0.397]  mean 0.240 [0.223, 0.257]  cold 1924945123897.244 [1804804892977.691, 2047361177216.157]  P99 lower/higher 18/0, median 0.327
+  B / A, development                             n=18  P99 0.392 [0.330, 0.461]  mean 0.502 [0.434, 0.571]  cold 1.000 [1.000, 1.000]  P99 lower/higher 18/0, median 0.402
+  Df4 / B, development                           n=18  P99 0.077 [0.061, 0.098]  mean 0.078 [0.061, 0.100]  cold 1924874010661.081 [1804714061785.943, 2047448928779.185]  P99 lower/higher 18/0, median 0.073
+  Df4 / Cf4, development                         n=18  P99 0.085 [0.074, 0.098]  mean 0.163 [0.145, 0.183]  cold 1.000 [1.000, 1.000]  P99 lower/higher 18/0, median 0.085
+  Df4 / A, development                           n=18  P99 0.030 [0.026, 0.035]  mean 0.039 [0.033, 0.046]  cold 1924874010661.081 [1804714061785.943, 2047448928779.185]  P99 lower/higher 18/0, median 0.028
+  Cf4 / A, held-out                              n=24  P99 0.257 [0.207, 0.311]  mean 0.177 [0.138, 0.223]  cold 1324683946517.207 [1149453545558.099, 1510395292769.261]  P99 lower/higher 24/0, median 0.237
+  B / A, held-out                                n=24  P99 0.345 [0.303, 0.392]  mean 0.461 [0.406, 0.522]  cold 1.000 [1.000, 1.000]  P99 lower/higher 24/0, median 0.323
+  Df4 / B, held-out                              n=24  P99 0.080 [0.056, 0.116]  mean 0.059 [0.041, 0.085]  cold 1324566365393.782 [1149397296830.749, 1510192962731.460]  P99 lower/higher 24/0, median 0.085
+  Df4 / Cf4, held-out                            n=24  P99 0.107 [0.086, 0.137]  mean 0.154 [0.133, 0.179]  cold 1.000 [1.000, 1.000]  P99 lower/higher 24/0, median 0.101
+  Df4 / A, held-out                              n=24  P99 0.028 [0.021, 0.038]  mean 0.027 [0.020, 0.037]  cold 1324566365393.782 [1149397296830.749, 1510192962731.460]  P99 lower/higher 24/0, median 0.032
+-- FaaSPR's own setting
+  f4_fixed / f3_fixed                            n=36  P99 1.000 [0.995, 1.005]  mean 1.001 [1.000, 1.002]  cold 0.935 [0.758, 1.147]  P99 lower/higher 15/17, median 1.000
+  f4_elastic / f3_elastic                        n=36  P99 1.003 [0.999, 1.007]  mean 1.000 [0.998, 1.002]  cold 1.002 [1.001, 1.003]  P99 lower/higher 15/21, median 1.003
+  f4_fixed / faaspr                              n=36  P99 0.431 [0.388, 0.477]  mean 0.555 [0.526, 0.581]  cold 0.003 [0.000, 0.014]  P99 lower/higher 36/0, median 0.447
+  f4_elastic / faaspr                            n=36  P99 0.457 [0.411, 0.506]  mean 0.633 [0.597, 0.667]  cold 0.601 [0.538, 0.669]  P99 lower/higher 36/0, median 0.454
+  f3_fixed / faaspr                              n=36  P99 0.431 [0.387, 0.477]  mean 0.555 [0.526, 0.581]  cold 0.004 [0.000, 0.015]  P99 lower/higher 36/0, median 0.436
+  f3_elastic / faaspr                            n=36  P99 0.456 [0.409, 0.505]  mean 0.633 [0.597, 0.667]  cold 0.600 [0.538, 0.668]  P99 lower/higher 36/0, median 0.449
+-- held-out, system / FROZEN-4 (above 1 = FROZEN-4 lower), filled; in brackets of the next row the same against FROZEN-3 (frozen3i)
+  B_STAR / FROZEN-4                              n=24  P99 3.248 [2.417, 4.177]  mean 4.137 [3.398, 5.024]  cold 7.384 [6.296, 8.698]  P99 lower/higher 3/21, median 3.671
+  B_STAR / FROZEN-3                              n=24  P99 3.116 [2.298, 4.034]  mean 3.986 [3.312, 4.770]  cold 6.725 [5.757, 7.900]  P99 lower/higher 3/21, median 3.778
+  RL / FROZEN-4                                  n=24  P99 3.051 [2.407, 3.766]  mean 2.658 [2.259, 3.085]  cold 28.936 [24.100, 34.806]  P99 lower/higher 2/22, median 3.314
+  RL / FROZEN-3                                  n=24  P99 2.928 [2.275, 3.633]  mean 2.562 [2.191, 2.946]  cold 26.351 [22.082, 31.516]  P99 lower/higher 2/22, median 3.382
+  faaspr / FROZEN-4                              n=24  P99 4.050 [3.257, 4.948]  mean 2.705 [2.344, 3.158]  cold 3.584 [3.161, 4.018]  P99 lower/higher 0/24, median 3.932
+  faaspr / FROZEN-3                              n=24  P99 3.886 [3.111, 4.756]  mean 2.606 [2.289, 3.007]  cold 3.264 [2.867, 3.688]  P99 lower/higher 0/24, median 4.108
+  faaspr_rs / FROZEN-4                           n=24  P99 4.921 [3.888, 6.096]  mean 2.872 [2.508, 3.290]  cold 3.584 [3.161, 4.018]  P99 lower/higher 0/24, median 5.430
+  faaspr_rs / FROZEN-3                           n=24  P99 4.721 [3.747, 5.830]  mean 2.767 [2.446, 3.141]  cold 3.264 [2.866, 3.688]  P99 lower/higher 0/24, median 4.896
+  ga_p2 / FROZEN-4                               n=24  P99 6.047 [5.030, 7.159]  mean 4.263 [3.677, 4.938]  cold 1.098 [1.080, 1.118]  P99 lower/higher 0/24, median 6.054
+  ga_p2 / FROZEN-3                               n=24  P99 5.801 [4.789, 6.902]  mean 4.108 [3.586, 4.697]  cold 1.000 [0.998, 1.001]  P99 lower/higher 0/24, median 5.758
+  heft_p2 / FROZEN-4                             n=24  P99 7.082 [5.546, 8.791]  mean 5.148 [4.334, 6.134]  cold 1.098 [1.080, 1.118]  P99 lower/higher 0/24, median 6.921
+  heft_p2 / FROZEN-3                             n=24  P99 6.795 [5.320, 8.421]  mean 4.961 [4.233, 5.835]  cold 1.000 [0.998, 1.001]  P99 lower/higher 0/24, median 6.929
+  ga_s2 / FROZEN-4                               n=24  P99 29.426 [21.088, 39.706]  mean 29.152 [21.069, 40.443]  cold 0.000 [0.000, 0.000]  P99 lower/higher 0/24, median 25.961
+  ga_s2 / FROZEN-3                               n=24  P99 28.234 [20.205, 38.019]  mean 28.092 [20.564, 38.493]  cold 0.000 [0.000, 0.000]  P99 lower/higher 0/24, median 26.132
+  heft_s2 / FROZEN-4                             n=24  P99 27.942 [19.995, 37.574]  mean 28.607 [20.915, 39.097]  cold 0.000 [0.000, 0.000]  P99 lower/higher 0/24, median 25.652
+  heft_s2 / FROZEN-3                             n=24  P99 26.809 [18.858, 36.111]  mean 27.568 [20.445, 37.287]  cold 0.000 [0.000, 0.000]  P99 lower/higher 0/24, median 25.755
+-- held-out, on-demand, system / FROZEN-4
+  faaspr_od / FROZEN-4                           n=24  P99 3.703 [2.906, 4.628]  mean 2.655 [2.325, 3.083]  cold 3.276 [2.882, 3.716]  P99 lower/higher 0/24, median 3.818
+  faaspr_od / FROZEN-3                           n=24  P99 3.571 [2.787, 4.475]  mean 2.584 [2.278, 2.980]  cold 3.269 [2.874, 3.717]  P99 lower/higher 0/24, median 3.391
+  ga_p2_od / FROZEN-4                            n=24  P99 6.139 [5.149, 7.241]  mean 4.281 [3.814, 4.850]  cold 1.002 [0.996, 1.009]  P99 lower/higher 0/24, median 6.570
+  ga_p2_od / FROZEN-3                            n=24  P99 5.921 [4.889, 7.074]  mean 4.167 [3.750, 4.672]  cold 1.000 [1.000, 1.000]  P99 lower/higher 0/24, median 6.582
+  heft_p2_od / FROZEN-4                          n=24  P99 6.696 [5.311, 8.229]  mean 5.044 [4.342, 5.923]  cold 1.002 [0.996, 1.009]  P99 lower/higher 0/24, median 6.803
+  heft_p2_od / FROZEN-3                          n=24  P99 6.458 [5.041, 8.072]  mean 4.909 [4.255, 5.714]  cold 1.000 [1.000, 1.000]  P99 lower/higher 0/24, median 7.064

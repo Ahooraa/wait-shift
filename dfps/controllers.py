@@ -398,8 +398,394 @@ def _cover_gain(dem_f, h, cur_min):
     return (dem_f[:, None] * np.maximum(0.0, cur_min[:, None] - h)).sum(axis=0)
 
 
+def _place_incremental(cur, n_f, fw, ecc, dem, busy, mu, t_hop_f, W, B, fill_leftover):
+    """The greedy of `queue_aware_placement` (transfer term, weighted containers) with the same objective and the same choice at every step, up to
+    floating-point ties (PL-4, 8 Nov 2026). Where the original spends its time, and what replaces it:
+      - S_d = sum_n c_n W_dn and T_d = sum_n c_n B_dn are kept and updated in O(D) after each placement, instead of the dense O(K N D) product;
+      - a function is priced only at the hosts where one of its containers fits (K_f), not at every host with any free space. Most hosts hold a fragment too
+        small for the container, and hosts only lose room while containers are being added;
+      - each function's best (gain, host) is cached: after a placement only the placed function and those whose best host was that one are looked at again;
+      - the leftover-fill stage shares all of this (the original re-priced all F functions after every placement).
+    Lazy evaluation is deliberately not used: the gains are not diminishing here (they are mostly negative and rise towards zero as a function gains containers),
+    so a stale gain is not an upper bound. W and B are symmetric, so their rows serve as the columns the original read."""
+    N, F = W.shape[0], fw.size
+    pre, sums = {}, {}
+
+    def prep(f):
+        q = pre.get(f)
+        if q is None:
+            w = dem[f] if dem[f].sum() > 0 else np.ones(N)
+            r = (busy[f] / mu[f]) * w / w.sum()
+            active = np.flatnonzero(r > 0)
+            q = pre[f] = (r, W, B) if active.size >= 0.7 * N else (r[active], W[:, active], B[:, active])     # zero-weight points add nothing to a sum
+        return q
+
+    def bump(f, k, sign):
+        s = sums.get(f)
+        if s is not None:
+            _, Wh, Bh = prep(f)
+            s[0] += sign * Wh[k]
+            s[1] += sign * Bh[k]
+
+    def price(f, c, idx, sign):
+        ra, Wh, Bh = prep(f)
+        if f not in sums:
+            sums[f] = [c @ Wh, c @ Bh]
+        S, T = sums[f]
+        new = ((T[None, :] + sign * Bh[idx]) / np.maximum(S[None, :] + sign * Wh[idx], 1e-12) * ra[None, :]).sum(axis=1) * t_hop_f[f]
+        return new, float((T / np.maximum(S, 1e-12) * ra).sum()) * t_hop_f[f]
+
+    X = cur.copy()
+    for f in np.flatnonzero(cur.sum(axis=0) > n_f):                     # shrink: give up the container whose loss is smallest
+        f = int(f)
+        c = X[:, f].astype(float)
+        for _ in range(int(c.sum() - n_f[f])):
+            if c.sum() <= 1:
+                break
+            hosts = np.flatnonzero(c > 0)
+            k = int(hosts[int(np.argmin(price(f, c, hosts, -1.0)[0]))])
+            X[k, f] -= 1
+            c[k] -= 1.0
+            bump(f, k, -1.0)
+    free = ecc - X @ fw
+    need = n_f - X.sum(axis=0)
+    gv, gk = {}, {}
+    bestg, bestk = np.full(F, -np.inf), np.zeros(F, dtype=int)
+
+    def reprice(f):
+        idx = np.flatnonzero(free >= fw[f] - 1e-9)
+        gk[f] = idx
+        if idx.size == 0:
+            gv[f] = np.zeros(0)
+            return
+        new, base = price(f, X[:, f].astype(float), idx, 1.0)
+        gv[f] = (base - new) if X[:, f].sum() > 0 else -new
+
+    def refresh(f):
+        bestg[f] = -np.inf
+        if need[f] > 0:
+            idx, g = gk[f], gv[f]
+            ok = free[idx] >= fw[f] - 1e-9
+            if ok.any():
+                j = int(np.argmax(np.where(ok, g, -np.inf)))
+                bestg[f], bestk[f] = g[j], idx[j]
+
+    def place(f, k):
+        X[k, f] += 1
+        free[k] -= fw[f]
+        need[f] -= 1
+        bump(f, k, 1.0)
+
+    for f in np.flatnonzero(need > 0):
+        reprice(int(f))
+        refresh(int(f))
+    while need.sum() > 0:
+        bf = int(np.argmax(bestg))
+        if bestg[bf] == -np.inf:                                        # nothing fits anywhere (fragmentation), as in the original
+            f0 = int(np.flatnonzero(need > 0)[np.argmax(need[need > 0])])
+            if X[:, f0].sum() > 0:
+                need[f0] = 0
+                refresh(f0)
+                continue
+            donors = [(fw[g], k, g) for k in range(N) for g in np.flatnonzero(X[k]) if X[:, g].sum() > 1 and free[k] + fw[g] >= fw[f0] - 1e-9]
+            if not donors:
+                raise ValueError("no feasible layout: a function with no instance fits nowhere")
+            _, k, g = min(donors)
+            X[k, g] -= 1
+            free[k] += fw[g]
+            bump(int(g), k, -1.0)
+            place(f0, k)
+            for f in np.flatnonzero(need > 0):                          # a host gained room: the feasible sets are out of date
+                reprice(int(f))
+                refresh(int(f))
+            refresh(f0)
+            continue
+        bk = int(bestk[bf])
+        place(bf, bk)
+        if need[bf] > 0:
+            reprice(bf)
+        refresh(bf)
+        for f in np.flatnonzero((bestk == bk) & (bestg > -np.inf)):
+            refresh(int(f))
+    if fill_leftover:                                                   # counts cannot tile every node exactly: keep adding the best-gain container that fits
+        need[:] = 1
+        for f in range(F):
+            reprice(f)
+            refresh(f)
+        while True:
+            bf = int(np.argmax(bestg))
+            if bestg[bf] == -np.inf:
+                break
+            bk = int(bestk[bf])
+            place(bf, bk)
+            need[bf] = 1
+            reprice(bf)
+            refresh(bf)
+            for f in np.flatnonzero((bestk == bk) & (bestg > -np.inf)):
+                refresh(int(f))
+    assert (X @ fw <= ecc + 1e-9).all() and (X.sum(axis=0) >= 1).all()
+    return X
+
+
+class _HopFactor:
+    """Exact factorisation of the hop matrix for fast pricing (9 Nov 2026): h[u, x] = c_u + H[class u, class x] + c_x for all pairs except a listed set, which is corrected.
+    Read off the matrix alone, so it holds on any network; how much it saves depends on how compressible the network is. Pricing one function at K hosts over D demand points
+    costs about D*M + Q*C + exceptions instead of K*D (M = hop levels per offset, C = classes, Q = distinct (class, offset) pairs among the candidates)."""
+    KAPPA, BM = 1.0, 4000.0                                             # direct pricing below KAPPA x the estimated cost; the far field as a dense product above BM entries
+
+    def __init__(self, h, tau=1.0):
+        h = np.asarray(h, dtype=np.intp)
+        N = h.shape[0]
+        order = np.argsort(-(h == 1).sum(axis=1), kind="stable")
+        best = None
+        for m in sorted({max(2, N // 32), max(2, N // 16), max(2, N // 8), max(2, N // 4)}):    # landmarks: the best-connected nodes
+            f = self._factor(h, order[:m])
+            cost = f["C"] ** 2 + f["nk"].size
+            if best is None or cost < best[0]:
+                best = (cost, f)
+        self.__dict__.update(best[1])
+        cm, Hx = int(self.c.max()), int(self.H.max())
+        self.N, self.h, self.cm, self.M = N, h, cm, cm + Hx + 1
+        Lv = max(cm + self.M, int(h.max()) + 1, int(self.fl.max(initial=0)) + 1)
+        lv = np.arange(Lv, dtype=float)
+        self.wl, self.bl = np.exp(-lv / float(tau)), np.exp(-lv / float(tau)) * lv
+        off = np.arange(cm + 1)[:, None] + np.arange(self.M)[None, :]
+        self.wc, self.bc, self.WH, self.BH = self.wl[off], self.bl[off], self.wl[self.H], self.bl[self.H]
+        self.Vs = [int(v) for v in np.unique(self.H)]
+        self.MV = [(self.H == v).astype(float) for v in self.Vs]
+        self.mark, self.remap = np.zeros((cm + 1) * self.C, dtype=bool), np.zeros((cm + 1) * self.C, dtype=np.intp)
+
+    @staticmethod
+    def _factor(h, L):
+        c = h[:, L].min(axis=1)
+        _, cls = np.unique(h[:, L] - c[:, None], axis=0, return_inverse=True)
+        cls = np.asarray(cls).ravel()
+        C = int(cls.max()) + 1
+        res = h - c[:, None] - c[None, :]
+        lo, V = int(res.min()), int(res.max() - res.min()) + 1
+        cnt = np.bincount(((cls[:, None] * C + cls[None, :]) * V + (res - lo)).ravel(), minlength=C * C * V).reshape(C, C, V)
+        H = np.maximum(cnt.argmax(axis=2) + lo, 0)
+        fl = c[:, None] + H[cls[:, None], cls[None, :]] + c[None, :]
+        nk, nd = np.nonzero(h != fl)
+        return dict(c=c, cls=cls, C=C, H=H, nk=nk, nd=nd, fl=fl[nk, nd], hl=h[nk, nd])
+
+    def info(self, act, ra):
+        """Per-function tables: demand points grouped by class."""
+        cl = self.cls[act]
+        perm = np.argsort(cl, kind="stable")
+        cp = cl[perm]
+        starts = np.flatnonzero(np.r_[True, cp[1:] != cp[:-1]]) if cp.size else np.zeros(0, dtype=np.intp)
+        cq, cd = cp[starts], self.c[act][perm]
+        pos = np.full(self.N, -1)
+        pos[act] = np.arange(act.size)
+        keep = pos[self.nd] >= 0
+        return dict(perm=perm, starts=starts, cq=cq, cd=cd, WL=self.wc[cd], BL=self.bc[cd], ra=ra[perm], Hc=self.H[:, cq], WHc=self.WH[:, cq], BHc=self.BH[:, cq], Cp=cq.size, D=act.size,
+                    nk=self.nk[keep], j=pos[self.nd[keep]], hl=self.hl[keep], fl=self.fl[keep], ex=int(keep.sum()))
+
+    def first_sums(self, c, act, I, W, B):
+        """S_d, T_d from the factorisation."""
+        h_ = np.flatnonzero(c)
+        if h_.size * I["D"] <= self.KAPPA * (self.C * I["Cp"] + I["D"] + I["ex"]):
+            return c[h_] @ W[h_][:, act], c[h_] @ B[h_][:, act]
+        cn, cls = self.c[h_], self.cls[h_]
+        y = c[h_] * self.wl[cn]
+        Y, Z = np.bincount(cls, weights=y, minlength=self.C), np.bincount(cls, weights=y * cn, minlength=self.C)
+        Ph, Ps = Y @ I["WHc"], Z @ I["WHc"] + Y @ I["BHc"]
+        n = np.diff(np.r_[I["starts"], I["D"]])
+        Phd, Psd, wd = np.repeat(Ph, n), np.repeat(Ps, n), self.wl[I["cd"]]
+        S, T = np.empty(I["D"]), np.empty(I["D"])
+        S[I["perm"]], T[I["perm"]] = wd * Phd, wd * (Psd + I["cd"] * Phd)
+        m = c[I["nk"]] > 0
+        if m.any():
+            cc = c[I["nk"][m]]
+            S += np.bincount(I["j"][m], weights=cc * (self.wl[I["hl"][m]] - self.wl[I["fl"][m]]), minlength=I["D"])
+            T += np.bincount(I["j"][m], weights=cc * (self.bl[I["hl"][m]] - self.bl[I["fl"][m]]), minlength=I["D"])
+        return S, T
+
+    def price(self, S, T, ra, act, I, idx, sign, W, B):
+        """sum_d r_d (T_d +- B_kd) / (S_d +- W_kd) for every candidate k."""
+        Kn, D = idx.size, I["D"]
+        if Kn * D <= self.KAPPA * (D * self.M + Kn * I["Cp"] + I["ex"]):
+            ix = np.ix_(idx, act)
+            return ((T[None, :] + sign * B[ix]) / np.maximum(S[None, :] + sign * W[ix], 1e-12) * ra[None, :]).sum(axis=1)
+        g = (T[I["perm"]][:, None] + sign * I["BL"]) / np.maximum(S[I["perm"]][:, None] + sign * I["WL"], 1e-12) * I["ra"][:, None]
+        A = np.add.reduceat(g, I["starts"], axis=0)
+        w = self.cm + 1
+        code = self.cls[idx] * w + self.c[idx]
+        self.mark[code] = True
+        u = np.flatnonzero(self.mark)
+        self.mark[u] = False
+        self.remap[u] = np.arange(u.size)
+        if u.size * I["Cp"] >= self.BM:
+            up, ux = u // w, u % w
+            pu = up[np.r_[True, up[1:] != up[:-1]]]
+            xs = np.flatnonzero(np.bincount(ux, minlength=w))
+            Af = np.zeros((self.C, self.M))
+            Af[I["cq"]] = A
+            Fm = np.zeros((pu.size, xs.size))
+            for mv, v in zip(self.MV, self.Vs):
+                Fm += mv[pu] @ Af[:, xs + v]
+            far = Fm[np.searchsorted(pu, up), np.searchsorted(xs, ux)]
+        else:
+            far = A[np.arange(I["Cp"])[None, :], (u % w)[:, None] + I["Hc"][u // w]].sum(axis=1)
+        new = far[self.remap[code]]
+        if I["ex"]:
+            cm = np.zeros(self.N, dtype=bool)
+            cm[idx] = True
+            m = cm[I["nk"]]
+            if m.any():
+                nk, j, hl, fl = I["nk"][m], I["j"][m], I["hl"][m], I["fl"][m]
+                v = ((T[j] + sign * self.bl[hl]) / np.maximum(S[j] + sign * self.wl[hl], 1e-12) - (T[j] + sign * self.bl[fl]) / np.maximum(S[j] + sign * self.wl[fl], 1e-12)) * ra[j]
+                new = new + np.bincount(nk, weights=v, minlength=self.N)[idx]
+        return new
+
+
+def _place_shortfall(cur, n_f, fw, ecc, dem, busy, mu, t_hop_f, W, B, fill_leftover, h, fac=None, passes=0, rmin=2):
+    """Shortfall-first fill (PL-5, 9 Nov 2026): the same host score as PL-4, but the next container goes to the function furthest below its target (missing / target; ties to the larger
+    container) instead of the best gain across all functions, and leftover space follows the same rule. PL-4's order left the unmet capacity on a few functions.
+    passes = 0: one container per pricing (PL-5). passes = R (PL-5p): R passes over the functions, each priced once per pass and placing missing / (passes left) containers
+    at the best hosts at least rmin hops apart; decisions inside a batch do not see each other. `fac` (_HopFactor) only changes how prices are computed."""
+    N, F = W.shape[0], fw.size
+    pre, sums = {}, {}
+
+    def prep(f):
+        q = pre.get(f)
+        if q is None:
+            w = dem[f] if dem[f].sum() > 0 else np.ones(N)
+            r = (busy[f] / mu[f]) * w / w.sum()
+            a = np.flatnonzero(r > 0)
+            q = pre[f] = (r[a], a, fac.info(a, r[a]) if fac is not None else None)
+        return q
+
+    def get(f, c):
+        s = sums.get(f)
+        if s is None:
+            _, a, I = prep(f)
+            if fac is not None:
+                s = list(fac.first_sums(c, a, I, W, B))
+            else:
+                h_ = np.flatnonzero(c)
+                s = [c[h_] @ W[h_][:, a], c[h_] @ B[h_][:, a]]
+            sums[f] = s
+        return s
+
+    def bump(f, k, sign):
+        s = sums.get(f)
+        if s is not None:
+            a = pre[f][1]
+            s[0] += sign * W[k, a]
+            s[1] += sign * B[k, a]
+
+    def price(f, c, idx, sign):
+        ra, a, I = prep(f)
+        S, T = get(f, c)
+        if fac is not None:
+            new = fac.price(S, T, ra, a, I, idx, sign, W, B) * t_hop_f[f]
+        else:
+            ix = np.ix_(idx, a)
+            new = ((T[None, :] + sign * B[ix]) / np.maximum(S[None, :] + sign * W[ix], 1e-12) * ra[None, :]).sum(axis=1) * t_hop_f[f]
+        return new, float((T / np.maximum(S, 1e-12) * ra).sum()) * t_hop_f[f]
+
+    def pick(g, idx, q, rm):
+        out = []
+        for j in np.argsort(-g, kind="stable"):
+            k = int(idx[j])
+            if rm and out and h[k, out].min() < rm:
+                continue
+            out.append(k)
+            if len(out) >= q:
+                break
+        return out
+
+    X = cur.copy()
+    for f in np.flatnonzero(cur.sum(axis=0) > n_f):                     # shrink: smallest loss first
+        f = int(f)
+        c = X[:, f].astype(float)
+        left = int(c.sum() - n_f[f])
+        pl = passes if passes else left
+        while left > 0 and c.sum() > 1:
+            hosts = np.flatnonzero(c > 0)
+            q = min(int(np.ceil(left / max(pl, 1))) if passes else 1, int(c.sum()) - 1, left)
+            new, _ = price(f, c, hosts, -1.0)
+            for k in pick(-new, hosts, q, rmin if passes else 0):
+                X[k, f] -= 1
+                c[k] -= 1.0
+                bump(f, k, -1.0)
+                left -= 1
+            pl = max(pl - 1, 1)
+    free = ecc - X @ fw
+    need = n_f - X.sum(axis=0)
+    stuck = np.zeros(F, dtype=bool)
+
+    def place(f, k):
+        X[k, f] += 1
+        free[k] -= fw[f]
+        need[f] -= 1
+        bump(f, k, 1.0)
+
+    def step(f, q, rm):
+        if need[f] <= 0 or stuck[f]:
+            return 0
+        idx = np.flatnonzero(free >= fw[f] - 1e-9)
+        if idx.size == 0:
+            if X[:, f].sum() > 0:
+                stuck[f] = True
+                return 0
+            donors = [(fw[g], k, g) for k in range(N) for g in np.flatnonzero(X[k]) if X[:, g].sum() > 1 and free[k] + fw[g] >= fw[f] - 1e-9]
+            if not donors:
+                raise ValueError("no feasible layout: a function with no instance fits nowhere")
+            _, k, g = min(donors)
+            X[k, g] -= 1
+            free[k] += fw[g]
+            bump(int(g), k, -1.0)
+            place(f, k)
+            return 1
+        have = X[:, f].sum() > 0
+        new, base = price(f, X[:, f].astype(float), idx, 1.0)
+        hs = pick((base - new) if have else -new, idx, q, rm)
+        for k in hs:
+            place(f, k)
+        return len(hs)
+
+    def order_now():
+        return np.lexsort((-fw, -np.where(n_f > 0, need / np.maximum(n_f, 1), 0.0)))
+
+    if passes == 0:
+        while True:
+            act = (need > 0) & ~stuck
+            if not act.any():
+                break
+            step(int(np.lexsort((-np.where(act, fw, -1.0), -np.where(act, need / np.maximum(n_f, 1), -1.0)))[0]), 1, 0)
+    else:
+        for r in range(passes, 0, -1):
+            for f in order_now():
+                if need[f] > 0:
+                    step(int(f), int(np.ceil(need[f] / r)), rmin)
+        while ((need > 0) & ~stuck).any():                              # what the spacing rule left over
+            got = 0
+            for f in order_now():
+                if need[f] > 0 and not stuck[f]:
+                    got += step(int(f), int(need[f]), 0)
+            if got == 0:
+                stuck[need > 0] = True
+    if fill_leftover:                                                   # what is left goes to whoever is furthest below target and still fits
+        while True:
+            ok = fw <= free.max() + 1e-9
+            if not ok.any():
+                break
+            ratio = (n_f - X.sum(axis=0)) / np.maximum(n_f, 1)
+            f = int(np.lexsort((-np.where(ok, fw, -1.0), -np.where(ok, ratio, -np.inf)))[0])
+            idx = np.flatnonzero(free >= fw[f] - 1e-9)
+            new, base = price(f, X[:, f].astype(float), idx, 1.0)
+            need[f] = 1
+            place(f, int(idx[int(np.argmax(base - new))]))
+    assert (X @ fw <= ecc + 1e-9).all() and (X.sum(axis=0) >= 1).all()
+    return X
+
+
 def queue_aware_placement(sc, rates=None, counts=None, cur=None, o_w=None, origin_weight=1.0, busy=None, tau=1.0,
-                          queue_term=True, util_clip=0.97, affinity=True, struct=None, size_aware=False, fill_leftover=True, fast_cost=False, lazy=False, thin=0):
+                          queue_term=True, util_clip=0.97, affinity=True, struct=None, size_aware=False, fill_leftover=True, fast_cost=False, lazy=False, thin=0, incr=False,
+                          fill=None, fill_passes=0):
     """Capacity- and queue-aware incremental placement (2026-10-23): the k-median of `kmedian_placement` with a cost that
     knows containers have finite capacity.
 
@@ -450,6 +836,16 @@ def queue_aware_placement(sc, rates=None, counts=None, cur=None, o_w=None, origi
         t_hop_f = np.full(F, t_hop)
     W = np.exp(-h / float(tau))                                                         # [N, N] attraction between nodes
     B = W * h
+    if incr and hetero and not queue_term and not lazy and not thin:                    # PL-4: same greedy and objective, see _place_incremental
+        assert np.array_equal(h, h.T)
+        if fill == "shortfall":                                         # PL-5 / PL-5p: different decisions from PL-4, see _place_shortfall
+            fac = None
+            if N >= 400:                                                # the factorised pricing is slower than direct pricing on small networks
+                fac = getattr(sc.network, "_hop_factor", None)
+                if fac is None or fac.N != N:
+                    fac = sc.network._hop_factor = _HopFactor(h, tau)
+            return _place_shortfall(cur, n_f, fw, ecc, dem, busy, mu, t_hop_f, W, B, fill_leftover, h.astype(np.intp), fac=fac, passes=int(fill_passes))
+        return _place_incremental(cur, n_f, fw, ecc, dem, busy, mu, t_hop_f, W, B, fill_leftover)
 
     def share(f):
         """r_d for function f: requests per second arriving at each node (zeros where nothing pulls f)."""

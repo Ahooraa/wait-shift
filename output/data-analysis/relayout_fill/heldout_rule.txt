@@ -1,0 +1,13 @@
+Written 9 Nov 2026, before any held-out run of these candidates.
+
+Frozen candidates (chosen on the 18 development cases only, seeds 1-3; no parameter is changed after this point):
+  ratio1 = one container at a time, the function furthest below its target (need/n_f) goes next; ties to the larger container.
+  ratio8 = 8 passes over the functions in that order; each function is priced once per pass and places need/(passes left) containers, at the best hosts at least 2 hops apart.
+Six variants were tried on development (ratio1, ratio2, ratio4, ratio8, size4, util4); this selection inflates the development result, which is why held-out is the test.
+
+Test: 24 held-out cases (F1/F2 x rho 0.5/0.7/0.85 x seeds 7-10), 3 runs each (move clock 0, +1 ms, -1 ms), paired clock by clock against frozen3i (PL-4), geometric mean over cases, 95% case bootstrap.
+
+Pass rule, per candidate:
+  "equal or better" = P99 upper bound <= 1.01 AND mean makespan upper bound < 1.00.
+  "P99 better" is claimed only if the P99 upper bound < 1.00.
+  Otherwise the candidate does not pass and is reported as such.

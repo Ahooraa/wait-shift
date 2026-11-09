@@ -83,8 +83,10 @@ def run_job(args):
         from dfps.sim import Sim
         from dfps.solution import IDLE
         from dfps.variants import make_adjuster, sim_kwargs
-        from frozen2 import FROZEN3, FROZEN3_DISPATCHER, MOVE_PERIOD_S
-        base, loop = (cell.split("_L")[0], int(cell.split("_L")[1])) if "_L" in cell else (cell, 1)
+        from frozen2 import FROZEN3, FROZEN4, FROZEN3_DISPATCHER, MOVE_PERIOD_S
+        ctrl = FROZEN4 if "f4" in cell else FROZEN3                # Cf4, Df4, Cqf4, Cf4_L4, Df4_L4: the re-layout cells with FROZEN-4 (cells without re-layout are unaffected)
+        name = cell.replace("f4", "")
+        base, loop = (name.split("_L")[0], int(name.split("_L")[1])) if "_L" in name else (name, 1)
         A = yaml.safe_load((ROOT / "config" / "assumptions.yaml").read_text(encoding="utf-8"))
         P = pickle.load(open(W1 / f"{tg}.sc.pkl", "rb"))
         sc, X0 = P["sc"], P["X0"]
@@ -98,7 +100,7 @@ def run_job(args):
         router = "greedy_eft" if base.endswith("q") else FROZEN3_DISPATCHER
         kw.update(warmup=WARMUP, duration=duration, retry_min_interval=1.0, retry_max_attempts=10, dispatcher=D.DISPATCHERS[router], trace=True)
         adj = O3SimAdjuster(make_adjuster("B_STAR", A, seed=seed + 300), MOVE_PERIOD_S[fam], epoch=60.0, horizon=30.0, K=8, seed=seed + 800,
-                            warmup=WARMUP, blind=True, cand_mode="nosim", churn=dict(FROZEN3, lam=0.5, **CELLS[base]))
+                            warmup=WARMUP, blind=True, cand_mode="nosim", churn=dict(ctrl, lam=0.5, **CELLS[base]))
         kw["interval"] = adj.next_interval
         sim = Sim(sc, X0.copy(), adjuster=adj, seed=seed + 400, **kw)
         ticks, orig = [], adj.run

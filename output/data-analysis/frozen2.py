@@ -37,9 +37,18 @@ FROZEN3_EXACT = dict(FROZEN2, pass_order="gain")        # the controller of ever
 # DEFAULT since 8 Nov 2026 (user decision): FROZEN3_EXACT + the MV-3 request mover (fast_order). MV-3 is exact: event hashes equal MV-2.
 # The re-layout keeps its EXACT scoring (PL-1). Lazy scoring (FROZEN3_LAZY, PL-2) and thinning (place_thin = 32, PL-3) are scale-only switches:
 # lazy cost P99 x1.093 [1.034, 1.166] on the 24 held-out cases (x1.004 on the 18 development cases), see independent-baselines-capw1, section 9.
-FROZEN3 = dict(FROZEN3_EXACT, fast_order=True)
-FROZEN3_LAZY = dict(FROZEN3, lazy_place=True)               # scale-only: re-layout under 3 s at ~1,280 servers; not the default
+FROZEN3_PL1 = dict(FROZEN3_EXACT, fast_order=True)         # MV-3 mover + the original exact scoring (PL-1): the reference for the headline results
+# DEFAULT since 8 Nov 2026 (user decision): MV-3 + incremental scoring (PL-4). Same greedy and formula as PL-1, equal up to floating-point ties.
+FROZEN3 = dict(FROZEN3_PL1, incr_place=True)
+FROZEN3_INCR = FROZEN3               # PL-4: exact formula, incremental sums, priced only where the container fits; under test 8 Nov 2026
+FROZEN3_LAZY = dict(FROZEN3_PL1, lazy_place=True)               # scale-only: re-layout under 3 s at ~1,280 servers; not the default
+# FROZEN-4 (9 Nov 2026, user decision; the paper's controller): FROZEN-3 with the shortfall-first re-layout fill (PL-5: the function furthest below
+# its target goes next, one container per pricing). DIFFERENT decisions from PL-4, hence a new controller version. FROZEN3 above stays as it was, so its results remain reproducible.
+FROZEN4 = dict(FROZEN3, fill_order="shortfall")                 # PL-5: one container per pricing
+FROZEN4_P8 = dict(FROZEN4, fill_passes=8)                       # PL-5p: 8 passes, the scale option
+FROZEN3_FILL, FROZEN3_FILL8 = FROZEN4, FROZEN4_P8               # the names used while under test (arms fill1 = FROZEN-4, fill8 = its 8-pass option)
 FROZEN3_DISPATCHER = "transfer_only"
+FROZEN4_DISPATCHER = FROZEN3_DISPATCHER
 M = "p99_makespan"
 
 

@@ -39,9 +39,14 @@ def jobs(arms):
     return out
 
 
+# placebo nulls: the same controller with the move clock shifted by 1 ms (no systematic effect, the trajectory diverges); see run-noise-floor
+PLACEBO = {f"{a}_p{i}": (a, d) for a in ("frozen3m", "frozen3i", "fill1", "fill8") for i, d in ((1, 0.001), (2, -0.001))}
+
+
 def run_job(args):
-    tg, arm = args
-    out = OUT / f"{tg}.{arm}.json"
+    tg, arm_name = args
+    arm, d_move = PLACEBO.get(arm_name, (arm_name, 0.0))
+    out = OUT / f"{tg}.{arm_name}.json"
     if out.exists():
         return str(out)
     OUT.mkdir(parents=True, exist_ok=True)
@@ -66,26 +71,26 @@ def run_job(args):
             from dfps.o3s import O3SimAdjuster
             from dfps.sim import Sim
             from dfps.variants import make_adjuster, sim_kwargs
-            from frozen2 import FROZEN2, FROZEN3, FROZEN3_EXACT, FROZEN3_LAZY, FROZEN3_DISPATCHER, MOVE_PERIOD_S
+            from frozen2 import FROZEN2, FROZEN3_EXACT, FROZEN3_FILL, FROZEN3_FILL8, FROZEN3_INCR, FROZEN3_LAZY, FROZEN3_PL1, FROZEN3_DISPATCHER, MOVE_PERIOD_S
             kw = sim_kwargs("B_STAR", A)
             kw.update(warmup=WARMUP, duration=DURATION, retry_min_interval=1.0, retry_max_attempts=10)
-            if arm in ("frozen3", "frozen3f", "frozen3m"):
+            if arm in ("frozen3", "frozen3f", "frozen3m", "frozen3i", "fill1", "fill8"):
                 kw["dispatcher"] = D.DISPATCHERS[FROZEN3_DISPATCHER]
                 kw["queue_priority"] = QueuePriority("full", aging=2.0)
-                cand, churn = "nosim", dict({"frozen3": FROZEN3_EXACT, "frozen3f": FROZEN3_LAZY, "frozen3m": FROZEN3}[arm], lam=0.5)
-                # frozen3 = exact (MV-2), frozen3f = MV-3 + lazy scoring (PL-2), frozen3m = MV-3, exact scoring: the default since 8 Nov 2026
+                cand, churn = "nosim", dict({"frozen3": FROZEN3_EXACT, "frozen3f": FROZEN3_LAZY, "frozen3m": FROZEN3_PL1, "frozen3i": FROZEN3_INCR, "fill1": FROZEN3_FILL, "fill8": FROZEN3_FILL8}[arm], lam=0.5)
+                # frozen3 = exact (MV-2), frozen3f = MV-3 + lazy scoring (PL-2), frozen3m = MV-3, exact scoring (PL-1); frozen3i = MV-3 + PL-4, the default since 8 Nov 2026
             elif arm == "stack":                                  # as final_ablation.py VARIANTS["stack"]: hpa sizing + jsq moves on FROZEN-2
                 cand, churn = "hpa", dict(FROZEN2, rebal_rule="jsq")
             else:
                 raise ValueError(arm)
-            adj = O3SimAdjuster(make_adjuster("B_STAR", A, seed=seed + 300), MOVE_PERIOD_S[fam], epoch=60.0, horizon=30.0, K=8,
+            adj = O3SimAdjuster(make_adjuster("B_STAR", A, seed=seed + 300), MOVE_PERIOD_S[fam] + d_move, epoch=60.0, horizon=30.0, K=8,
                                 seed=seed + 800, warmup=WARMUP, blind=True, cand_mode=cand, churn=churn)
             kw["interval"] = adj.next_interval
             sim = Sim(sc, X0.copy(), adjuster=adj, seed=seed + 400, **kw)
         r = sim.run()
         sim.check_invariants()
         r["wall_s"] = time.time() - t0
-        out.write_text(json.dumps(dict(capacity_model=CAP, case=tg, ctrl=arm, result=r)))
+        out.write_text(json.dumps(dict(capacity_model=CAP, case=tg, ctrl=arm_name, result=r)))
     except Exception:
         import traceback
         out.with_suffix(".err").write_text(traceback.format_exc())

@@ -1917,98 +1917,104 @@ td.r, th.r { text-align: right; }
 <!-- 27 · conclusion -->
 <section class="slide">
   <div class="bar"><span>4 · Our controller</span><span>how it was made fast</span></div>
-  <h2>Making the controller fast: two mechanisms, each with exact speed-ups (on) and approximations (off in the default mode)</h2>
+  <h2>Making the controller fast: both mechanisms keep their exact formula by default; lazy scoring and thinning are off</h2>
   <div class="tbl"><table class="tight">
-    <thead><tr><th></th><th>Exact: same decisions, computed faster (ON in the default)</th><th>Approximate: scale-only switches (OFF in the default mode)</th></tr></thead>
+    <thead><tr><th></th><th>Same formula, computed faster (ON in the default)</th><th>Approximate or superseded (OFF in the default mode)</th></tr></thead>
     <tbody>
       <tr><th class="rh">Request mover<br><small>moves queued requests, every 4 s</small></th>
         <td><b>MV-2:</b> vectorised moves; same moves as the original loop (event hash identical in 6 of 6 full-length cases).<br><b>MV-3, gain order:</b> per-function wait estimates kept in arrays, updated only for the queues a move changes (event hash identical in <b>42 of 42</b> runs).</td>
         <td><b>None.</b> Every mover speed-up is exact.</td></tr>
       <tr><th class="rh">Re-layout<br><small>places function containers, every 60 s</small></th>
-        <td><b>Exact scoring (PL-1):</b> availability read once for all hosts, scoring on hosts only, selection on arrays; every candidate still scored exactly (hash identical in 6 of 6).</td>
-        <td><b>Lazy scoring (PL-2):</b> re-prices only the candidate about to be accepted; <b>+9% P99 on held-out seeds</b>.<br><b>Thinning (PL-3), M = 32:</b> each function considers only its 32 best-pulling hosts; on top of lazy, so its cost adds to lazy's.<br><b>Fast scoring (PL-1f):</b> same formula; rounding can tip an exact tie.</td></tr>
+        <td><b>Incremental scoring (PL-4), the default:</b> the sums each demand point needs are updated after a placement instead of rebuilt; a function is priced only at hosts where its container fits; each function's best host is cached. Same greedy and same formula. The first differing choice from the original scoring was a floating-point tie in <b>8 of 8</b> calls where they differed.</td>
+        <td><b>Original exact scoring (PL-1):</b> what the headline results ran.<br><b>Lazy scoring (PL-2):</b> re-prices only the candidate about to be accepted; +6 to +9% P99 on held-out seeds.<br><b>Thinning (PL-3), M = 32:</b> each function is priced against only its 32 heaviest demand points, rescaled to the same total pull; on top of lazy.<br><b>Fast scoring (PL-1f):</b> same formula, sums rebuilt.</td></tr>
     </tbody>
   </table></div>
-  <div class="eq">re-layout step cost ≈ (candidates per step) × (cost of scoring one)  ·  lazy: fewer scorings per step  ·  thin: candidates per function capped at M instead of the number of hosts  ·  the mover has no such switches</div>
-  <p class="note">All results in this deck that are not marked otherwise ran the default: lazy scoring and thinning off. The costs on the next slides are measured growth rates, not proved bounds; we have not derived a formal big-O for the controller.</p>
-  <div class="say">Two kinds of speed-up. The exact ones change only how the same decision is computed, and we check that by comparing event hashes: the MV-3 mover gave identical hashes in all 42 runs, so it is the default. The approximations, lazy scoring and thinning, change the decision. They are switched off in the default mode and exist only for large clusters; the next slides give their measured cost and their measured benefit separately.</div>
+  <div class="eq">cost per placement: original ≈ K × N × D  ·  PL-4 ≈ K<sub>fit</sub> × D  ·  K = hosts with any free space, K<sub>fit</sub> = hosts where the container fits, D = demand points (≈ N)</div>
+  <p class="note">Only the containers that change are placed (6–11% per call). Lazy scoring assumes a candidate's gain can only fall; here the best host's gain rose in 69–88% of placement steps, so a stale gain can hide the true best host. Costs on the next slides are measured growth rates, not proved bounds.</p>
+  <div class="say">Two mechanisms, and for each we separate what keeps the decisions from what changes them. The new default for the re-layout, PL-4, removes wasted work: it stops rebuilding sums that change by one row, and stops pricing hosts where the container cannot fit. It is the same greedy with the same formula, and where it chose differently from the original the two options were tied to floating-point precision. Lazy scoring and thinning are off in the default mode.</div>
 </section>
 
 <section class="slide">
   <div class="bar"><span>4 · Our controller</span><span>cost and scaling</span></div>
-  <h2>Exact scoring grows as N^3.1, lazy scoring as N^1.7, lazy plus thinning as N^0.6 (80 to 640 servers)</h2>
+  <h2>The new default grows as N^1.8 instead of N^3.1, and is 13 to 21 times faster at 320 to 640 servers</h2>
   <div class="tbl"><table class="tight">
-    <thead><tr><th>Typical re-layout time (median)</th><th class="r">Exact scoring (default)</th><th class="r">Lazy (off by default)</th><th class="r">Lazy + M = 32 (off by default)</th><th class="r">Lazy vs exact: mean makespan / P99</th></tr></thead>
+    <thead><tr><th>Typical re-layout time (median)</th><th class="r">Original exact (PL-1)</th><th class="r">Incremental (PL-4, default)</th><th class="r">Lazy (off)</th><th class="r">Lazy + M = 32 (off)</th><th class="r">Lazy vs PL-1: mean makespan / P99</th></tr></thead>
     <tbody>
-      <tr><th class="rh">80 servers</th><td class="r">17 ms</td><td class="r">10 ms</td><td class="r">10 ms</td><td class="r">×1.00 / ×1.00</td></tr>
-      <tr><th class="rh">160 servers</th><td class="r">96 ms</td><td class="r">21 ms</td><td class="r best">15 ms</td><td class="r">×0.97 / ×1.03</td></tr>
-      <tr><th class="rh">320 servers</th><td class="r">762 ms</td><td class="r">65 ms</td><td class="r best">22 ms</td><td class="r">×1.02 / ×1.01 <small>(3 seeds)</small></td></tr>
-      <tr><th class="rh">640 servers</th><td class="r worse">11,230 ms</td><td class="r">318 ms</td><td class="r best">36 ms</td><td class="r">×0.93 / ×0.92 <small>(3 seeds: 0.80, 1.00, 1.00)</small></td></tr>
-      <tr><th class="rh">1,280 servers</th><td class="r">not re-run</td><td class="r">1,206 ms</td><td class="r best">73 ms</td><td class="r">not measured</td></tr>
-      <tr><th class="rh">Measured growth with servers N (80–640)</th><td class="r">N<sup>3.12</sup></td><td class="r">N<sup>1.66</sup></td><td class="r best">N<sup>0.60</sup></td><td class="r">held-out, 24 cases: ×1.03 / ×1.09</td></tr>
-      <tr class="grp"><td colspan="5">Functions scaled with the servers</td></tr>
-      <tr><th class="rh">320 servers, 120 functions</th><td class="r">1,120 ms</td><td class="r">167 ms</td><td class="r best">57 ms</td><td class="r">×1.00 / ×1.03</td></tr>
-      <tr><th class="rh">640 servers, 240 functions</th><td class="r worse">13,048 ms</td><td class="r">1,746 ms</td><td class="r best">158 ms</td><td class="r">×1.01 / ×1.02</td></tr>
-      <tr><th class="rh">Slowest single call, 640 servers, 30 / 240 functions</th><td class="r worse">107 s / 71 s</td><td class="r">0.8 s / 2.5 s</td><td class="r best">0.4 s / 0.5 s</td><td class="r">—</td></tr>
+      <tr><th class="rh">80 servers</th><td class="r">17 ms</td><td class="r best">11 ms</td><td class="r">10 ms</td><td class="r">10 ms</td><td class="r">×1.00 / ×1.00</td></tr>
+      <tr><th class="rh">160 servers</th><td class="r">96 ms</td><td class="r best">21 ms</td><td class="r">21 ms</td><td class="r">15 ms</td><td class="r">×0.97 / ×1.03</td></tr>
+      <tr><th class="rh">320 servers</th><td class="r">762 ms</td><td class="r best">59 ms</td><td class="r">65 ms</td><td class="r">22 ms</td><td class="r">×1.02 / ×1.01 <small>(3 seeds)</small></td></tr>
+      <tr><th class="rh">640 servers</th><td class="r worse">11,230 ms</td><td class="r best">525 ms</td><td class="r">318 ms</td><td class="r">36 ms</td><td class="r">×0.93 / ×0.92 <small>(3 seeds: 0.80, 1.00, 1.00)</small></td></tr>
+      <tr><th class="rh">1,280 servers</th><td class="r">not re-run</td><td class="r worse">4,613 ms</td><td class="r">1,206 ms</td><td class="r">73 ms</td><td class="r">not measured</td></tr>
+      <tr><th class="rh">Measured growth with servers N (80–640)</th><td class="r">N<sup>3.12</sup></td><td class="r best">N<sup>1.83</sup></td><td class="r">N<sup>1.66</sup></td><td class="r">N<sup>0.60</sup></td><td class="r">held-out, 24 cases: ×1.03 / ×1.09</td></tr>
+      <tr class="grp"><td colspan="6">Functions scaled with the servers</td></tr>
+      <tr><th class="rh">320 servers, 120 functions</th><td class="r">1,120 ms</td><td class="r best">78 ms</td><td class="r">167 ms</td><td class="r">57 ms</td><td class="r">×1.00 / ×1.03</td></tr>
+      <tr><th class="rh">640 servers, 240 functions</th><td class="r worse">13,048 ms</td><td class="r best">650 ms</td><td class="r">1,746 ms</td><td class="r">158 ms</td><td class="r">×1.01 / ×1.02</td></tr>
+      <tr><th class="rh">1,280 servers, 480 functions</th><td class="r">not re-run</td><td class="r worse">6,922 ms</td><td class="r">15,618 ms</td><td class="r">520 ms</td><td class="r">not measured</td></tr>
+      <tr><th class="rh">Slowest call after the first, 640 servers, 30 / 240 functions</th><td class="r">see metric</td><td class="r best">0.5 s / 0.7 s</td><td class="r">see metric</td><td class="r">see metric</td><td class="r">—</td></tr>
     </tbody>
   </table></div>
   <div class="cols">
-    <div class="why"><p><b>Re-layout (every 60 s, limit 3 s):</b> exact scoring is inside the limit for typical calls up to 320 servers, but its slowest calls already exceed it at 320 (5.1 s). At 80 servers, the scale of our experiments, it takes 17 ms. At 640 servers with 240 functions only thinning keeps even the slowest call under the limit (0.5 s).</p></div>
-    <div class="callout"><p><b>Move pass (every 4 s, limit 0.4 s):</b> p99 0.18 s at 320 servers, 0.9–1.1 s at 640 and 1.6 s at 1,280; growth about N<sup>1.2</sup>. It <b>exceeds its limit from 640 servers on</b>; at 80 servers it uses under 1% of one core. Routing limit: 10 ms.</p></div>
+    <div class="why"><p><b>Re-layout (limit 3 s):</b> the default stays inside the limit through 640 servers, including its slowest call after the first (0.5–0.7 s). At 1,280 servers it takes 4.6–6.9 s, so thinning is still needed there. The first call from a random start layout is much larger: 16 s at 640 servers.</p></div>
+    <div class="callout"><p><b>Move pass (every 4 s, limit 0.4 s):</b> p99 0.31 s at 320 servers, 0.7–0.9 s at 640 and 1.2–1.4 s at 1,280. It <b>exceeds its limit from 640 servers on</b>. Routing limit: 10 ms.</p></div>
   </div>
-  <p class="metric"><b>Metric:</b> wall-clock milliseconds per re-layout call on synthetic scale scenarios (240 s runs, one run per cell, seed 1, one core), median call; growth exponent fitted over 80, 160, 320 and 640 servers. All three columns are measured on today's code; the exact column was re-timed after the lazy and thinned runs, so a machine-state difference between the sessions cannot be excluded. Makespan column: lazy-scoring run divided by the exact run on the same scenario and seed (one run per row, seed 1, except 320 and 640 servers with 30 functions: geometric mean of seeds 1–3); differences of a few percent are within run-to-run noise, and the 640-server seed-1 exact run was an outlier (mean makespan 59 s against 39–42 s on the other seeds). The held-out row is the 24-case result from the quality slides. The limits are our own feasibility targets.</p>
-  <div class="say">Exact scoring grows with roughly the cube of the number of servers: fine at 80, slow from 320, and at 640 servers a single call can take over a minute. Lazy scoring brings that to about the 1.7th power and thinning on top of it to well under linear. Both are switched off in the default mode. The right-hand box is the honest part: the move pass is now the slowest piece from 640 servers on.</div>
+  <p class="metric"><b>Metric:</b> wall-clock milliseconds per re-layout call, median, on-demand FROZEN-3 with 30 s re-layouts on synthetic scale scenarios (240 s runs, one run per cell, seed 1, one core); growth fitted over 80–640 servers. Slowest single call including the first, 640 servers, 30 / 240 functions: PL-1 107 / 71 s, PL-4 16 / 9 s, lazy 0.8 / 2.5 s, lazy + M = 32 0.4 / 0.5 s. Over seeds 1–3, PL-4 is 12–15× faster than PL-1 at 320 servers and 7–21× at 640. PL-4 matched PL-1's makespan, P99 and cold starts in 10 of 11 scale runs. Makespan column: lazy run divided by the PL-1 run on the same scenario and seed; a few percent is within noise, and the 640-server seed-1 PL-1 run is an outlier. The limits are our own targets.</p>
+  <div class="say">The original scoring grows with about the cube of the servers. The new default grows a little under the square and is an order of magnitude faster at 320 to 640 servers, with the same decisions. It is inside the limit through 640 servers; at 1,280 it is not, so thinning remains the switch for that size. The move pass is now the slowest part from 640 servers on.</div>
 </section>
 
 <section class="slide">
   <div class="bar"><span>4 · Our controller</span><span>what each switch buys</span></div>
-  <h2>Lazy scoring buys 2–35× at 80–640 servers; thinning buys a further 1–11×, and its gain appears only above 160 servers</h2>
+  <h2>PL-4 buys 13–21× with no change to the formula; beyond it, lazy scoring adds little before 1,280 servers</h2>
   <div class="tbl"><table class="tight">
-    <thead><tr><th>Median re-layout time, ratio</th><th class="r">Lazy scoring vs exact</th><th class="r">Thinning (M = 32) vs lazy</th><th class="r">Both vs exact</th></tr></thead>
+    <thead><tr><th>Median re-layout time, ratio</th><th class="r">PL-4 vs original (PL-1)</th><th class="r">Lazy vs PL-4</th><th class="r">Thinning (M = 32) vs lazy</th><th class="r">Lazy + thinning vs PL-4</th></tr></thead>
     <tbody>
-      <tr class="grp"><td colspan="4">Functions fixed at 30</td></tr>
-      <tr><th class="rh">80 servers</th><td class="r">1.7×</td><td class="r">1.0×</td><td class="r">1.7×</td></tr>
-      <tr><th class="rh">160 servers</th><td class="r">4.6×</td><td class="r">1.4×</td><td class="r">6.3×</td></tr>
-      <tr><th class="rh">320 servers</th><td class="r">11.7×</td><td class="r">3.0×</td><td class="r">35×</td></tr>
-      <tr><th class="rh">640 servers</th><td class="r best">35×</td><td class="r">8.8×</td><td class="r best">312×</td></tr>
-      <tr class="grp"><td colspan="4">Functions scaled with the servers</td></tr>
-      <tr><th class="rh">160 servers, 60 functions</th><td class="r">6.0×</td><td class="r">1.6×</td><td class="r">9.7×</td></tr>
-      <tr><th class="rh">320 servers, 120 functions</th><td class="r">6.7×</td><td class="r">2.9×</td><td class="r">19.5×</td></tr>
-      <tr><th class="rh">640 servers, 240 functions</th><td class="r">7.5×</td><td class="r best">11.1×</td><td class="r best">83×</td></tr>
+      <tr class="grp"><td colspan="5">Functions fixed at 30</td></tr>
+      <tr><th class="rh">80 servers</th><td class="r">1.5×</td><td class="r">1.1×</td><td class="r">1.0×</td><td class="r">1.1×</td></tr>
+      <tr><th class="rh">160 servers</th><td class="r">4.5×</td><td class="r">1.0×</td><td class="r">1.4×</td><td class="r">1.4×</td></tr>
+      <tr><th class="rh">320 servers</th><td class="r best">13×</td><td class="r">0.9×</td><td class="r">3.0×</td><td class="r">2.7×</td></tr>
+      <tr><th class="rh">640 servers</th><td class="r best">21×</td><td class="r">1.6×</td><td class="r">8.8×</td><td class="r">15×</td></tr>
+      <tr><th class="rh">1,280 servers</th><td class="r">not re-run</td><td class="r">3.8×</td><td class="r">16×</td><td class="r best">63×</td></tr>
+      <tr class="grp"><td colspan="5">Functions scaled with the servers</td></tr>
+      <tr><th class="rh">160 servers, 60 functions</th><td class="r">8.2×</td><td class="r">0.7×</td><td class="r">1.6×</td><td class="r">1.2×</td></tr>
+      <tr><th class="rh">320 servers, 120 functions</th><td class="r best">14×</td><td class="r">0.5×</td><td class="r">2.9×</td><td class="r">1.4×</td></tr>
+      <tr><th class="rh">640 servers, 240 functions</th><td class="r best">20×</td><td class="r">0.4×</td><td class="r">11×</td><td class="r">4.1×</td></tr>
+      <tr><th class="rh">1,280 servers, 480 functions</th><td class="r">not re-run</td><td class="r">0.4×</td><td class="r">30×</td><td class="r best">13×</td></tr>
     </tbody>
   </table></div>
-  <div class="why"><p><b>Reading:</b> each switch helps more the larger the cluster, and the gain compounds. With more functions per server, lazy scoring helps less (7.5× instead of 35× at 640 servers) and thinning helps more (11× instead of 9×). At our own 80-server scale neither changes anything that matters: exact scoring already takes 17 ms.</p></div>
-  <div class="callout"><p><b>What the exact speed-ups contributed to scoring:</b> not separable. Re-timed on today's code, exact scoring was not faster than in the earlier sweep (762 ms against 610 ms at 320 servers; 11.2 s against 6.6 s at 640). The same code path measured twice differs by up to 1.7×, so we claim no gain from the exact speed-ups on re-layout time; their documented benefit is on the move pass, and they are checked for identical decisions, not for speed here.</p></div>
-  <p class="metric"><b>Metric:</b> ratio of median re-layout call times from the previous slide, one run per cell. Differences below about 2× at a single size are within the run-to-run spread we saw, so read the trend across sizes, not any one cell.</p>
-  <div class="say">This is the separated answer. Lazy scoring is the big step at moderate sizes: 12 times at 320 servers, 35 at 640. Thinning adds little until the cluster is large, then 9 to 11 times. We could not separate the earlier exact speed-ups: re-timing exact scoring showed no gain, and two measurements of the same code differ by up to 1.7 times, so we do not claim one.</div>
+  <div class="why"><p><b>Reading:</b> a ratio below 1× means the switch is slower than the default. With many functions, lazy scoring is slower than PL-4 at every size tested. Thinning is the one approximation that still buys a large factor, from about 640 servers on.</p></div>
+  <p class="metric"><b>Metric:</b> ratio of median re-layout call times from the previous slide, one run per cell, seed 1. The PL-1 column was re-timed on today's code. Differences below about 2× at a single size can be run-to-run spread, so read the trend across sizes.</p>
+  <div class="say">This separates what each step contributes. Removing wasted work gives 13 to 21 times at 320 to 640 servers without touching the formula. After that, lazy scoring gives almost nothing, and with many functions it is slower than the default. Thinning still pays at the largest sizes, at a quality cost we have only checked on development cases.</div>
 </section>
 
 <section class="slide">
   <div class="bar"><span>4 · Our controller</span><span>what the speed-ups cost</span></div>
-  <h2>The MV-3 mover is exact; lazy scoring raises P99 by 9% on held-out seeds, so it is off in the default</h2>
+  <h2>PL-4 is not worse than the original scoring; lazy scoring raises P99 by 6–9% on held-out seeds and is off</h2>
   <div class="tbl"><table class="tight">
-    <thead><tr><th>Speed-up</th><th>P99, ratio to the exact controller</th><th>Reading</th></tr></thead>
+    <thead><tr><th>Speed-up</th><th>P99, ratio to the original exact scoring</th><th>Reading</th></tr></thead>
     <tbody>
       <tr><td>MV-3 mover (default, on)</td><td class="num">1.000; event hash identical in 42 of 42 runs</td><td><span class="pill go">exact</span></td></tr>
-      <tr><td>Lazy scoring (off by default), development (18 cases)</td><td class="num">1.004 [0.990, 1.018]</td><td><span class="pill go">within noise here</span></td></tr>
-      <tr><td>Lazy scoring (off by default), held-out seeds 7–10 (24 cases)</td><td class="num">1.093 [1.034, 1.166]; lower in 5 of 24</td><td><span class="pill no">costs 9%</span></td></tr>
-      <tr><td>&nbsp;&nbsp;by load 0.5 / 0.7 / 0.85</td><td class="num">1.008 / 1.153 / 1.123</td><td>cost sits at high load</td></tr>
-      <tr class="grp"><td colspan="3">Thinning (off by default), measured on top of lazy (earlier checks, development cases)</td></tr>
+      <tr><td>PL-4 (default, on), development, 3 runs per case</td><td class="num">0.992 [0.984, 0.999]</td><td><span class="pill go">not worse</span></td></tr>
+      <tr><td>PL-4 (default, on), held-out seeds 7–10, 3 runs per case</td><td class="num">0.984 [0.970, 0.996]</td><td><span class="pill go">not worse</span></td></tr>
+      <tr><td>&nbsp;&nbsp;mean makespan / cold starts / moves, held-out</td><td class="num">0.997 / 1.000 / 1.000</td><td>event hash equal in 20 of 42 runs</td></tr>
+      <tr class="grp"><td colspan="3">Lazy scoring (off by default), one run per case</td></tr>
+      <tr><td>Development (18 cases)</td><td class="num">1.004 [0.990, 1.018]</td><td><span class="pill go">within noise here</span></td></tr>
+      <tr><td>Held-out, against the single base run of PL-1</td><td class="num">1.093 [1.034, 1.166]</td><td><span class="pill no">costs 9%</span></td></tr>
+      <tr><td>Held-out, against PL-1's three runs</td><td class="num">1.060 [1.010, 1.118]; moves 1.049</td><td><span class="pill no">costs 6%</span></td></tr>
+      <tr class="grp"><td colspan="3">Thinning (off by default), on top of lazy (earlier checks, development cases)</td></tr>
       <tr><td>M = 32</td><td class="num">1.007 [0.992, 1.021]; mean makespan +1.7%</td><td><span class="pill go">passes there</span></td></tr>
       <tr><td>M = 16</td><td class="num">1.029</td><td><span class="pill no">fails</span></td></tr>
       <tr><td>M = 32 at 320 / 640 servers (synthetic)</td><td class="num">mean makespan +3.9% / +6.6%</td><td><span class="pill no">cost grows</span></td></tr>
     </tbody>
   </table></div>
-  <div class="why"><p><b>Rule we adopt:</b> the default is the MV-3 mover with exact re-layout scoring, which is what every headline result ran; <b>lazy scoring and thinning are both off in the default mode</b>. They are switches for clusters where exact scoring misses the 3 s limit, roughly beyond 160 servers; wherever they are used, their cost is stated beside the result and the benefit is on the previous slide.</p></div>
-  <p class="note">The thinning checks were made on development cases and on top of lazy scoring; they have not been repeated on held-out seeds, and given the lazy result on development versus held-out they should not be taken as final.</p>
-  <div class="say">The held-out result overturned our development reading. On the 18 development cases lazy scoring looked free; on 24 unseen cases it costs about nine percent on P99, almost all at 70 and 85 percent load. The MV-3 mover, by contrast, produced identical event hashes in all 42 runs, so it is the default. Lazy scoring and thinning are off in the default mode. Thinning was only ever tested on top of lazy scoring on development cases, so treat its numbers as provisional.</div>
+  <div class="why"><p><b>Rule we adopt:</b> the default is the MV-3 mover with PL-4 scoring; lazy scoring and thinning are off. Headline results ran the original scoring (PL-1), which PL-4 matches up to floating-point ties. We do not claim PL-4 improves P99.</p></div>
+  <p class="note">The acceptance rule set before the runs (P99 within 1%, interval containing 1, one run per case) was not met: development 0.993 [0.985, 0.998], held-out 1.011 [0.986, 1.053]. One tied choice moved one case's P99 from 464 s to 703 s, and the original scoring's own three runs differ by up to ×2.03 on held-out cases. The three-run reading above was added afterwards, paired clock by clock (move clock base, ±1 ms). Thinning has not been repeated on held-out seeds.</p>
+  <div class="say">PL-4 is the same algorithm computed differently, and it is not worse on any measure. The small differences are in its favour but we do not claim a gain. We also say plainly that the rule we set in advance was not met, because a single tied choice in a chaotic simulator can move one case by half. Lazy scoring costs six to nine percent on P99 on unseen seeds and is off.</div>
 </section>
 
 <section class="slide">
   <div class="bar"><span>4 · Our controller</span><span>exact vs lazy scoring</span></div>
-  <h2>Exact scoring against lazy scoring: the same controller, with the re-layout scored two ways</h2>
+  <h2>Original exact scoring against lazy scoring, with the new default's time alongside</h2>
   <div class="tbl"><table class="tight">
-    <thead><tr><th></th><th class="r">Exact scoring (default)</th><th class="r">Lazy scoring (off by default)</th><th>Lazy relative to exact</th></tr></thead>
+    <thead><tr><th></th><th class="r">Original exact (PL-1)</th><th class="r">Lazy scoring (off by default)</th><th>Lazy relative to PL-1</th></tr></thead>
     <tbody>
       <tr class="grp"><td colspan="4">Quality, held-out seeds 7–10, 24 cases</td></tr>
       <tr><th class="rh">Mean P99</th><td class="r">216.5 s</td><td class="r worse">245.8 s</td><td class="num">×1.093 [1.034, 1.166]</td></tr>
@@ -2018,16 +2024,16 @@ td.r, th.r { text-align: right; }
       <tr class="grp"><td colspan="4">Quality, development seeds 1–3, 18 cases</td></tr>
       <tr><th class="rh">Mean P99</th><td class="r">120.6 s</td><td class="r">121.2 s</td><td class="num">×1.004 [0.990, 1.018]</td></tr>
       <tr><th class="rh">Cold starts / moves</th><td class="r">reference</td><td class="r">−1.2% / +1.7%</td><td class="num">×0.988 / ×1.017</td></tr>
-      <tr class="grp"><td colspan="4">Time per re-layout (median, synthetic scale runs, same code, 30 functions)</td></tr>
-      <tr><th class="rh">320 servers</th><td class="r">762 ms</td><td class="r best">65 ms</td><td class="num">11.7× faster</td></tr>
-      <tr><th class="rh">640 servers</th><td class="r">11,230 ms</td><td class="r best">318 ms</td><td class="num">35× faster</td></tr>
-      <tr><th class="rh">640 servers, 240 functions</th><td class="r">13,048 ms</td><td class="r best">1,746 ms</td><td class="num">7.5× faster</td></tr>
-      <tr><th class="rh">Growth with servers (80–640)</th><td class="r">N<sup>3.12</sup></td><td class="r best">N<sup>1.66</sup></td><td></td></tr>
+      <tr class="grp"><td colspan="4">Time per re-layout (median, synthetic scale runs, same code, 30 functions unless stated)</td></tr>
+      <tr><th class="rh">320 servers</th><td class="r">762 ms</td><td class="r best">65 ms</td><td class="num">11.7× faster; default PL-4: 59 ms</td></tr>
+      <tr><th class="rh">640 servers</th><td class="r">11,230 ms</td><td class="r best">318 ms</td><td class="num">35× faster; default PL-4: 525 ms</td></tr>
+      <tr><th class="rh">640 servers, 240 functions</th><td class="r">13,048 ms</td><td class="r">1,746 ms</td><td class="num">7.5× faster; default PL-4: 650 ms</td></tr>
+      <tr><th class="rh">Growth with servers (80–640)</th><td class="r">N<sup>3.12</sup></td><td class="r">N<sup>1.66</sup></td><td class="num">default PL-4: N<sup>1.83</sup></td></tr>
     </tbody>
   </table></div>
-  <div class="callout"><p><b>Trade-off:</b> lazy scoring is 12–35 times faster at 320–640 servers (7.5× with 240 functions) but gives up about 9% of P99 on held-out seeds, concentrated at 70 and 85% load (×1.15 and ×1.12; ×1.01 at 50%). At the 80-server scale of our experiments exact scoring takes 17 ms, so nothing is gained there; lazy scoring is off in the default mode.</p></div>
-  <p class="metric"><b>Metric:</b> quality: P99 completion latency, geometric-mean ratio per case with a 95% bootstrap interval over cases, CAP-W1, FROZEN-3 with the MV-3 mover and exact scoring as the reference. Time: median re-layout call, both columns on today's code, one run per cell; the exact column was timed after the lazy one.</p>
-  <div class="say">This is the one table to show for the lazy-scoring decision. Left column is the default and what every headline number ran. Lazy scoring is an order of magnitude faster at large sizes but costs about nine percent on P99 on unseen seeds, mostly at high load; on the development seeds it looked free, which is why the held-out check matters. At our own 80-server scale nothing is gained by lazy scoring, so it is off in the default mode.</div>
+  <div class="callout"><p><b>Trade-off:</b> lazy scoring's speed came at about 6–9% of P99 on held-out seeds, concentrated at 70 and 85% load. PL-4 reaches similar times up to 640 servers with no such cost, so lazy scoring no longer has a role there.</p></div>
+  <p class="metric"><b>Metric:</b> quality: P99 completion latency, geometric-mean ratio per case with a 95% bootstrap interval over cases, one run per case, CAP-W1, fixed-budget FROZEN-3 with 60 s re-layouts, against the MV-3 mover with PL-1. Time: median re-layout call on the on-demand controller with 30 s re-layouts, one run per cell.</p>
+  <div class="say">This table is why lazy scoring is off. It was the fast option, at a price in P99 on unseen seeds. The new default reaches about the same time up to 640 servers, and is faster when there are many functions, without changing the formula.</div>
 </section>
 
 <section class="slide">

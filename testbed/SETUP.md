@@ -14,7 +14,7 @@ How to read this file:
 ## Fast path: let the laptops connect themselves (recommended)
 
 Instead of typing Part 1.3 to 1.8 and Part 4 on every laptop, one script does them. By hand, once per laptop, you only do
-**Part 1.1** (connect to the Wi-Fi) and **Part 1.2** (give the laptop its own name, `dfps-1` to `dfps-4`).
+**Part 1.1** (connect to the Wi-Fi) and **Part 1.2** (give the laptop its own name, `edge-1` to `edge-4`).
 
 **F1. On the laptop that will be the hub** (the one that already has the code and the Python environment, so Part 1.7 and 1.8
 done; this is the laptop you will use as coordinator):
@@ -60,12 +60,12 @@ nmcli -t -f ACTIVE,SSID,CHAN,RATE,SIGNAL device wifi | grep '^yes'
 It prints one line that must show the name of the 5 GHz network. A channel number above 30 (for example 36 to 165) means 5 GHz. The hub also prints a
 warning at the end if the laptops are on different Wi-Fi networks.
 
-**1.2 Give the machine its own name** (`dfps-1`, `dfps-2`, `dfps-3`, `dfps-4`: a different one on each machine, because the
+**1.2 Give the machine its own name** (`edge-1`, `edge-2`, `edge-3`, `edge-4`: a different one on each machine, because the
 checks identify machines by name):
 ```bash
-sudo hostnamectl set-hostname dfps-2
+sudo hostnamectl set-hostname edge-2
 ```
-Replace `dfps-2` with this machine's number. Check (open a new terminal first):
+Replace `edge-2` with this machine's number. Check (open a new terminal first):
 ```bash
 hostname
 ```
@@ -240,7 +240,7 @@ Anything else marked `FAIL`: write down the line and bring it back to Claude.
 ```
 On the coordinator use `--role coordinator` (after Part 6).
 
-**3.2 Copy the four `report_dfps-N.json` files to one machine** with the USB stick (drag them in the file manager from your home
+**3.2 Copy the four `report_edge-N.json` files to one machine** with the USB stick (drag them in the file manager from your home
 folder), and put them all in one folder there, for example `~/reports`.
 
 **3.3 Compare:**
@@ -337,10 +337,10 @@ The three `data present` lines must say `PASS`.
 
 | Machine | Hostname | Wi-Fi address | Kernel (`uname -r`) | Cores and RAM (`lscpu`, `free -h`) | Ethernet port? |
 |---|---|---|---|---|---|
-| 1 | dfps-1 | | | | |
-| 2 | dfps-2 | | | | |
-| 3 | dfps-3 | | | | |
-| 4 | dfps-4 | | | | |
+| 1 | edge-1 | | | | |
+| 2 | edge-2 | | | | |
+| 3 | edge-3 | | | | |
+| 4 | edge-4 | | | | |
 
 **Bring back to Claude:** this table; the output of Part 3.3; the printed lines of Part 4.4; any line marked `FAIL`; the result of
 `sudo ufw status`; and which machine you think is strongest (most cores and RAM).

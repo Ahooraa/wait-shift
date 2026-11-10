@@ -42,7 +42,7 @@ done <"$META"
 [ -n "$BRANCH" ] || fail "the hub sent no branch name"
 if [ "$(hostname)" = "$HUB_HOST" ]; then
   echo "WARNING: this laptop has the same name as the hub ($HUB_HOST). Give each laptop its own name first:"
-  echo "         sudo hostnamectl set-hostname dfps-2     (use a different number on each laptop), then run this line again."
+  echo "         sudo hostnamectl set-hostname edge-2     (use a different number on each laptop), then run this line again."
   if [ "${ASSUME_YES:-0}" = "1" ]; then ans=y; else read -r -p "Carry on anyway? [y/N] " ans </dev/tty || ans=n; fi
   case "$ans" in y|Y) ;; *) exit 1;; esac
 fi

@@ -81,7 +81,18 @@ Each phase ends with tests that run without the laptops (loopback) and a short r
 5. **RAM 8 or 16 GB, mixed.** Slots per logical node are identical on all machines (fairness); a machine's memory is not what
    limits emulated containers. `preflight.py` reports cores and RAM; the coordinator goes on the strongest machine.
 
+## Workload: SeBS-Flow only (decided 2026-11-11)
+All workflows in testbed runs, and in the simulator runs they are compared with, are the 6 SeBS-Flow applications at the paper's
+Table 4 configuration (`dfps/sebsflow.py`: Video Analysis 4 functions, Trip Booking 7, MapReduce 10, ExCamera 16, Machine
+Learning 3, 1000Genome 19). No Alibaba DAGs and no DFPS Fig. 1 workflow. Container sizes come from each workflow's `memory`
+setting (config.json), a single source and unit. Arrivals repeat the six applications at fixed total load (rho = 0.5, 0.7, 0.85);
+a "workload" is a seed (arrival times, origins, popularity weights). Per-function runtimes and state sizes are not SeBS-Flow data
+and stay as assumptions from the frozen plan (Azure 2021 durations, 10-50 MB states). Because the mean task count is about 9.8
+instead of 4.5, the arrival rate for a given load is lower than in the earlier scenarios. Logged as DEV-T1 to DEV-T3 in
+`DEVIATIONS.md`, since it departs from the frozen plan's workflow list.
+
 ## Still to do before measured runs
+- Build the SeBS-only scenario generator for the simulator first (same seeds), and run it there before any laptop run.
 - Freeze the experiment grid, metrics and stop rule in the plan (project methodology is `quantitative`: pre-registration required).
 - Tag results with `capacity_model`, `mover_impl`, `place_impl` and controller version as the project conventions require.
 - Read `_start`, `_ev_done`, `_ev_state`, `relocate` in `dfps/sim.py` line by line to confirm `LiveSim` only has to override

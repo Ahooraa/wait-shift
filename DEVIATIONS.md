@@ -37,3 +37,20 @@ E-6 Alg.1 l.23 queue name (only the corrected reading exists).
 - **D-10 (OPEN-2 detail):** `synthetic_alibaba_like` produces layered random DAGs of 3..`synthetic_max_tasks` tasks; the size distribution is NOT from the paper or
   the trace. With 3..14 tasks the system is overloaded at Uniform x1.0 (36.8 requests/s x about 8 tasks x 6 s > 1235 slots). The experiments log `mean_tasks`.
 - **D-11:** apply_solution pairs net instance changes per node 1-for-1; pending replacements of busy instances are redirected if the solution removes them again.
+
+## Testbed (real-system) sub-study, decided 2026-11-11 (user decision; design in testbed/DESIGN.md)
+- **DEV-T1 (workload, deviates from the frozen plan):** `input/ideas/faas-edge-adaptation-plan.md` (status pre-registered, frozen 2026-10-13) lists
+  SeBS-Flow, the DFPS Fig. 1 workflow and Alibaba-2018 DAGs as the workflow sources. The multi-laptop testbed, and the simulator runs it is
+  compared with, use **only the 6 SeBS-Flow applications at the paper's Table 4 configuration** (Video Analysis 4 functions, Trip Booking 7,
+  MapReduce 10, ExCamera 16, Machine Learning 3, 1000Genome 19; mean about 9.8 tasks). Reasons: one source for the DAG structure instead of a
+  mixture, and one unit for container sizes (the `memory` setting of each workflow's config.json), which removes the median rescaling that
+  `dfps/profiles.py` needs to mix Alibaba and SeBS-Flow profiles. The DFPS Fig. 1 workflow is left out because it is not from SeBS-Flow.
+  Not changed: the earlier simulator results (CAP-U, CAP-W1) keep the original mixed workload; they are not re-labelled.
+- **DEV-T2 (what is and is not SeBS-Flow data):** SeBS-Flow publishes workflow-level runtimes and total transfer volumes, not per-function
+  durations or per-edge payloads. Those still come from the frozen plan (durations from Azure 2021 empirical distributions, state sizes 10-50 MB) and
+  must be stated as assumptions in any write-up. Known mismatches with the SeBS-Flow tables (see dfps/sebsflow.py): MapReduce unrolls to 10 functions
+  (paper: 9), ExCamera critical path 8 (paper: 6), 1000Genome critical path 3 (paper: 4). With only six DAGs a "workload" is defined by its seed
+  (arrival times, origin nodes, popularity weights), not by which DAGs were drawn.
+- **DEV-T3 (open):** the testbed grid, metrics and stop rule are not yet pre-registered; the methodology (quantitative) requires that before any
+  measured run. Optional, not decided: measuring real per-function runtimes by running the SeBS-Flow function code once on one laptop (not
+  checked whether the benchmark inputs are available offline).

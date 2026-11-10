@@ -1,8 +1,18 @@
 # Testbed machines: step-by-step setup, no help needed
 
-Do Parts 1 to 5 on **each of the four laptops** (about an hour each, mostly downloads). Part 6 is for the one machine that will be
-the coordinator. Every command is written out in full. After each step there is a **Check** that shows what the right result looks
-like. Nothing in this repository changes a system setting by itself; every `sudo` command here is yours to run.
+Every command is written out in full, and after each step there is a **Check** that shows what the right result looks like. About
+an hour per laptop, mostly downloads. Nothing in this repository changes a system setting by itself: the settings in Parts 2 and 5
+are commands you run. The Fast path below installs packages, and asks before it does.
+
+**Order at a glance** (the parts are not all done on one machine at a time):
+
+| Round | What | Where |
+|---|---|---|
+| A | Part 1 (install), then Part 2 (settings) | on each laptop on its own; the Fast path replaces most of Part 1 |
+| B | Part 3 (compare the machines) and Part 4 (connection test) | needs all four laptops finished with round A; the Fast path does both for you |
+| C | Part 5 (text boot mode), and Part 6 (the data) on the coordinator only | on each laptop, last |
+
+Part 7 is the table you fill in and bring back, and Part 8 is the undo list.
 
 How to read this file:
 - Open a terminal with **Ctrl+Alt+T**. Type (or copy) each grey block exactly. Do not type a leading `$`.
@@ -13,11 +23,14 @@ How to read this file:
 
 ## Fast path: let the laptops connect themselves (recommended)
 
-Instead of typing Part 1.3 to 1.8 and Part 4 on every laptop, one script does them. By hand, once per laptop, you only do
-**Part 1.1** (connect to the Wi-Fi) and **Part 1.2** (give the laptop its own name, `edge-1` to `edge-4`).
+A script replaces Part 1.5 to 1.8 (tools, code, Python environment) and Part 4 (connection test), and collects the reports for
+Part 3. By hand, on **every laptop including the hub**, you do:
+**Part 1.1** (connect to the 5 GHz house network), **Part 1.2** (its own name, `edge-1` to `edge-4`), **Part 1.3** (update and restart) and
+**Part 1.4** (check that all four print the same kernel). On the other three laptops skip Part 1.6 (GitHub login): their code comes
+from the hub.
 
 **F1. On the laptop that will be the hub** (the one that already has the code and the Python environment, so Part 1.7 and 1.8
-done; this is the laptop you will use as coordinator):
+done; this is the laptop you will use as coordinator). If you have fewer than four laptops ready, use `--laptops 2` or `--laptops 3`:
 ```bash
 cd ~/DFPS-implementation && ~/venv-dfps/bin/python testbed/connect.py hub --laptops 4
 ```
@@ -27,7 +40,8 @@ commit first (the other laptops would otherwise get an incomplete copy of the co
 **F2. On each of the other three laptops**, open a terminal and paste that one line. It will, in order:
 test the connection to the hub (and tell you what to check if it fails), ask before installing the tools (it asks for your password),
 fetch the code from the hub (**no GitHub login needed**), build the Python environment, send its preflight report to the hub, and
-then test the connection to every other laptop when it is its turn. Expect 10 to 15 minutes, mostly downloads.
+then test the connection to every other laptop when it is its turn. Expect 10 to 15 minutes, mostly downloads. You can paste the
+line on all three at about the same time; the hub waits until every laptop has joined, so keep its terminal open.
 
 **F3. Read the result on the hub.** When all four have joined and been tested, the hub prints a table of round-trip time and speed
 for every pair of laptops, how many of the pairs connected, the clock difference, and the comparison of the laptops' reports. It
@@ -342,8 +356,9 @@ The three `data present` lines must say `PASS`.
 | 3 | edge-3 | | | | |
 | 4 | edge-4 | | | | |
 
-**Bring back to Claude:** this table; the output of Part 3.3; the printed lines of Part 4.4; any line marked `FAIL`; the result of
-`sudo ufw status`; and which machine you think is strongest (most cores and RAM).
+**Bring back to Claude:** this table; any line marked `FAIL`; the result of `sudo ufw status`; and which machine you think is
+strongest (most cores and RAM). With the Fast path, also bring the hub's `summary.txt` (in `~/testbed-reports/<date-time>/`, or
+copy what the hub printed). On the manual path, bring the output of Part 3.3 and the printed lines of Part 4.4 instead.
 
 ## Part 8: Undo (only if you need the old behaviour back)
 

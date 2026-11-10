@@ -3,7 +3,7 @@ import json, sys
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 import numpy as np
-ROOT = Path("D:/DFPS implementation"); sys.path.insert(0, str(ROOT / "output" / "data-analysis")); sys.path.insert(0, str(ROOT))
+ROOT = next(p for p in (Path("D:/DFPS implementation"), Path.home() / "DFPS-implementation") if p.exists()); sys.path.insert(0, str(ROOT / "output" / "data-analysis")); sys.path.insert(0, str(ROOT))
 import capw1_ondemand as O, capw1_rows as C, capw1_heldout as H
 
 REF = "frozen3_od_e30_u70_fo_lz"

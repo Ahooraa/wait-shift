@@ -3,7 +3,7 @@ import sys, json, os
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 HERE = Path(__file__).resolve().parent
-ROOT = Path("D:/DFPS implementation")
+ROOT = next(p for p in (Path("D:/DFPS implementation"), Path.home() / "DFPS-implementation") if p.exists())
 sys.path.insert(0, str(ROOT / "output" / "data-analysis"))
 CASES = [f"{f}_r{r}_s{s}" for s in (1, 2, 3, 7, 8, 9, 10) for f in ("F1", "F2") for r in (0.5, 0.7, 0.85)]
 MAP = {"fill1": "ratio1", "fill8": "ratio8"}

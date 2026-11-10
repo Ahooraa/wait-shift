@@ -2,7 +2,7 @@
 import os, sys, json, subprocess
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-ROOT = Path("D:/DFPS implementation")
+ROOT = next(p for p in (Path("D:/DFPS implementation"), Path.home() / "DFPS-implementation") if p.exists())
 S = ROOT / "output" / "data-analysis" / "capw1_scale.py"
 SIZES = [(640, 30, 15), (640, 240, 120), (1280, 30, 15), (1280, 480, 240)]
 DIRS = {"4": "capW1_scale_incr", "5": "capW1_scale_fill1", "6": "capW1_scale_fill8"}

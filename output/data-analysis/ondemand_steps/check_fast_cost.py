@@ -2,7 +2,7 @@
 import pickle, sys
 from pathlib import Path
 import numpy as np
-ROOT = Path("D:/DFPS implementation"); sys.path.insert(0, str(ROOT))
+ROOT = next(p for p in (Path("D:/DFPS implementation"), Path.home() / "DFPS-implementation") if p.exists()); sys.path.insert(0, str(ROOT))
 import dfps.controllers as C
 P = pickle.load(open(ROOT / "results/capW1_light/F1_r0.5_s1.sc.pkl", "rb"))
 sc, X0 = P["sc"], P["X0"]

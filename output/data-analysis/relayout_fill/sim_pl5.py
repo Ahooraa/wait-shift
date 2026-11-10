@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 
 HERE = Path(__file__).resolve().parent
-ROOT = Path("D:/DFPS implementation")
+ROOT = next(p for p in (Path("D:/DFPS implementation"), Path.home() / "DFPS-implementation") if p.exists())
 DA = ROOT / "output" / "data-analysis"
 for p in (str(ROOT), str(DA), str(HERE)):
     if p not in sys.path:

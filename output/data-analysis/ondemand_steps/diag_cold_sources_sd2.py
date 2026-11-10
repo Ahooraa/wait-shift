@@ -7,7 +7,7 @@ Diagnostic only: it patches Sim.apply_placement and O3SimAdjuster.fast_scale in 
 import sys, json
 from pathlib import Path
 import numpy as np
-ROOT = Path("D:/DFPS implementation"); sys.path.insert(0, str(ROOT / "output" / "data-analysis")); sys.path.insert(0, str(ROOT))
+ROOT = next(p for p in (Path("D:/DFPS implementation"), Path.home() / "DFPS-implementation") if p.exists()); sys.path.insert(0, str(ROOT / "output" / "data-analysis")); sys.path.insert(0, str(ROOT))
 from dfps.sim import Sim
 from dfps.o3s import O3SimAdjuster
 import capw1_ondemand as O

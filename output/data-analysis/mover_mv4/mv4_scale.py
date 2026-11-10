@@ -1,7 +1,7 @@
 """Clean timing, one process at a time: MV-3 (FASTPATH 5) and MV-4 (FASTPATH 7), alternating, FROZEN-4, on-demand, seeds 1-2."""
 import os, sys, json, subprocess, numpy as np
 from pathlib import Path
-ROOT = Path("D:/DFPS implementation")
+ROOT = next(p for p in (Path("D:/DFPS implementation"), Path.home() / "DFPS-implementation") if p.exists())
 S = ROOT / "output/data-analysis/capw1_scale.py"
 SIZES = [(160, 30, 15), (320, 30, 15), (640, 30, 15), (1280, 30, 15), (2560, 30, 15), (320, 120, 60), (640, 240, 120), (1280, 480, 240)]
 DIR = {"5": "capW1_scale_fill1_clean", "7": "capW1_scale_mv4_clean"}

@@ -50,12 +50,15 @@ remain as the manual way, in case the fast path cannot be used.
 
 ## Part 1: Install (every machine)
 
-**1.1 Connect to the house Wi-Fi.** Open Settings, then Wi-Fi, and choose the network. If the router shows two names (for example
-one ending in `-5G`), choose the 5 GHz one. Check:
+**1.1 Connect to the house Wi-Fi.** Open Settings, then Wi-Fi, and choose the **5 GHz** network (its name ends in `-5G`) on **every**
+laptop. Do not use the 2.4 GHz one: all four laptops must be on the same network, and mixing the two would make some
+pairs faster than others (some routers also keep the two networks apart). Keep the laptops close to the router, in the same
+positions for every run. Check:
 ```bash
 nmcli -t -f ACTIVE,SSID,CHAN,RATE,SIGNAL device wifi | grep '^yes'
 ```
-It prints one line with your network name. A channel number above 30 (for example 36 to 165) means 5 GHz.
+It prints one line that must show the name of the 5 GHz network. A channel number above 30 (for example 36 to 165) means 5 GHz. The hub also prints a
+warning at the end if the laptops are on different Wi-Fi networks.
 
 **1.2 Give the machine its own name** (`dfps-1`, `dfps-2`, `dfps-3`, `dfps-4`: a different one on each machine, because the
 checks identify machines by name):

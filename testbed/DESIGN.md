@@ -1,0 +1,88 @@
+# Real testbed on 4 laptops: design (draft, 2026-11-11)
+
+Status (2026-11-11): **phase 1 implemented** (`preflight.py`, `bootstrap.sh`, `requirements.txt`, `SETUP.md`, `tests/test_preflight.py`;
+check-only, verified on the coordinator candidate only, not yet on the other three machines). Phases 2-6 not started.
+Written against the code at commit a41144a plus the uncommitted path fixes.
+
+## Goal
+Run DFPS (B*), its variants and the baselines (SR, SG, Heu, RL, ...) on real machines and measure real makespan, cold starts,
+data movement and controller overhead, under the same scenarios and seeds as the simulator, so that simulator and testbed can
+be compared point by point.
+
+## What the simulator gives us
+- `Scenario` (dfps/model.py): functions (runtime 2-10 s, cold start 2-10 s), workflow DAGs (state sizes 10-50 MB), network
+  (80 edge nodes, ~50 MB/s), per-node container capacity `ecc` (5-25) and storage `esc`, and an arrival list `(t, workflow, origin)`.
+- `Sim` (dfps/sim.py): the whole system state (instances, queues, lambda estimates, storage) and the hooks every controller uses:
+  `adjuster` (periodic re-layout, every 4 s), `dispatcher` (per-request placement), `relocate`, `add_instance`,
+  `remove_instance`, `apply_placement`.
+- Controllers (dfps/o3s.py, controllers.py, dispatchers.py, heu.py, rl.py, ondemand.py) act only through those hooks.
+
+## Architecture: hybrid, control plane unchanged, data plane real
+```
+laptop A (coordinator + node agent)      laptops B, C, D (node agents)
+  LiveSim(Sim)  <--- TCP/msgpack --->      agent: hosts ~20 logical edge nodes
+  controllers (unchanged)                  container slots, real state transfers,
+  workload driver, logger                  real execution timing, local logs
+```
+- **`LiveSim(Sim)`** (new, testbed/livesim.py): same state and controller hooks, but the event loop runs on the wall clock
+  and the two things the simulator fakes are delegated to agents: *start a task on (node, instance)* and *move a state of S MB
+  from node i to node j*. Completion events come back from agents. Controllers need no change, which is what makes the
+  comparison against the simulator meaningful. Risk: `Sim` is 900 lines with many extensions; the subclass must override only
+  `_start`, the transfer accounting in `relocate`/`_ev_state`, and the clock. To be confirmed by reading `_start`, `_ev_done`,
+  `_ev_state`, `relocate` line by line before coding.
+- **Node agent** (testbed/agent.py): hosts the logical edge nodes assigned to its laptop (80 nodes over 4 laptops = 20 each).
+  Per node: `ecc_k` container slots, a storage budget, and a bandwidth/latency shaper for links to other logical nodes,
+  using the Eq.1-2 path model. Transfers are real bytes over the real LAN, rate-limited per link, so contention is real.
+- **Container emulation.** A "cold start" occupies a slot for `cold_start` seconds (real wait plus a real process/thread spawn);
+  a task runs for the sampled execution time. Default: wall-clock wait (sleep), not CPU burn, because ~300 concurrent
+  containers per laptop would otherwise turn the laptop's CPU into the bottleneck and distort every method differently.
+  The agent records its own scheduling lateness so distortion is measured, not assumed.
+- **Time: real time only (k = 1)**, decided 2026-11-11 because it is the most defensible choice for a journal paper. A run is
+  300 s + 30 s warm-up + drain, about 7 min; 3 load levels x 6 methods x 10 workloads is about 21 h. No time compression.
+- **Payload scaling (WiFi).** The 4 laptops share one WiFi channel, which cannot carry the roughly 100 MB of intermediate state per
+  request the scenarios imply. Transfers therefore send real bytes at 1/s of the nominal size (s to be chosen, e.g. 100) while the
+  shaper delays each transfer as if the full size crossed a 50 MB/s link (Eq.1-2). Real network jitter and serialization stay in
+  the loop; WiFi capacity does not become the bottleneck. s is reported with every result and WiFi RTT/throughput is logged per run.
+
+## Reproducibility and environment control (check, don't change)
+`testbed/preflight.py`, run on every laptop, prints a JSON report and exits non-zero on any mismatch against the first machine:
+kernel version, CPU model and governor, swap state, chrony offset and source, boot target, auto-update state, Python and
+package versions (numpy 1.26.4, numba 0.60.0, ...), repo commit and a checksum of `input/data` and `results` inputs, free disk,
+NIC speed, measured pairwise round-trip time and bandwidth between laptops. It never changes a system setting; a separate
+list of the commands you run yourself goes in `testbed/SETUP.md`.
+
+## Measurement and outputs
+- Per-task records (request id, task, node, enqueue/start/finish, cold flag, bytes moved) written locally by each agent and merged
+  by the coordinator using chrony-synced timestamps; clock offsets recorded per run.
+- Result files use the existing schema (`mover_impl`, `event_hash` where meaningful) plus `testbed: {speed, laptops, preflight_hash}`.
+- Real runs are not deterministic, so `event_hash` equality is not expected; validation compares distributions (makespan
+  percentiles, cold starts, MB moved) against the simulator over repeated seeds.
+
+## Phases
+1. **Preflight + inventory** (small): `preflight.py`, `SETUP.md`, pairwise network measurement.
+2. **Agent and transport** (medium): agent, shaper, real transfer, local logging; loopback test with 4 agents on one machine.
+3. **LiveSim with simple methods** (medium): SR, SG (static) and Heu / RL (on-demand) through `LiveSim`; first end-to-end run, 1 laptop.
+4. **DFPS B\*** (medium): `adjuster` path; controller overhead measured for real.
+5. **Experiment driver** (small): grid over seeds/loads/methods, scheduling across laptops, resume, merge.
+6. **Validation** (medium): testbed vs simulator on a small grid; report the gap before any claim.
+Each phase ends with tests that run without the laptops (loopback) and a short real run.
+
+## Decisions (2026-11-11)
+1. **Coordinator** = the process that runs the controllers (what `Sim` plus the controllers are in the simulator). It runs on one
+   of the 4 machines next to that machine's logical nodes. Because NSGA-II and annealing are CPU-heavy, the coordinator gets
+   reserved cores (taskset) and its machine hosts the same number of logical nodes as the others; controller wall time is
+   measured and reported, so any interference is visible. Open: which machine (the one with most cores/RAM).
+2. **Network: WiFi.** Mitigated by payload scaling above; per-run RTT/throughput logged; repeat runs; wired Ethernet preferred
+   if any machine has a port (not required).
+3. **Logical nodes: 20 (5 per machine)**, the smallest node count the paper itself tests (range 20-160), about 300 container slots
+   in total, emulated as lightweight tasks, not processes (fits 8 GB machines). 80 nodes is a possible later extension. The
+   simulator scenario for the comparison is regenerated with 20 nodes and the same rates as the paper's scenario 2.
+4. **Time: real time, k = 1.**
+5. **RAM 8 or 16 GB, mixed.** Slots per logical node are identical on all machines (fairness); a machine's memory is not what
+   limits emulated containers. `preflight.py` reports cores and RAM; the coordinator goes on the strongest machine.
+
+## Still to do before measured runs
+- Freeze the experiment grid, metrics and stop rule in the plan (project methodology is `quantitative`: pre-registration required).
+- Tag results with `capacity_model`, `mover_impl`, `place_impl` and controller version as the project conventions require.
+- Read `_start`, `_ev_done`, `_ev_state`, `relocate` in `dfps/sim.py` line by line to confirm `LiveSim` only has to override
+  task start, transfer accounting and the clock.

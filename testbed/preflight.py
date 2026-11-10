@@ -358,8 +358,9 @@ def serve(port=DEFAULT_PORT, host="0.0.0.0", ready=None):
         threading.Thread(target=_handle, args=(conn,), daemon=True).start()
 
 
-def probe(host, port=DEFAULT_PORT, pings=200, mb=8, rounds=3):
-    s = socket.create_connection((host, port), timeout=30)
+def probe(host, port=DEFAULT_PORT, pings=200, mb=8, rounds=3, connect_timeout=30):
+    s = socket.create_connection((host, port), timeout=connect_timeout)
+    s.settimeout(60)
     s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
     samples = []                                                   # (delay, offset): NTP-style four-timestamp exchange
     for _ in range(pings):

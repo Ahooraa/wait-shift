@@ -11,6 +11,36 @@ How to read this file:
   screen) and bring it back to Claude. Do not continue with the next step.
 - Keep this file on your phone, on paper, or on a USB stick. The first steps happen before the code is on the machine.
 
+## Fast path: let the laptops connect themselves (recommended)
+
+Instead of typing Part 1.3 to 1.8 and Part 4 on every laptop, one script does them. By hand, once per laptop, you only do
+**Part 1.1** (connect to the Wi-Fi) and **Part 1.2** (give the laptop its own name, `dfps-1` to `dfps-4`).
+
+**F1. On the laptop that will be the hub** (the one that already has the code and the Python environment, so Part 1.7 and 1.8
+done; this is the laptop you will use as coordinator):
+```bash
+cd ~/DFPS-implementation && ~/venv-dfps/bin/python testbed/connect.py hub --laptops 4
+```
+It prints a line that starts with `curl`. Leave this terminal open. If it says `WARNING: uncommitted changes ... are NOT included`,
+commit first (the other laptops would otherwise get an incomplete copy of the code).
+
+**F2. On each of the other three laptops**, open a terminal and paste that one line. It will, in order:
+test the connection to the hub (and tell you what to check if it fails), ask before installing the tools (it asks for your password),
+fetch the code from the hub (**no GitHub login needed**), build the Python environment, send its preflight report to the hub, and
+then test the connection to every other laptop when it is its turn. Expect 10 to 15 minutes, mostly downloads.
+
+**F3. Read the result on the hub.** When all four have joined and been tested, the hub prints a table of round-trip time and speed
+for every pair of laptops, how many of the pairs connected, the clock difference, and the comparison of the laptops' reports. It
+also saves everything in `~/testbed-reports/<date-time>/` (`summary.txt` is the part to bring back to Claude). "N of N laptop pairs
+connected" with N = 12 for four laptops means all connections work.
+
+**F4. After you have applied the settings in Part 2 on each laptop**, run F1 again on the hub. The other laptops now use the second
+line the hub prints (it starts with `~/venv-dfps/bin/python`), which only re-sends the report and repeats the connection test. The
+comparison in F3 then also confirms that the settings and software are the same on all four.
+
+The script changes no system setting. The only system change is installing packages in F2, and it asks first. Parts 3 and 4 below
+remain as the manual way, in case the fast path cannot be used.
+
 ## Part 0: Before you start
 
 - [ ] Each laptop is plugged into power and running Ubuntu **24.04**. Check: `lsb_release -d` must print `Ubuntu 24.04...`.

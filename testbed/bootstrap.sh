@@ -16,5 +16,5 @@ VENV="$HOME/venv-dfps"
 "$VENV/bin/python" -m pip install --quiet -r testbed/requirements.txt
 echo "environment ready: $VENV  (python $("$VENV/bin/python" -V | cut -d' ' -f2), numpy $("$VENV/bin/python" -c 'import numpy; print(numpy.__version__)'))"
 
-echo "---- preflight (agent role; settings are WARN until you have applied SETUP.md part B)"
+echo "---- preflight (agent role; settings are WARN until you have applied SETUP.md Part 2)"
 "$VENV/bin/python" testbed/preflight.py report --role agent || true

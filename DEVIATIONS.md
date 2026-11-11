@@ -86,3 +86,8 @@ E-6 Alg.1 l.23 queue name (only the corrected reading exists).
   (`rho_effective`). Run lengths: 20 critical paths are 444 s (Video), 1,394 s (ExCamera) and 4,845 s (1000Genome), which makes a full
   grid for 1000Genome very long. Options not yet chosen: a smaller cluster per application so that the target load is reached at a feasible
   rate; a capped rate with the reached load reported; short applications only for cold-start counts.
+- **DEV-T7 update (2026-11-11, from the calibration on the laptops):** the hub drives about 700 tasks/s cleanly and saturates near 1,000 tasks/s, so the
+  millisecond-scale applications cannot reach the target load (Trip Booking 8,592 tasks/s for rho 0.7), as expected. Intermittent Wi-Fi stall episodes
+  (transfers of 0.5 to 3.7 s for a stretch of time, independent of load) make single runs unreliable; repeated, interleaved runs with per-run network
+  health logging are needed, and a stall episode must be reported, not dropped. See `testbed/DESIGN.md`, "Calibration of the testbed".
+

@@ -164,19 +164,23 @@ load, and 1000Genome needs runs of over an hour. Both are decisions for the pre-
 and reports what the testbed adds; the highest rate that keeps the overhead near its low-rate value, with the hub keeping up, is the sustainable
 rate and sets the inclusion rule of the pre-registration (DEV-T7). Task durations are drawn with common random numbers (`Sim._exec_s` hook,
 `CrnSampler`: the same task of the same request gets the same duration under every controller; event hashes of 8 reference runs unchanged).
-Measurements so far (Trip Booking, 20 nodes, one run per rate, static placement, four laptops on Wi-Fi):
-- Saturation: at 5 and 20 requests/s the paired overhead over the simulator is small (median 45 to 60 ms per request, about 7 ms per task);
-  at 50 requests/s (350 tasks/s) the tail grows (p99 about 2 s); at 100 requests/s (700 tasks/s) the hub's event queue backs up and the run
-  collapses (median overhead 23 s, 7,000 late events, 237 events queued); at 200 requests/s it does not complete. The hub's single Python event
-  loop is the limit, so the sustainable rate for tasks of this size is roughly 350 tasks/s or less; the finished calibration decides.
-- The timers are not the problem: timer lateness p99 2 ms, max 5 ms on every laptop over 140,000 tasks.
-- Tail latency: runs that were the first after an agent (re)start showed overhead tails of 1.3 to 5.4 s (p99), and in one such run 14 newly opened
-  agent-to-agent connections coincided with 14 transfers of 0.5 to 2.3 s. A later single run at 5 requests/s on warm connections was clean
-  (p50 45 ms, p99 129 ms, no request over 0.5 s). Raw TCP connection setup between the laptops (600 connections) and the hub-to-agent control round
-  trip (p50 1 to 4 ms, max 153 ms) show no second-scale stalls, so the first explanation (lost SYN packets, 1 s / 3 s retransmits) is NOT supported;
-  why a freshly opened agent connection's first transfer can take up to seconds is not yet understood. Mitigation built: connection pools are opened
-  at configure time (4 per peer) and every new connection is timed in the agent log (`peer_connected`); a run should never pay for a connection.
-  Not yet re-measured on the laptops with this change.
+Measurements so far (Trip Booking, 20 nodes, static placement, four laptops on Wi-Fi; six calibration runs over 2026-11-11, one run per rate):
+- Timers: lateness p99 2 ms, max 3 to 5 ms on every laptop over about 140,000 tasks. Control round trip hub to agent 1 to 4 ms (worst 153 ms).
+  Raw TCP connection setup between laptops: 600 connections, none over 0.5 s.
+- Hub limit: at 100 requests/s (700 tasks/s) the hub keeps up (CPU 81%, no late events, live p99 makespan 0.99 times the simulator's). At 150 requests/s
+  (1,050 tasks/s) it saturates (about 24,700 late events, CPU 91%). Before pooled connections 100 requests/s collapsed (median overhead 23 s).
+  So a rate above about 700 tasks/s cannot be driven by the single hub process; the sustainable rate must be taken from repeated runs.
+- The paired request-by-request makespan difference is NOT a valid overhead measure under queueing: with heavy-tailed durations the same long task
+  blocks different requests in the two systems. Example (50 requests/s): the "2 s p99 overhead" was a long `confirm` task (the stand-in has rare
+  multi-second calls) blocking a node with one `confirm` container in both systems; the simulator's own p99 was 2,098 ms, the live system's 2,151 ms.
+  The calibration therefore compares only requests that did not queue in either system, plus the ratio of the two makespan distributions.
+- Wi-Fi stall episodes: intermittently, for a stretch of time, agent-to-agent transfers take 0.5 to 3.7 s (in one run about 630 transfers over 0.5 s,
+  about 345 over 1 s), independent of load: runs at 100 to 200 requests/s had none. Seen in about 4 of 19 runs. Cause not identified (house Wi-Fi
+  interference, access point behaviour and others are candidates). The same rate therefore gives very different tails in different runs, and a
+  single run per rate cannot define a sustainable rate. Consequences for the protocol: repeat and interleave runs, log per-run network health
+  (to be built: per-second Wi-Fi counters and a background latency probe), and pre-register how runs with a stall episode are reported
+  (never silently dropped).
+- Pooled connections opened at configure time (4 per peer) remove the cost of fresh connections; each new connection is timed in the agent log.
 - Also fixed on the way: an earlier run's event readers stole the next run's events (each run now stops its readers).
 
 

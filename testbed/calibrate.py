@@ -26,6 +26,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))        # run as a script: the repository root must be importable (dfps, testbed)
 
+from testbed import runmark                                             # noqa: E402
 from testbed import sebs_scenario as S                                  # noqa: E402
 from testbed.livesim import LiveLink, LiveSim                           # noqa: E402
 from dfps.nsga2 import PlacementProblem
@@ -123,7 +124,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     from testbed import fleet
     laps = fleet.load_cluster()
-    if not a.no_guard and fleet.cmd_guard(laps):
+    if not a.no_guard and fleet.cmd_guard(laps, cooldown_s=runmark.COOLDOWN_S):
         raise SystemExit("the guard found problems (listed above); fix them or use --no-guard for a trial run")
     link = LiveLink.from_cluster(laps, fleet.hub_token(), a.ne)
     rows = []

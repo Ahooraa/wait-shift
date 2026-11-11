@@ -32,6 +32,7 @@ import numpy as np
 
 from dfps.ondemand import OnDemandSim
 from dfps.sim import Sim
+from testbed import runmark
 
 try:
     from testbed.agentclient import AgentClient
@@ -227,6 +228,7 @@ class LiveMixin:
             stop.set()
             for t in pumps:
                 t.join(timeout=1.0)
+            runmark.mark_run_end()                                  # the guard leaves a cooldown after this (testbed/runmark.py)
 
     def _run_body(self):
         ready = set()

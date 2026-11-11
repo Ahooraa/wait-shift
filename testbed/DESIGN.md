@@ -297,4 +297,9 @@ Design: Trip Booking, 20 nodes, 5 / 20 / 50 requests per second, three passes (p
 - Guard: 5 checks, 2 refusals, both directly after a 50 requests/s run (15 to 18% of the last 60 s impaired on all four laptops before pass 3; edge-1 12% and edge-4 13% before pass 2),
   because its 60 s window contained that run's own traffic. Waiting 90 s cleared both. Consequence for the pre-registration: a cooldown of at least 90 s after every run before the guard
   looks, or a guard that leaves our own runs out of its window; otherwise it measures our load rather than the environment.
+- Cooldown added to the guard (2026-11-11): every `LiveSim` run stamps its end time on the hub (`testbed/runmark.py`, `~/testbed-logs/last-run-end`, local); `fleet.py guard`
+  (default 90 s, `--cooldown S`, 0 = none) and `calibrate.py` wait until 90 s have passed since that stamp before they look at the monitor, longer than its 60 s window, so a run's
+  own traffic is not counted as impairment. No stamp, or an older one, means no wait; a stamp from the future never waits more than the cooldown. Tried on the hub: guard right after a
+  stamped run end printed "cooling down 75 s", then all four laptops passed. A test now starts `fleet.py` and `calibrate.py` as scripts, because the first version imported a module
+  in a way that only works under pytest.
 - Not established: whether 5 GHz changes any of this; the cause of the 30 s shared disturbance; whether the load-dependent impairment is self-induced. Trip Booking's timing-resolution limits (DEV-T5) apply.

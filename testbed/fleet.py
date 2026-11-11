@@ -13,7 +13,7 @@ Run on the hub (edge-1) with the venv python, from anywhere:  ~/venv-dfps/bin/py
   discover [--write]           find the laptops on the LAN by name when their addresses changed; --write updates cluster.json
   agents start|stop|status|check   run the node agents (testbed/agent.py) on every laptop, and measure them (timers, transfers, clocks)
   clock setup|status|undo      make the hub the time source of the other laptops (chrony), so their clocks agree to about a millisecond
-  guard [--seconds N]          the check before a measured run: no Wi-Fi scan source, no scan seen, link quality, recent impairment, settings, agent, monitor
+  guard [--seconds N] [--cooldown S]  the check before a measured run (waits S s, default 90, after the last run first): no Wi-Fi scan source, no scan seen, link quality, recent impairment, settings, agent, monitor
   monitor start|stop|status|collect|report   the network monitor (testbed/netmon.py) on every laptop: Wi-Fi state and a UDP latency probe between laptops
 
 It uses the dedicated key ~/.ssh/testbed_ed25519, runs the laptops in parallel, and applies no system setting.
@@ -33,8 +33,10 @@ from pathlib import Path
 
 try:
     from testbed import preflight as pf
+    from testbed import runmark
 except ImportError:                                    # run as a script: testbed/ is sys.path[0]
     import preflight as pf
+    import runmark
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -579,10 +581,15 @@ def guard_extra(lap, port=None):
     return problems
 
 
-def cmd_guard(laps, seconds=20, reports=None, extra=None, out=print):
+def cmd_guard(laps, seconds=20, reports=None, extra=None, out=print, cooldown_s=0.0, sleep=time.sleep, now=None):
     """Refuse-to-run check for a measured run, on every laptop in parallel: no Wi-Fi scan source (a Settings window makes a laptop scan every 15 s
     and stalls the whole testbed), no scan seen in `seconds`, link quality, recent impairment seen by the monitor, plus the software and setting
     checks of the preflight (--measured), the agent and the monitor. Prints one line per laptop; returns 1 if any laptop fails."""
+    if cooldown_s:                    # our own run's traffic is still in the monitor's last minute: wait it out, then look (testbed/runmark.py)
+        wait = runmark.cooldown_remaining(cooldown_s, now=now)
+        if wait > 0:
+            out(f"cooling down {wait:.0f} s: the last run ended less than {cooldown_s:.0f} s ago and its own traffic would count as Wi-Fi impairment")
+            sleep(wait)
     got = reports if reports is not None else get_reports(laps, measured=True, watch_s=seconds)
     extras = pmap((extra or guard_extra), laps) if extra is not False else [[] for _ in laps]
     bad = 0
@@ -634,6 +641,7 @@ def main(argv=None):
             p.add_argument("action", choices=("start", "stop", "status", "collect", "report"))
         if name == "guard":
             p.add_argument("--seconds", type=int, default=20, help="how long to watch the Wi-Fi driver for scans")
+            p.add_argument("--cooldown", type=float, default=None, help="seconds to leave after the last run before judging the Wi-Fi (default 90, 0 = no wait)")
     a = ap.parse_args(argv)
     laps = select(load_cluster(a.cluster), getattr(a, "on", None))
     if a.cmd == "list":
@@ -660,7 +668,7 @@ def main(argv=None):
     if a.cmd == "monitor":
         return cmd_monitor(laps, a.action, load_cluster(a.cluster))
     if a.cmd == "guard":
-        return cmd_guard(laps, a.seconds)
+        return cmd_guard(laps, a.seconds, cooldown_s=runmark.COOLDOWN_S if a.cooldown is None else a.cooldown)
     return cmd_discover(load_cluster(a.cluster), a.write, a.cluster)
 
 

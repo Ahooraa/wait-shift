@@ -49,6 +49,8 @@ def test_static_placement_conserves_requests_and_cleans_up(agents):
     assert r["live"]["runs"] == sum(sc.workflows[w].n for _, w, _ in sc.arrivals)  # every task of every arrival ran once on an agent
     assert r["live"]["transfers"] > 0 and r["live"]["relocation_transfers"] == 0
     assert all(a["lateness_s"]["max"] < 0.1 for a in r["live"]["agents"].values())  # timers fire within 100 ms of their target
+    from testbed import runmark                                                  # a finished run stamps its end for the guard's cooldown
+    assert runmark.last_run_end() is not None and 0 <= time.time() - runmark.last_run_end() < 120
 
 
 def test_dfps_style_reconfiguration_reaches_the_agents(agents):

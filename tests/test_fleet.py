@@ -185,6 +185,23 @@ def test_clock_setup_serves_from_the_hub_first_and_points_the_others_at_it(monke
     assert "testbed-server.conf" in order[0][1] and all("testbed-orig" in sc for _, sc in order[1:])
 
 
+def test_guard_waits_out_the_cooldown_after_a_run_and_not_otherwise(tmp_path, monkeypatch):
+    laps = fl.load_cluster(write_cluster(tmp_path))
+    ok = {"checks": [{"name": "no Wi-Fi scan source running", "status": "PASS", "detail": "none"}]}
+    reports = [(lap, ok, "") for lap in laps]
+    from testbed import runmark                                      # (tests/conftest.py already points the stamp at a private file)
+    slept, lines = [], []
+    kw = dict(reports=reports, extra=lambda lap: [], out=lines.append, sleep=slept.append)
+    assert fl.cmd_guard(laps, cooldown_s=90, now=1000.0, **kw) == 0 and slept == []          # no run recorded: no wait
+    runmark.mark_run_end(now=960.0)                                                           # the last run ended 40 s ago
+    assert fl.cmd_guard(laps, cooldown_s=90, now=1000.0, **kw) == 0 and slept == [50.0]
+    assert any("cooling down 50 s" in ln for ln in lines)
+    slept.clear()
+    assert fl.cmd_guard(laps, cooldown_s=90, now=1100.0, **kw) == 0 and slept == []          # 140 s ago: nothing to wait for
+    runmark.mark_run_end(now=1050.0)
+    assert fl.cmd_guard(laps, cooldown_s=0, now=1060.0, **kw) == 0 and slept == []            # cooldown off (the default of the function)
+
+
 def test_guard_reports_each_laptop_and_fails_if_any_fails(capsys, tmp_path):
     laps = fl.load_cluster(write_cluster(tmp_path))
     ok = {"checks": [{"name": "no Wi-Fi scan source running", "status": "PASS", "detail": "none"}, {"name": "Wi-Fi link quality", "status": "PASS", "detail": ""}]}

@@ -6,7 +6,8 @@ Run on the hub (edge-1) with the venv python, from anywhere:  ~/venv-dfps/bin/py
   list                         every laptop in testbed/cluster.json (local file; see cluster.example.json): reachable?, live Wi-Fi address versus the file
   status [--measured]          preflight on every laptop, a one-line summary each, and the cross-machine comparison
   run [--on edge-2,edge-3] -- CMD...   run a shell command on every laptop (or the named ones), output per laptop
-  sync [--allow-dirty]         bring every laptop's code to the hub's commit (a git bundle over SSH; nothing from GitHub)
+  sync [--allow-dirty] [--reset]  bring every laptop's code to the hub's commit (a git bundle over SSH; nothing from GitHub);
+                               --reset also replaces a laptop whose branch diverged (it names how many local commits it drops)
   env [--fix]                  check the Python packages everywhere; --fix copies the hub's venv to any laptop that differs
   reboot [--on ...] --yes      reboot the laptops (never the hub) and wait until each is back
   discover [--write]           find the laptops on the LAN by name when their addresses changed; --write updates cluster.json
@@ -188,7 +189,11 @@ if [ -d "$REPO/.git" ]; then
   [ -z "$(git -C "$REPO" status --porcelain --untracked-files=no)" ] || {{ echo LOCAL_CHANGES; exit 3; }}
   git -C "$REPO" fetch -q "$BUNDLE" "refs/heads/$BR"
   git -C "$REPO" checkout -q "$BR" 2>/dev/null || git -C "$REPO" checkout -q -b "$BR" FETCH_HEAD
-  git -C "$REPO" merge -q --ff-only FETCH_HEAD || {{ echo DIVERGED; exit 4; }}
+  if ! git -C "$REPO" merge -q --ff-only FETCH_HEAD; then
+    [ "{reset}" = "1" ] || {{ echo DIVERGED; exit 4; }}
+    echo "RESET: dropping $(git -C "$REPO" rev-list --count FETCH_HEAD..HEAD) local commit(s) that are not in the hub's branch" >&2
+    git -C "$REPO" reset -q --hard FETCH_HEAD
+  fi
 else
   git clone -q -b "$BR" "$BUNDLE" "$REPO"
 fi
@@ -202,7 +207,7 @@ def hub_git(*a):
     return subprocess.run(["git", "-C", str(ROOT), *a], capture_output=True, text=True, check=True).stdout.strip()
 
 
-def cmd_sync(laps, allow_dirty=False, tmpdir="/tmp"):
+def cmd_sync(laps, allow_dirty=False, tmpdir="/tmp", reset=False):
     branch, commit = hub_git("rev-parse", "--abbrev-ref", "HEAD"), hub_git("rev-parse", "HEAD")
     dirty = hub_git("status", "--porcelain", "--untracked-files=no") or hub_git("status", "--porcelain", "--", "testbed", "tests")
     if dirty and not allow_dirty:
@@ -221,18 +226,20 @@ def cmd_sync(laps, allow_dirty=False, tmpdir="/tmp"):
         p = subprocess.run(["scp", "-q", *SSH_OPTS, bundle, f"{lap['user']}@{lap['ssh']}:/tmp/fleet.bundle"], capture_output=True, text=True)
         if p.returncode:
             return lap, False, short(p.stderr)
-        rc, out, err = sh(lap, "bash -s", timeout=300, input=SYNC_SCRIPT.format(branch=shlex.quote(branch), origin=shlex.quote(origin)))
+        rc, out, err = sh(lap, "bash -s", timeout=300, input=SYNC_SCRIPT.format(branch=shlex.quote(branch), origin=shlex.quote(origin), reset="1" if reset else "0"))
         last = (out.strip().splitlines() or [""])[-1]
         if rc == 3:
             return lap, False, "has local changes to tracked files; not touching it"
         if rc == 4:
-            return lap, False, "has its own commits on this branch; cannot fast-forward"
-        return lap, rc == 0 and last == commit, last[:7] if rc == 0 else short(err or out)
+            return lap, False, "has commits that are not in the hub's branch (history rewritten?); check them, then use --reset to replace them"
+        reset_line = next((ln for ln in err.splitlines() if ln.startswith("RESET")), "")
+        note = f" ({reset_line[7:].strip()})" if reset_line else ""
+        return lap, rc == 0 and last == commit, (last[:7] + note) if rc == 0 else short(err or out)
     bad = 0
     print(f"hub: {branch} at {commit[:7]}")
     for lap, ok, info in pmap(one, remote):
         bad += not ok
-        print(f"  {lap['name']:<8} {'ok, at ' + commit[:7] if ok else 'FAILED: ' + info}")
+        print(f"  {lap['name']:<8} {'ok, at ' + commit[:7] + (info[7:] if len(info) > 7 else '') if ok else 'FAILED: ' + info}")
     return 1 if bad else 0
 
 
@@ -356,6 +363,7 @@ def main(argv=None):
             p.add_argument("command", nargs=argparse.REMAINDER)
         if name == "sync":
             p.add_argument("--allow-dirty", action="store_true")
+            p.add_argument("--reset", action="store_true", help="when a laptop's branch diverged, replace it with the hub's (drops its local commits)")
         if name == "env":
             p.add_argument("--fix", action="store_true")
         if name == "reboot":
@@ -374,7 +382,7 @@ def main(argv=None):
             raise SystemExit("usage: fleet.py run [--on edge-2,edge-3] -- COMMAND")
         return cmd_run(laps, cmd)
     if a.cmd == "sync":
-        return cmd_sync(laps, a.allow_dirty)
+        return cmd_sync(laps, a.allow_dirty, reset=a.reset)
     if a.cmd == "env":
         return cmd_env(laps, a.fix)
     if a.cmd == "reboot":

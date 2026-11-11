@@ -281,7 +281,7 @@ Then:
 ~/venv-dfps/bin/python ~/DFPS-implementation/testbed/preflight.py report --measured
 ```
 Everything must be `PASS` or `INFO` **except** the line `boot target = multi-user (text)`, which stays FAIL until Part 5. If the governor
-went back to `powersave` after the restart, run `sudo systemctl disable --now power-profiles-daemon`, restart again and recheck.
+went back to `powersave` after the restart, run `sudo systemctl mask --now power-profiles-daemon` (disabling is not enough: the desktop starts it again on demand), restart again and recheck.
 Anything else marked `FAIL`: write down the line and bring it back to Claude.
 
 ## Part 3: Compare the machines with each other
@@ -405,7 +405,7 @@ copy what the hub printed). On the manual path, bring the output of Part 3.3 and
 | 2.1 | `dpkg -l \| awk '/^hi/ {print $2}' \| xargs sudo apt-mark unhold` |
 | 2.2 | `sudo systemctl enable --now apt-daily.timer apt-daily-upgrade.timer`, set both values in `/etc/apt/apt.conf.d/20auto-upgrades` back to `"1"`, `sudo snap refresh --unhold` |
 | 2.3 | `sudo mv /etc/fstab.bak /etc/fstab && sudo swapon -a` |
-| 2.4 | `sudo systemctl disable --now cpu-performance.service`, then `echo powersave \| sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor` |
+| 2.4 | `sudo systemctl disable --now cpu-performance.service`, `sudo systemctl unmask power-profiles-daemon` if you masked it, then `echo powersave \| sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor` |
 | 2.5 | `sudo systemctl disable --now chrony` |
 | 2.6 | `sudo rm /etc/NetworkManager/conf.d/wifi-powersave-off.conf && sudo systemctl restart NetworkManager` |
 | 2.7 | `sudo systemctl unmask sleep.target suspend.target hibernate.target hybrid-sleep.target && sudo rm /etc/systemd/logind.conf.d/testbed.conf` |

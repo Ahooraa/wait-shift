@@ -273,7 +273,8 @@ def evaluate(rep, measured=False):
 
 # fields that must be identical on every machine (dotted paths); hardware is reported, not required to match
 MUST_MATCH = ["os.pretty", "kernel.release", "python.version", "python.packages", "repo.head", "boot.default_target",
-              "cpu.governors", "updates.apt_held", "updates.periodic"]
+              "cpu.governors", "kernel.running_pinned_by_hold", "updates.periodic"]
+# (the exact list of held kernel packages is not compared: a laptop with an older kernel installed holds more packages)
 REPORT_ONLY = ["cpu.model", "cpu.logical", "mem.total_mb"]
 
 

@@ -51,7 +51,7 @@ E-6 Alg.1 l.23 queue name (only the corrected reading exists).
   must be stated as assumptions in any write-up. Known mismatches with the SeBS-Flow tables (see dfps/sebsflow.py): MapReduce unrolls to 10 functions
   (paper: 9), ExCamera critical path 8 (paper: 6), 1000Genome critical path 3 (paper: 4). With only six DAGs a "workload" is defined by its seed
   (arrival times, origin nodes, popularity weights), not by which DAGs were drawn.
-- **DEV-T3 (open):** the testbed grid, metrics and stop rule are not yet pre-registered; the methodology (quantitative) requires that before any
+- **DEV-T3 (draft written 2026-11-12, not frozen):** the pre-registration is drafted in `knowledge/synthesis/testbed-preregistration.md` (decisions open in its section 11); until it is frozen, the testbed grid, metrics and stop rule are not pre-registered; the methodology (quantitative) requires that before any
   measured run. Optional, not decided: measuring real per-function runtimes by running the SeBS-Flow function code once on one laptop (not
   checked whether the benchmark inputs are available offline).
 - **DEV-T4 (workload data, user decision 2026-11-11: measured SeBS-Flow):** the testbed workload uses only measurements from the SeBS-Flow

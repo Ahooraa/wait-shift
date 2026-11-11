@@ -31,3 +31,4 @@ _No entries yet._
 - [[faaspr-paper-setting]] — FROZEN-3 against FaaSPR under FaaSPR's own evaluation setting (8 servers, 402 GB, one workflow): protocol (6 Nov, draft)
 - [[problem-scope]] — fixed problem scope: runtime placement/re-placement under externally-sized, heterogeneous containers, with resource and network contention (27 Oct)
 - [[heterogeneous-container-sizes]] — audit of the uniform-slot assumption, profile-derived container weights, and where the code was changed or guarded (2 Nov)
+- [[testbed-preregistration]] — DRAFT pre-registration of the four-laptop testbed experiment (G6): systems, per-application loads, seeds, run protocol, analysis, stopping rule; decisions open for the freeze (12 Nov)

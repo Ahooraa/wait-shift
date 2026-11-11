@@ -936,3 +936,11 @@ author: llm
 
 ## [2026-11-09] meta | user | MV-4 is the default mover of FROZEN-4, with a stop at the staying cost
 - `frozen2.FROZEN4` now sets `fast_mv4`; `FROZEN4_MV3` keeps the MV-3 mover. Event hashes equal MV-3 in 126 of 126 full-length runs with the stop, so earlier FROZEN-4 results stand. Two-sided threshold search and delta re-evaluation tested, exact, not adopted: the order did not fall and the time gain is absent or small. See [[independent-baselines-capw1]], section 11.
+
+## [2026-11-12] synthesis | user | Testbed pre-registration drafted
+- Created [[testbed-preregistration]] (status draft, not frozen): Q1 sim-to-real on the G6 rule, Q2 cold-start counts, Q3 testbed health; six systems, per-application loads with the 300 tasks/s cap, held-out seeds 7-10, randomised blocks, run validity and exclusion rules, pooled Wilcoxon-Holm plus per-seed ratios, stopping rule. About 192 runs, 40 h. Seven decisions open for the freeze (section 11).
+- Closes DEV-T3 and DEV-T7 once frozen. Declared what had been looked at: calibration and the Phase 4 pilot on development seeds 1 and 2.
+
+## [2026-11-12] synthesis | user | Testbed pre-registration: decisions of the user applied
+- [[testbed-preregistration]] updated: systems F4, B*, RL, Graph-Aware and FaaSPR (independent); SR, SG, Heu removed; 10 nodes; one load per application (highest the hub allows); 4 seeds (7-10). 100 runs, about 27 h.
+- Still proposed, not answered: which applications are in the Q1 claim; the thresholds. Not frozen.

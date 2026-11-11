@@ -233,3 +233,20 @@ def test_calibration_refuses_to_start_when_the_guard_fails(monkeypatch, tmp_path
     monkeypatch.setattr(C.LiveLink, "from_cluster", classmethod(lambda cls, *a, **k: pytest.fail("must not connect when the guard fails")))
     with pytest.raises(SystemExit, match="guard found problems"):
         C.main(["--rates", "5", "--out", str(tmp_path)])
+
+
+def test_quiet_stops_and_restores_snapd_on_every_laptop_and_reports_failures(monkeypatch, capsys, tmp_path):
+    import subprocess
+    laps = fl.load_cluster(write_cluster(tmp_path))
+    for sc in (fl.QUIET_ON, fl.QUIET_OFF, fl.QUIET_STATUS):
+        assert subprocess.run(["bash", "-n"], input=sc, text=True).returncode == 0
+    ran = []
+    monkeypatch.setattr(fl, "run_root", lambda lap, script, timeout=120: (ran.append((lap["name"], script)), (0, "snapd inactive\n", ""))[1])
+    assert fl.cmd_quiet(laps, "on") == 0
+    assert {n for n, _ in ran} == {lap["name"] for lap in laps} and all("systemctl stop snapd.socket snapd.service" in sc for _, sc in ran)
+    ran.clear()
+    assert fl.cmd_quiet(laps, "off") == 0 and all("systemctl start snapd.socket" in sc and "stop" not in sc for _, sc in ran)
+    monkeypatch.setattr(fl, "run_root", lambda lap, script, timeout=120: (1, "", "sudo: a password is required") if lap["name"] == "edge-2" else (0, "ok\n", ""))
+    assert fl.cmd_quiet(laps, "on") == 1                                          # one laptop refused: the command says so
+    monkeypatch.setattr(fl, "sh", lambda lap, cmd, timeout=90, input=None: (0, "snapd inactive, socket inactive, half-open outbound connections: 0\n", ""))
+    assert fl.cmd_quiet(laps, "status") == 0 and "half-open outbound connections: 0" in capsys.readouterr().out

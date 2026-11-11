@@ -13,6 +13,7 @@ Run on the hub (edge-1) with the venv python, from anywhere:  ~/venv-dfps/bin/py
   discover [--write]           find the laptops on the LAN by name when their addresses changed; --write updates cluster.json
   agents start|stop|status|check   run the node agents (testbed/agent.py) on every laptop, and measure them (timers, transfers, clocks)
   clock setup|status|undo      make the hub the time source of the other laptops (chrony), so their clocks agree to about a millisecond
+  quiet on|off|status          stop (or start again) snapd on every laptop for a measurement session: its retries without internet count as Wi-Fi impairment
   guard [--seconds N] [--cooldown S]  the check before a measured run (waits S s, default 90, after the last run first): no Wi-Fi scan source, no scan seen, link quality, recent impairment, settings, agent, monitor
   monitor start|stop|status|collect|report   the network monitor (testbed/netmon.py) on every laptop: Wi-Fi state and a UDP latency probe between laptops
 
@@ -489,6 +490,29 @@ def cmd_clock(laps, action):
     return 1 if bad else 0
 
 
+# ------------------------------------------------------------------------------------------------ a quiet network during a measurement session
+# snapd retries the Snap Store for as long as its first-boot registration is unfinished; on the isolated router (no internet) that is a steady stream of
+# SYN retransmits that the monitor counts as impairment and that fails the guard (edge-4, 2026-11-11). Stopped, not disabled: `quiet off` starts it again.
+QUIET_ON = r"""systemctl stop snapd.socket snapd.service; sleep 1
+echo "snapd $(systemctl is-active snapd), socket $(systemctl is-active snapd.socket)" """
+QUIET_OFF = r"""systemctl start snapd.socket; echo "snapd socket $(systemctl is-active snapd.socket) (the service starts when something asks for it)" """
+QUIET_STATUS = r"""echo "snapd $(systemctl is-active snapd), socket $(systemctl is-active snapd.socket), half-open outbound connections: $(ss -tan state syn-sent | tail -n +2 | wc -l)" """
+
+
+def cmd_quiet(laps, action):
+    """quiet on|off|status: stop (or start again) snapd on every laptop for a measurement session, or show it. Returns 1 if any laptop failed."""
+    if action == "status":
+        results = pmap(lambda lap: sh(lap, QUIET_STATUS, timeout=30), laps)
+    else:
+        script = QUIET_ON if action == "on" else QUIET_OFF
+        results = pmap(lambda lap: run_root(lap, script, timeout=60), laps)
+    bad = 0
+    for lap, (rc, out, err) in zip(laps, results):
+        bad += rc != 0
+        print(f"  {lap['name']:<8} {short(out or err, 150)}")
+    return 1 if bad else 0
+
+
 # ------------------------------------------------------------------------------------------------ network monitor
 MONITOR_START = r"""mkdir -p ~/testbed-logs ~/.testbed
 if [ -f ~/.testbed/netmon.pid ] && kill -0 "$(cat ~/.testbed/netmon.pid)" 2>/dev/null; then
@@ -615,9 +639,9 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--cluster", default=str(CLUSTER))
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("list", "status", "run", "sync", "env", "reboot", "discover", "agents", "clock", "monitor", "guard"):
+    for name in ("list", "status", "run", "sync", "env", "reboot", "discover", "agents", "clock", "monitor", "guard", "quiet"):
         p = sub.add_parser(name)
-        if name in ("status", "run", "env", "reboot", "agents", "clock", "monitor", "guard"):
+        if name in ("status", "run", "env", "reboot", "agents", "clock", "monitor", "guard", "quiet"):
             p.add_argument("--on", help="comma-separated laptop names (default: all)")
         if name == "status":
             p.add_argument("--measured", action="store_true")
@@ -639,6 +663,8 @@ def main(argv=None):
             p.add_argument("action", choices=("setup", "status", "undo"))
         if name == "monitor":
             p.add_argument("action", choices=("start", "stop", "status", "collect", "report"))
+        if name == "quiet":
+            p.add_argument("action", choices=("on", "off", "status"))
         if name == "guard":
             p.add_argument("--seconds", type=int, default=20, help="how long to watch the Wi-Fi driver for scans")
             p.add_argument("--cooldown", type=float, default=None, help="seconds to leave after the last run before judging the Wi-Fi (default 90, 0 = no wait)")
@@ -667,6 +693,8 @@ def main(argv=None):
         return cmd_clock(laps, a.action)
     if a.cmd == "monitor":
         return cmd_monitor(laps, a.action, load_cluster(a.cluster))
+    if a.cmd == "quiet":
+        return cmd_quiet(laps, a.action)
     if a.cmd == "guard":
         return cmd_guard(laps, a.seconds, cooldown_s=runmark.COOLDOWN_S if a.cooldown is None else a.cooldown)
     return cmd_discover(load_cluster(a.cluster), a.write, a.cluster)

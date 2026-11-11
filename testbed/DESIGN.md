@@ -350,3 +350,11 @@ laptops), `tests/test_frozen_live.py`. Results: `~/testbed-results/controller-fr
   (`rho_effective` records what was offered); Video, ExCamera and 1000Genome are light on the hub but their requests are long, so run length decides how many requests a run contains.
 - Limits of this step: one application (MapReduce), CAP-U, 10 nodes, 240 s runs (re-layouts at 60, 120, 180 s), random initial layout, three live runs, the monitors' impaired seconds for these runs not yet analysed.
   Not yet done: the B* (annealer) path and the baselines (SR, SG, Heu, RL) through `LiveSim`, the experiment driver (phase 5), and the validation against the simulator over many seeds (phase 6).
+
+### Housekeeping and the pre-registration draft (2026-11-12)
+- Laptops synced to 9eea770. New `fleet.py quiet on|off|status` stops (starts again) snapd on every laptop for a measurement session (its retries without internet fail the guard, see edge-4); applied to all four,
+  0 half-open connections. It stops the service and socket, it does not disable them; `quiet off` restores.
+- Text boot mode (SETUP Part 5) is NOT automated, on purpose: step 5.1 types the Wi-Fi password into NetworkManager (not something the automation does), and a laptop that fails to rejoin the Wi-Fi after the reboot cannot
+  be reached again from the hub (edge-3 has no Ethernet fallback). Its purpose (no program that triggers Wi-Fi scans) is already enforced by the guard. It stays an optional manual step.
+- The pre-registration is drafted in `knowledge/synthesis/testbed-preregistration.md` (status draft). It fixes the systems, the per-application load rule with the 300 tasks/s cap, seeds 7-10, randomised blocks, validity rules, the
+  analysis and the stopping rule, and lists seven decisions for the freeze. Build items before the first confirmatory run: live B*, SR, SG, Heu, RL; the plan's initial layout for SeBS scenarios; the experiment driver; simulator twins.

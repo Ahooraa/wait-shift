@@ -152,3 +152,21 @@ uses it for everything the workload needs: `derive_sebs_profile.py` makes the sm
 stays outside the repository), `sebs_scenario.py` builds the scenario (DAGs from `dfps/sebsflow.py`, whose task counts match the measured
 invocations for five of six applications) and a duration sampler from the measured quantiles. Open points are DEV-T4 limits and DEV-T5
 (request mix, timing resolution) in `DEVIATIONS.md`. The DFPS paper's 2-10 s ranges are a later sensitivity run.
+
+## Experiments per application, cold-start counts (decided 2026-11-11)
+Each SeBS-Flow application is its own experiment, so no application dominates (`sebs_scenario.build(apps=[...])`). Cold starts are counted
+(`metrics.py`) as well as timed, because the measured cold starts are short and the count is what a controller can reduce at a real cost on an
+edge node. Load per application is open (DEV-T7): the millisecond-scale applications need hundreds of requests per second for a realistic
+load, and 1000Genome needs runs of over an hour. Both are decisions for the pre-registration.
+
+## Calibration of the testbed (started 2026-11-11)
+`calibrate.py` runs one application at increasing request rates in the plain simulator and in `LiveSim` on the agents, pairs the requests by id,
+and reports what the testbed adds; the highest rate that keeps the overhead near its low-rate value, with the hub keeping up, is the sustainable
+rate and sets the inclusion rule of the pre-registration (DEV-T7). Task durations are drawn with common random numbers (`Sim._exec_s` hook,
+`CrnSampler`: the same task of the same request gets the same duration under every controller; event hashes of 8 reference runs unchanged).
+First real measurement, Trip Booking at 5 requests/s on the four laptops, one run only: all 168 requests completed, median overhead about
+62 ms per request (about 9 ms per task), but a long tail (p99 overhead 2.7 s). Cause found: the agent opened a new TCP connection for every
+state transfer, and on Wi-Fi a lost connection-setup packet costs a 1 s retransmit wait. Fixed by pooled, reused connections with TCP_NODELAY
+(tested on loopback only). A second bug found at the same time: an earlier run's event readers stole the next run's events; each run now
+stops its readers. The calibration over all rates has not yet been completed on the fixed code.
+

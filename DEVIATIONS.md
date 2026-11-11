@@ -68,8 +68,21 @@ E-6 Alg.1 l.23 queue name (only the corrected reading exists).
   measured row and uses the pooled reserve_* calls; the measured functions per request match the DAG expansions of `dfps/sebsflow.py` for
   five applications, and Trip Booking has 7 tasks in the DAG against 6 recorded (the failing call leaves no record); MapReduce is
   confirmed at 10 tasks (the paper text says 9).
-- **DEV-T5 (open, workload mix and timing resolution):** with equal request shares, 1000Genome (about 1,340 container-seconds per request
+- **DEV-T5 (mix RESOLVED 2026-11-11: one application per experiment, see DEV-T6; timing resolution still open):** with equal request shares, 1000Genome (about 1,340 container-seconds per request
   against 0.2 to 213 for the others) is about 84% of the offered work, so results are dominated by that application; `mix="equal_load"`
   gives each application an equal share of the work instead. Which mix to pre-register is open. Also open: the control plane's own
   latencies (hub to agent round trip 2-5 ms, timer lateness 2-3 ms on the laptops) are comparable to the millisecond tasks of Trip Booking,
   ML and MapReduce, so for those the testbed measures orchestration overhead as much as work; this is realistic but must be stated.
+- **DEV-T6 (experiments per application, cold-start counts; user decision 2026-11-11):** each application is its own experiment, so one
+  application cannot dominate (`sebs_scenario.build(apps=[...])`; the mixed workload stays available but is not the main design). Cold starts
+  are reported as a COUNT (`testbed/metrics.py`: per window, per request, per 100 tasks, per second), next to the latency, because the
+  measured cold starts are short (0.22-0.35 s) and a latency-only view would understate their importance; the time they cost is shown under
+  the measured model and, labelled hypothetical, under the DFPS 2-10 s range. How large a cold start is next to a task differs by application
+  (median ratio of cold-start initialisation to task duration: Trip Booking 11.8, ML 1.2, MapReduce 1.0, Video 0.1, 1000Genome 0.1, ExCamera 0.0):
+  for Trip Booking one cold start costs more than the request's whole work (0.18 s).
+- **DEV-T7 (open, load regime per application):** at 20 nodes (about 324 container slots) the request rate needed for a load of 0.7 is
+  1,227/s for Trip Booking, 266/s for ML, 99/s for MapReduce, 5.4/s for Video, 1.1/s for ExCamera and 0.2/s for 1000Genome. The three
+  millisecond-scale applications cannot be driven to that load on a real testbed; the rate cap (`rate_cap`) reports the load actually offered
+  (`rho_effective`). Run lengths: 20 critical paths are 444 s (Video), 1,394 s (ExCamera) and 4,845 s (1000Genome), which makes a full
+  grid for 1000Genome very long. Options not yet chosen: a smaller cluster per application so that the target load is reached at a feasible
+  rate; a capped rate with the reached load reported; short applications only for cold-start counts.

@@ -12,7 +12,8 @@ Poisson arrival process.
 
 Rules, so that nothing is hidden:
   * function types: one per (application, function name); the tasks of a function share its type (25 types).
-  * duration of a task: drawn by inverse transform from the measured quantiles of its function (`exec_sampler`); the mean is Function.exec_time.
+  * duration of a task: drawn by inverse transform from the measured quantiles of its function, with common random numbers (CrnSampler:
+    the same task of the same request gets the same duration under every controller); the mean is Function.exec_time.
   * cold start: the median measured initialisation time (Function.cold_start). This is the runtime initialisation on the cloud platform;
     it is much shorter than an image pull on an edge node and than the DFPS paper's 2-10 s range (that range is a later sensitivity run).
   * state size of an edge u -> v: the median bytes the producer u wrote to storage, divided among its successors; the request's input state:
@@ -39,22 +40,48 @@ QUANTILES = np.linspace(0.0, 1.0, 101)
 BENCHMARKS = list(CONFIG)                    # the six applications, in dfps/sebsflow.py order
 
 
+class CrnSampler:
+    """Task durations from the measured quantiles with COMMON RANDOM NUMBERS: `for_run(function, request id, task)` draws from the seed and the
+    run's identity, so every controller that runs the scenario sees the same duration for the same task of the same request (paired
+    comparisons need this; with one shared random stream the duration a task gets depends on the order in which a method starts its tasks).
+    Called as sampler(function, rng) it behaves like any other exec_sampler (shared stream)."""
+
+    def __init__(self, quantiles, seed):
+        self.q, self.seed = quantiles, int(seed)
+
+    def for_run(self, f, req_id, task):
+        u = np.random.default_rng([self.seed, int(req_id), int(task)]).random()
+        return float(np.interp(u, QUANTILES, self.q[int(f)]))
+
+    def __call__(self, f, rng):
+        return float(np.interp(rng.random(), QUANTILES, self.q[int(f)]))
+
+
 def load_profiles(path=PROFILES):
     return json.loads(Path(path).read_text())
 
 
-def build(seed, rho=0.7, ne=20, duration_s=300.0, mix="uniform", weights="uniform", profiles=None, bw=None):
+def build(seed, rho=0.7, ne=20, duration_s=300.0, mix="uniform", weights="uniform", profiles=None, bw=None, apps=None, rate_cap=None):
+    """apps: the applications of this experiment (names from BENCHMARKS; default all six). One application per experiment keeps one of
+    them from dominating the results. rate_cap: the most requests per second the testbed can drive; when the rate needed for `rho` is higher
+    the rate is capped and meta["rho_effective"] says what load was actually offered."""
     prof = profiles or load_profiles()
+    benches = list(apps) if apps else list(BENCHMARKS)
+    bad = [b for b in benches if b not in BENCHMARKS]
+    if bad:
+        raise ValueError(f"unknown application(s) {bad}; known: {BENCHMARKS}")
     rng = np.random.default_rng(seed)
     functions, fid, quant, names = [], {}, [], []
-    for b in BENCHMARKS:
+    for b in benches:
         for name, p in prof["workflows"][b]["functions"].items():
             fid[(b, name)] = len(functions)
             functions.append(Function(len(functions), float(p["duration_s_mean"]), float(p["cold_init_s_median"])))
             quant.append(np.asarray(p["duration_s_q"], dtype=float))
             names.append(f"{b}/{name}")
+    cold_ratio = {n: round(float(prof["workflows"][n.split("/")[0]]["functions"][n.split("/")[1]]["cold_init_s_median"]
+                               / max(prof["workflows"][n.split("/")[0]]["functions"][n.split("/")[1]]["duration_s_q"][50], 1e-6)), 2) for n in names}
     workflows, work = [], []
-    for wid, b in enumerate(BENCHMARKS):
+    for wid, b in enumerate(benches):
         dag = sebsflow_dag(b)
         fns = prof["workflows"][b]["functions"]
         ft = [fid[(b, n)] for n in dag["names"]]
@@ -72,17 +99,23 @@ def build(seed, rho=0.7, ne=20, duration_s=300.0, mix="uniform", weights="unifor
     ecc = rng.integers(5, 26, ne)                                          # DFPS Table 2: 5-25 containers per node
     esc = rng.uniform(10, 30, ne) * 1024.0                                 # MB
     work = np.asarray(work)
-    p = np.full(len(BENCHMARKS), 1.0 / len(BENCHMARKS)) if mix == "uniform" else (1.0 / work) / np.sum(1.0 / work)
+    p = np.full(len(benches), 1.0 / len(benches)) if mix == "uniform" else (1.0 / work) / np.sum(1.0 / work)
     if mix not in ("uniform", "equal_load"):
         raise ValueError("mix is 'uniform' or 'equal_load'")
-    lam = float(rho * ecc.sum() / np.sum(p * work))                        # requests per second
+    lam = float(rho * ecc.sum() / np.sum(p * work))                        # requests per second needed for the target load
+    lam_needed = lam
+    if rate_cap is not None and lam > rate_cap:
+        lam = float(rate_cap)
+    rho_eff = float(lam * np.sum(p * work) / ecc.sum())
     arrivals, t = [], float(rng.exponential(1.0 / lam))
     while t < duration_s:
-        arrivals.append((t, int(rng.choice(len(BENCHMARKS), p=p)), int(rng.integers(0, ne))))
+        arrivals.append((t, int(rng.choice(len(benches), p=p)), int(rng.integers(0, ne))))
         t += float(rng.exponential(1.0 / lam))
-    meta = dict(seed=seed, workload="sebs-flow only, measured", capacity_model="CAP-U", rho=rho, mix=mix, rate_per_s=lam, ne=ne,
+    meta = dict(seed=seed, workload="sebs-flow only, measured", capacity_model="CAP-U", rho=rho, rho_effective=rho_eff, rate_needed_per_s=lam_needed, rate_cap=rate_cap, apps=benches, mix=mix,
+                rate_per_s=lam, ne=ne,
                 n_arrivals=len(arrivals), mean_tasks=float(np.mean([w.n for w in workflows])), work_per_request_s=work.tolist(),
-                workflows=BENCHMARKS, function_names=names, dag_source="SeBS-Flow Table 4 (dfps/sebsflow.py)",
+                workflows=benches, function_names=names,
+                cold_init_over_median_task=cold_ratio, dag_source="SeBS-Flow Table 4 (dfps/sebsflow.py)",
                 profile_source=prof["source"], cold_start_model="measured SeBS-Flow initialisation (AWS 2024)", duration_s=duration_s)
     sc = Scenario(functions, workflows, net, ecc, esc, arrivals, meta)
     if weights == "memory":
@@ -94,6 +127,4 @@ def build(seed, rho=0.7, ne=20, duration_s=300.0, mix="uniform", weights="unifor
     elif weights != "uniform":
         raise ValueError("weights is 'uniform' or 'memory'")
 
-    def exec_sampler(f, r):
-        return float(np.interp(r.random(), QUANTILES, quant[int(f)]))
-    return sc, exec_sampler
+    return sc, CrnSampler(quant, seed)

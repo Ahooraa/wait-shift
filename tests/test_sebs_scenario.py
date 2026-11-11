@@ -80,3 +80,87 @@ def test_same_seed_same_scenario_and_it_runs_in_the_simulator():
     X = pr.random(np.random.default_rng(0))
     r = Sim(sc, X, seed=1, warmup=0.0, duration=60.0, exec_sampler=samp).run()
     assert r["n_completed"] == r["n_arrived"] and r["n_unfinished"] == 0 and r["n_arrived"] > 0
+
+
+def test_one_application_per_experiment():
+    sc, samp = S.build(1, apps=["650.vid"], rho=0.5)
+    assert [w.n for w in sc.workflows] == [4] and len(sc.functions) == 3 and sc.meta["apps"] == ["650.vid"]
+    assert all(w == 0 for _, w, _ in sc.arrivals) and len(sc.arrivals) > 0
+    assert all(n.startswith("650.vid/") for n in sc.meta["function_names"])
+    sc2, _ = S.build(1, apps=["680.excamera", "690.ml"])
+    assert [w.n for w in sc2.workflows] == [16, 3]
+    with pytest.raises(ValueError, match="unknown application"):
+        S.build(1, apps=["nope"])
+
+
+def test_rate_for_a_single_application_matches_the_load_and_the_cap_reports_the_load_reached():
+    sc, _ = S.build(1, apps=["660.map-reduce"], rho=0.7, duration_s=100.0)
+    work = sc.meta["work_per_request_s"][0]
+    assert sc.meta["rate_per_s"] == pytest.approx(0.7 * sc.ecc.sum() / work) and sc.meta["rho_effective"] == pytest.approx(0.7)
+    capped, _ = S.build(1, apps=["660.map-reduce"], rho=0.7, duration_s=100.0, rate_cap=20.0)
+    assert capped.meta["rate_per_s"] == 20.0 and capped.meta["rate_needed_per_s"] > 80
+    assert capped.meta["rho_effective"] == pytest.approx(20.0 * work / capped.ecc.sum()) and capped.meta["rho_effective"] < 0.2
+    assert 1200 < len(capped.arrivals) < 2800                                      # about 20 requests/s for 100 s
+
+
+def test_cold_start_is_long_compared_with_the_task_for_the_short_applications():
+    sc, _ = S.build(1)
+    r = sc.meta["cold_init_over_median_task"]
+    assert r["6200.trip-booking/reserve_hotel"] > 5                                # 0.23 s initialisation against a task of a few ms
+    assert r["680.excamera/encode"] < 0.1                                          # but small against a 28 s task
+
+
+def test_cold_start_counts_are_reported_per_request_and_per_task():
+    import numpy as np
+    from dfps.heu import HeuPolicy
+    from dfps.ondemand import OnDemandSim
+    from testbed.metrics import PAPER_MEAN_COLD_S, cold_start_metrics
+    sc, samp = S.build(2, apps=["6200.trip-booking"], rho=0.3, ne=8, duration_s=60.0, rate_cap=5.0)
+    sim = OnDemandSim(sc, HeuPolicy(seed=0), seed=0, warmup=0.0, duration=60.0)
+    sim.exec_sampler = samp
+    res = sim.run()
+    m = cold_start_metrics(res, sc, window_s=60.0, warmup=0.0)
+    assert m["cold_starts"] == res["cold_starts"] > 0
+    assert m["cold_starts_per_request"] == pytest.approx(m["cold_starts"] / res["n_arrived"])
+    assert m["cold_starts_per_100_tasks"] == pytest.approx(100 * m["cold_starts"] / (7 * res["n_arrived"]))
+    assert m["cold_time_paper_model_s"] == pytest.approx(m["cold_starts"] * PAPER_MEAN_COLD_S)
+    assert 0.2 < m["cold_time_measured_model_s"] / m["cold_starts"] < 0.4          # the measured initialisation is a quarter of a second
+    assert m["cold_init_over_median_task_mean"] > 5
+
+
+def test_common_random_numbers_pair_the_durations_of_different_controllers():
+    from dfps.heu import HeuPolicy
+    from dfps.ondemand import OnDemandSim
+    sc, samp = S.build(4, apps=["660.map-reduce"], rho=0.3, ne=8, duration_s=40.0, rate_cap=8.0)
+    assert samp.for_run(0, 5, 2) == samp.for_run(0, 5, 2) != samp.for_run(0, 6, 2)
+
+    class Rec1(Sim):
+        def _exec_s(self, run):
+            d = super()._exec_s(run)
+            self.rec = getattr(self, "rec", {})
+            self.rec[(run.req.id, run.task)] = d
+            return d
+
+    from dfps.ondemand import OnDemandSim as OD
+
+    class Rec2(OD):
+        def _exec_s(self, run):
+            d = super()._exec_s(run)
+            self.rec = getattr(self, "rec", {})
+            self.rec[(run.req.id, run.task)] = d
+            return d
+    X = PlacementProblem(sc.network, sc.ecc, np.array([f.exec_time for f in sc.functions])).random(np.random.default_rng(0))
+    a = Rec1(sc, X, seed=1, warmup=0.0, duration=40.0, exec_sampler=samp)
+    a.run()
+    b = Rec2(sc, HeuPolicy(seed=0), seed=7, warmup=0.0, duration=40.0)
+    b.exec_sampler = samp
+    b.run()
+    common = set(a.rec) & set(b.rec)
+    assert len(common) > 100 and all(a.rec[k] == b.rec[k] for k in common)       # same request and task: same duration, in both systems
+
+
+def test_crn_durations_follow_the_measured_distribution():
+    sc, samp = S.build(1)
+    d = np.array([samp.for_run(1, r, 0) for r in range(8000)])                    # function 1: the video decode step
+    mu = sc.functions[1].exec_time
+    assert abs(d.mean() / mu - 1) < 0.05 and d.min() > 0

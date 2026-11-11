@@ -143,6 +143,12 @@ def test_guard_parsers():
     assert pf.parse_iw_link(IW_LINK) == {"signal_dbm": -36.0, "tx_bitrate_mbps": 130.0, "freq_mhz": 2457.0}
     assert pf.parse_iw_link("Not connected.") == {}
     assert pf.count_scan_events(IW_EVENT) == 2 and pf.count_scan_events("") == 0
+    ss = ("State Recv-Q Send-Q Local Address:Port Peer Address:Port Process\n"
+          'SYN-SENT 0 1 192.0.2.9:41106 203.0.113.5:443 users:(("snapd",pid=799,fd=13))\n'
+          'SYN-SENT 0 1 192.0.2.9:39702 203.0.113.9:443 users:(("snapd",pid=799,fd=14))\n')
+    assert pf.parse_stalled_connections(ss) == (2, ["snapd"])
+    assert pf.parse_stalled_connections("State Recv-Q Send-Q Local Address:Port Peer Address:Port\n") == (0, [])
+    assert pf.parse_stalled_connections(None) == (0, [])
 
 
 def guard_report(**kw):
@@ -159,12 +165,18 @@ def test_guard_passes_on_a_quiet_good_link_and_fails_on_each_problem_when_measur
     assert not [r for r in rows if r[1] == pf.FAIL], rows
     cases = {"no Wi-Fi scan source running": {"scan_sources": ["gnome-control-c"]},
              "no Wi-Fi scan observed": {"scan_events": 4},
+             "no half-open outbound connections": {"stalled_connections": 13, "stalled_owners": ["snapd"]},
              "Wi-Fi link quality": {"link": {"signal_dbm": -72.0, "tx_bitrate_mbps": 144.4}},
              "recent Wi-Fi impairment": {"recent_impairment": {"seconds": 60, "impaired": 30, "fraction": 0.5, "age_s": 1.0}}}
     for name, kw in cases.items():
         assert status(pf.evaluate(guard_report(**kw), measured=True), name) == pf.FAIL, name
         assert status(pf.evaluate(guard_report(**kw), measured=False), name) == pf.WARN, name          # only a warning while setting up
     assert status(pf.evaluate(guard_report(link={"signal_dbm": -40.0, "tx_bitrate_mbps": 72.2}), measured=True), "Wi-Fi link quality") == pf.FAIL   # the weak edge-4 link
+    # an idle link's rate bounces (edge-2 showed 65 Mbit/s in 9% of seconds, median 130): with a monitor the median of the last minute decides
+    bounce = {"seconds": 60, "impaired": 1, "fraction": 1 / 60, "age_s": 1.0, "median_signal_dbm": -41.0, "median_tx_mbps": 130.0}
+    assert status(pf.evaluate(guard_report(link={"signal_dbm": -41.0, "tx_bitrate_mbps": 65.0}, recent_impairment=bounce), True), "Wi-Fi link quality") == pf.PASS
+    low = dict(bounce, median_tx_mbps=72.0)
+    assert status(pf.evaluate(guard_report(link={"signal_dbm": -41.0, "tx_bitrate_mbps": 144.4}, recent_impairment=low), True), "Wi-Fi link quality") == pf.FAIL
 
 
 def test_guard_without_a_monitor_warns_and_a_wired_laptop_skips_the_wifi_checks():
@@ -183,5 +195,6 @@ def test_recent_impairment_reads_the_monitors_log(tmp_path):
     log.write_text("\n".join(line(940.0 + i, bad=(i % 10 == 0)) for i in range(60)) + "\n")      # 6 of the last 60 s impaired
     r = N.recent_impairment(log, seconds=60, now=now)
     assert r["seconds"] == 60 and r["impaired"] == 6 and r["fraction"] == pytest.approx(0.1)
+    assert r["median_signal_dbm"] is None and r["median_tx_mbps"] is None      # these test records carry no link fields
     assert N.recent_impairment(log, now=now + 100) is None                              # stale: the monitor stopped
     assert N.recent_impairment(tmp_path / "missing.jsonl") is None

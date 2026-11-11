@@ -554,7 +554,7 @@ def cmd_monitor(laps, action, all_laps=None, out_dir=None):
 
 
 # ------------------------------------------------------------------------------------------------ guard before a measured run
-GUARD_CHECKS = ("no Wi-Fi scan source running", "no Wi-Fi scan observed", "Wi-Fi link quality", "recent Wi-Fi impairment", "Wi-Fi power save off",
+GUARD_CHECKS = ("no Wi-Fi scan source running", "no half-open outbound connections", "no Wi-Fi scan observed", "Wi-Fi link quality", "recent Wi-Fi impairment", "Wi-Fi power save off",
                 "chrony synchronised", "cpu governor = performance", "swap off", "packages == testbed/requirements.txt")
 
 

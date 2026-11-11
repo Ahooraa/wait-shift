@@ -213,7 +213,7 @@ def impaired_reasons(r):
 
 
 def recent_impairment(path, seconds=60, now=None, max_age_s=15.0):
-    """Share of the last `seconds` of a monitor log that were impaired: {'seconds', 'impaired', 'fraction', 'age_s'}, or None when the log is
+    """Share of the last `seconds` of a monitor log that were impaired: {'seconds', 'impaired', 'fraction', 'age_s', 'median_signal_dbm', 'median_tx_mbps'}, or None when the log is
     missing, empty or stale (the monitor is not running, so nothing can be said about the last minute)."""
     try:
         recs = load_records(path)
@@ -229,7 +229,11 @@ def recent_impairment(path, seconds=60, now=None, max_age_s=15.0):
     if not win:
         return None
     bad = sum(1 for r in win if impaired_reasons(r))
-    return {"seconds": len(win), "impaired": bad, "fraction": bad / len(win), "age_s": now - last}
+    def median(key):
+        v = sorted(r[key] for r in win if r.get(key) is not None)
+        return v[len(v) // 2] if v else None
+    return {"seconds": len(win), "impaired": bad, "fraction": bad / len(win), "age_s": now - last,
+            "median_signal_dbm": median("signal_dbm"), "median_tx_mbps": median("tx_bitrate_mbps")}
 
 
 def episodes(records, gap_s=2.0):

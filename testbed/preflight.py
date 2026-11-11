@@ -44,6 +44,7 @@ SCAN_SOURCES = {"gnome-control-c", "nm-connection-e", "nm-applet", "iwgtk", "wpa
 SIGNAL_MIN_DBM = -60.0
 LINK_MIN_MBPS = 100.0
 IMPAIRED_MAX_FRACTION = 0.10
+STALLED_MAX = 2     # half-open outbound connections tolerated (the hub also runs Claude; edge-4's snapd held 13 open for hours)
 DEFAULT_PORT = 5201
 
 
@@ -91,6 +92,15 @@ def parse_chrony_tracking(text):
 def running_scan_sources(ps_text):
     """Names of the programs in `ps -eo comm` output that make NetworkManager scan for Wi-Fi networks while they are open."""
     return sorted({ln.strip() for ln in (ps_text or "").splitlines() if ln.strip() in SCAN_SOURCES})
+
+
+def parse_stalled_connections(ss_text):
+    """(count, owning program names) of the half-open outbound TCP connections in `ss -tanp state syn-sent` output. Each one retransmits its SYN
+    again and again, which the network monitor counts as TCP retransmits that have nothing to do with the Wi-Fi (2026-11-11: edge-4's snapd could
+    not finish its first-boot device registration without internet and retried for hours)."""
+    rows = [ln for ln in (ss_text or "").splitlines() if ln.strip() and not ln.lstrip().startswith(("State", "Netid"))]
+    owners = sorted({m for ln in rows for m in re.findall(r'\(\("([^"]+)"', ln)})
+    return len(rows), owners
 
 
 def parse_iw_link(text):
@@ -214,6 +224,8 @@ def collect_wifi_guard(iface, watch_s=0):
         import netmon
     g = {"scan_sources": running_scan_sources(sh("ps", "-eo", "comm", any_rc=True)), "link": parse_iw_link(sh("iw", "dev", iface, "link", any_rc=True)),
          "scan_events": None, "watch_s": watch_s, "recent_impairment": None}
+    ss = sh("sudo", "-n", "ss", "-tanp", "state", "syn-sent", any_rc=True) or sh("ss", "-tan", "state", "syn-sent", any_rc=True)
+    g["stalled_connections"], g["stalled_owners"] = parse_stalled_connections(ss)
     if watch_s > 0:
         g["scan_events"] = count_scan_events(sh("timeout", str(watch_s), "iw", "event", "-t", any_rc=True, timeout=watch_s + 10))
     logs = sorted(Path.home().glob("testbed-logs/netmon-*.jsonl"), key=lambda f: f.stat().st_mtime)
@@ -300,13 +312,18 @@ def evaluate(rep, measured=False):
     g = rep.get("wifi_guard")
     if g:
         add("no Wi-Fi scan source running", not g["scan_sources"], ", ".join(g["scan_sources"]) or "none", soft)
+        if g.get("stalled_connections") is not None:
+            add("no half-open outbound connections", g["stalled_connections"] <= STALLED_MAX,
+                f"{g['stalled_connections']} stuck in SYN-SENT (limit {STALLED_MAX})" + (f" (owned by {', '.join(g['stalled_owners'])})" if g.get("stalled_owners") else ""), soft)
         if g["scan_events"] is not None:
             add("no Wi-Fi scan observed", g["scan_events"] == 0, f"{g['scan_events']} in {g['watch_s']} s", soft)
-        lk = g["link"]
+        lk, ri = dict(g["link"]), g["recent_impairment"]
+        if ri and ri.get("median_signal_dbm") is not None and ri.get("median_tx_mbps") is not None:       # one sample of an idle link's rate is noise
+            lk.update(signal_dbm=ri["median_signal_dbm"], tx_bitrate_mbps=ri["median_tx_mbps"])
         if lk.get("signal_dbm") is not None:
             add("Wi-Fi link quality", lk["signal_dbm"] >= SIGNAL_MIN_DBM and lk.get("tx_bitrate_mbps", 0) >= LINK_MIN_MBPS,
-                f"signal {lk['signal_dbm']:.0f} dBm (needs >= {SIGNAL_MIN_DBM:.0f}), link {lk.get('tx_bitrate_mbps', 0):.0f} Mbit/s (needs >= {LINK_MIN_MBPS:.0f})", soft)
-        ri = g["recent_impairment"]
+                f"signal {lk['signal_dbm']:.0f} dBm (needs >= {SIGNAL_MIN_DBM:.0f}), link {lk.get('tx_bitrate_mbps', 0):.0f} Mbit/s "
+                f"(needs >= {LINK_MIN_MBPS:.0f}){' [median of the last minute]' if ri and ri.get('median_tx_mbps') is not None else ' [one sample]'}", soft)
         if ri is None:
             out.append(("recent Wi-Fi impairment", WARN if measured else INFO, "no running network monitor (fleet.py monitor start)"))
         else:

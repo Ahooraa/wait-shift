@@ -230,7 +230,7 @@ class Agent:
             raise AgentError("not_configured")
         if dst not in self.peers and dst not in self.nodes:
             raise AgentError("unknown_node", f"no address for node {dst}")
-        if dst in self.nodes:
+        if dst in self.nodes and m.get("store", True):
             self._reserve(dst, m["state_id"], float(m["size_MB"]))        # local: fail now, not later
         task = asyncio.get_running_loop().create_task(self._send(m))
         self.tasks.add(task)
@@ -241,7 +241,7 @@ class Agent:
         src, dst, tid, size = int(m["src_node"]), int(m["dst_node"]), m["transfer_id"], float(m["size_MB"])
         nominal = self.net["hops"][src][dst] * size / self.net["bw"]
         t_wall, t0 = time.time(), time.monotonic()
-        nbytes, net_s, local = 0, 0.0, dst in self.nodes
+        nbytes, net_s, local, store = 0, 0.0, dst in self.nodes, bool(m.get("store", True))
         try:
             if not local:
                 nbytes = int(size * 1e6 / self.scale)
@@ -252,7 +252,7 @@ class Agent:
                 if not (await read_frame(reader)).get("ok"):
                     raise AgentError("peer_refused")
                 writer.write(pack({"op": "state", "transfer_id": tid, "dst_node": dst, "from_node": src, "state_id": m["state_id"],
-                                   "size_MB": size, "bytes": nbytes}))
+                                   "size_MB": size, "bytes": nbytes, "store": store}))
                 await send_zeros(writer, nbytes)
                 ack = await read_frame(reader)
                 writer.close()
@@ -272,7 +272,7 @@ class Agent:
             self.emit("transfer_done", transfer_id=tid, src_node=src, dst_node=dst, state_id=m["state_id"], size_MB=size, nominal_s=nominal,
                       net_s=net_s, total_s=total, bytes=nbytes, local=local, t_start=t_wall, t_end=time.time(), late_s=late)
         except Exception as e:                                   # noqa: BLE001 - whatever goes wrong must be reported, never swallowed
-            if local:
+            if local and store:
                 self._release(dst, m["state_id"])
             code = e.code if isinstance(e, AgentError) else type(e).__name__
             self.emit("transfer_failed", transfer_id=tid, src_node=src, dst_node=dst, error=code, detail=str(e))
@@ -302,8 +302,10 @@ class Agent:
             if m.get("op") != "state":
                 return
             n = int(m["bytes"])
+            store = bool(m.get("store", True))             # the controller's own accounting is authoritative when it asks for store=False
             try:
-                self._reserve(m["dst_node"], m["state_id"], float(m["size_MB"]))
+                if store:
+                    self._reserve(m["dst_node"], m["state_id"], float(m["size_MB"]))
             except AgentError as e:
                 await drain_bytes(reader, n)
                 writer.write(pack({"ok": False, "error": e.code, "detail": e.detail}))
@@ -312,7 +314,8 @@ class Agent:
             try:
                 await drain_bytes(reader, n)
             except (ConnectionError, OSError):
-                self._release(m["dst_node"], m["state_id"])
+                if store:
+                    self._release(m["dst_node"], m["state_id"])
                 raise
             self.counters["recv_bytes"] += n
             self.counters["recv_transfers"] += 1

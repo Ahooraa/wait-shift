@@ -71,7 +71,9 @@ class AgentClient:
                 else:
                     with self._lock:
                         slot = self._pending.pop(m.get("id"), None)
-                    if slot:
+                    if callable(slot):
+                        slot(m)                           # post(): a callback, run on the reader thread
+                    elif slot:
                         slot[1].append(m)
                         slot[0].set()
         except (ConnectionError, OSError, ValueError):
@@ -79,9 +81,12 @@ class AgentClient:
         finally:
             self._closed = True
             with self._lock:
-                for ev, box in self._pending.values():
-                    box.append({"ok": False, "error": "connection_lost"})
-                    ev.set()
+                for slot in self._pending.values():
+                    if callable(slot):
+                        slot({"ok": False, "error": "connection_lost"})
+                    else:
+                        slot[1].append({"ok": False, "error": "connection_lost"})
+                        slot[0].set()
                 self._pending.clear()
 
     def call(self, op, timeout=None, **kw):
@@ -102,6 +107,26 @@ class AgentClient:
         if not reply.get("ok"):
             raise AgentCallError(op, reply.get("error", "error"), reply.get("detail", ""))
         return reply
+
+    def post(self, op, callback=None, **kw):
+        """Send a request without waiting for the reply (the controller must not stall on a Wi-Fi round trip per task). Requests of
+        one client are executed by the agent in the order they were posted. callback(reply) runs on the reader thread, also for
+        errors ({"ok": False, "error": ...}); without one, a failed request is only visible in the agent's log."""
+        if self._closed:
+            if callback:
+                callback({"ok": False, "error": "connection_lost"})
+            return
+        with self._lock:
+            self._id += 1
+            rid = self._id
+            self._pending[rid] = callback or (lambda reply: None)
+        try:
+            self.sock.sendall(_frame({"id": rid, "op": op, **kw}))
+        except OSError:
+            with self._lock:
+                self._pending.pop(rid, None)
+            if callback:
+                callback({"ok": False, "error": "connection_lost"})
 
     def wait_event(self, kind, timeout=30.0, **match):
         """Next event of this kind whose fields equal `match`; other events are kept for later calls."""

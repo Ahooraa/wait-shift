@@ -266,3 +266,35 @@ checks (power save, clock, governor, swap, packages), a reachable agent and a fr
 nothing: it only reports. Tested with 59 tests; tried on the hub (ready, then NOT ready with a stand-in process named like GNOME Settings, then ready again); not yet run on the
 other three laptops (they need the new code: commit and `fleet.py sync`).
 
+
+### Guard run on the real laptops: edge-4's snapd, and what the guard sees (2026-11-11, about 23:00 to 23:15)
+- First guard runs failed all four laptops (52 to 62% of the last 60 s impaired): the sync's own traffic. After a quiet minute three laptops passed and edge-4 failed at 13% (limit 10%).
+- Cause on edge-4, not Wi-Fi: its signal was -35 dBm, and the impaired seconds were TCP retransmits (3 to 5 per second, about 60 a minute for the whole 10 minutes; 61 impaired seconds
+  of 600 against 0 to 5 on the others). 13 to 14 outbound connections to the Snap Store were stuck in SYN-SENT: the isolated router has no internet, and snapd's first-boot task
+  "Initialize device" had never finished on edge-4 (it finished on edge-3 earlier, on the house network), so snapd retried for hours. `snap refresh --hold` does not stop this.
+  The monitor counts SYN retransmits as TCP retransmits, so the guard saw "impairment" that had nothing to do with the radio.
+- Runtime fix on edge-4: `systemctl stop snapd.socket snapd.service` (not disabled, not masked): retransmits 0 in 30 s afterwards. A reboot starts snapd again and the retries
+  return. Lasting options: register edge-4 once on a network with internet, or stop snapd on every laptop at the start of a measurement session (preferred: the experiments then do not
+  depend on snapd's state; to be added to the fleet environment step).
+- Guard changes (commit 4ef9080): new check "no half-open outbound connections" (SYN-SENT sockets, with the owning program; fails above 2, because the hub also runs Claude and
+  makes stray connections); the link-quality check uses the median signal and transmit rate of the last minute from the monitor log (one sample of an idle link's rate bounces:
+  edge-2 reported 58 to 65 Mbit/s in 9% of seconds while its median is 130, which failed it at random), with the single sample as fallback when no monitor runs.
+- Also seen in those 10 minutes: one 30 s stretch with about 32 slow-probe seconds on all four laptops at once, a disturbance of the shared medium; not explained.
+
+### The nine-run series through the guard (2026-11-11, 23:17 to 23:30; isolated router, 2.4 GHz, edge-4 in the room, snapd stopped on edge-4)
+Design: Trip Booking, 20 nodes, 5 / 20 / 50 requests per second, three passes (pass = 5, 20, 50), static placement, common random numbers, monitors running, `calibrate.py` gated by
+`fleet.py guard` before each pass. Logs: `~/testbed-results/netmon-20261111-233041` and `calibration-20261111-232019/232512/233013.json` (local, not in the repository).
+- Testbed (all nine runs): all requests completed (168/168, 638/638, 1644/1644 at 5, 20, 50 requests/s); no late hub events; no agent transfer over 0.5 s; live p99 makespan
+  1.01 to 1.03 times the simulator's; p50 makespan 1.26 to 1.44 times (the added 5 to 8 ms is large next to Trip Booking's millisecond tasks). Queue-free p95 overhead 45 to 60 ms
+  (5/s), 54 to 57 ms (20/s), 78 to 88 ms (50/s); extra time per task 4.5 to 5.3, 5.2 to 5.6, 7.3 to 8.2 ms; hub CPU 3 to 5%, 10 to 18%, 24 to 45%. Every pass sustained 350 tasks/s:
+  R_max = 350 tasks/s stands. Earlier nine runs (22:29 to 22:37, edge-4 far away): p95 overhead 58 to 119 ms, extra time per task 5.4 to 9.9 ms.
+- Wi-Fi, impaired seconds inside the nine runs' own 50 s windows (440 s): edge-1 42 (10%), edge-2 33 (8%), edge-3 33 (8%), edge-4 40 (9%); three or more laptops impaired in the same
+  second: 33 s (8%). (The report command's per-run table runs to the next configure event and includes the idle time between passes: runs 6, 9, 12 of its table; use the 50 s windows.)
+  Over the whole series (764 s): impaired 6 to 8% per laptop; signal median -34 to -40 dBm (min -44); link median 130 to 144 Mbit/s (min 58 on edge-2 and edge-4). Nearly all impairment is
+  "probe slow" (above 100 ms); edge-1 also had 8 TCP-retransmit seconds, edge-4 5 retry seconds. Edge-4, impaired 34% of the time before it was moved, is now level with the others.
+- Impairment rises with load: 4 to 9 of 50 s at 50 requests/s, 0 to 4 at 5 requests/s (20/s: 2 to 6). Shared by 3+ laptops in nearly all those seconds. Plausible reading, not tested:
+  the testbed's own traffic slows the probes on the shared 2.4 GHz channel, so part of the "impairment" is self-induced.
+- Guard: 5 checks, 2 refusals, both directly after a 50 requests/s run (15 to 18% of the last 60 s impaired on all four laptops before pass 3; edge-1 12% and edge-4 13% before pass 2),
+  because its 60 s window contained that run's own traffic. Waiting 90 s cleared both. Consequence for the pre-registration: a cooldown of at least 90 s after every run before the guard
+  looks, or a guard that leaves our own runs out of its window; otherwise it measures our load rather than the environment.
+- Not established: whether 5 GHz changes any of this; the cause of the 30 s shared disturbance; whether the load-dependent impairment is self-induced. Trip Booking's timing-resolution limits (DEV-T5) apply.

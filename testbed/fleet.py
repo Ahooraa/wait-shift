@@ -11,6 +11,7 @@ Run on the hub (edge-1) with the venv python, from anywhere:  ~/venv-dfps/bin/py
   env [--fix]                  check the Python packages everywhere; --fix copies the hub's venv to any laptop that differs
   reboot [--on ...] --yes      reboot the laptops (never the hub) and wait until each is back
   discover [--write]           find the laptops on the LAN by name when their addresses changed; --write updates cluster.json
+  agents start|stop|status|check   run the node agents (testbed/agent.py) on every laptop, and measure them (timers, transfers, clocks)
 
 It uses the dedicated key ~/.ssh/testbed_ed25519, runs the laptops in parallel, and applies no system setting.
 Exit status is 1 when any laptop failed.
@@ -347,14 +348,91 @@ def cmd_discover(laps, write=False, path=CLUSTER, scan=None):
     return 0
 
 
+# ------------------------------------------------------------------------------------------------ node agents
+AGENT_PORT = 5300
+TOKEN_FILE = Path.home() / ".testbed" / "agent.token"
+
+AGENT_START = r"""mkdir -p ~/testbed-logs ~/.testbed
+if [ -f ~/.testbed/agent.pid ] && kill -0 "$(cat ~/.testbed/agent.pid)" 2>/dev/null; then
+  echo "already running (pid $(cat ~/.testbed/agent.pid))"
+else
+  cd ~/DFPS-implementation && [ -f testbed/agent.py ] || {{ echo "FAILED: testbed/agent.py is not on this laptop (commit, then fleet.py sync)"; exit 1; }}
+  (setsid nohup ~/venv-dfps/bin/python testbed/agent.py serve --port {port} --token-file ~/.testbed/agent.token --log-dir ~/testbed-logs >> ~/testbed-logs/agent.out 2>&1 < /dev/null & echo $! > ~/.testbed/agent.pid)
+  sleep 1
+  if kill -0 "$(cat ~/.testbed/agent.pid)" 2>/dev/null; then echo "started (pid $(cat ~/.testbed/agent.pid))"; else echo "FAILED to start"; tail -5 ~/testbed-logs/agent.out; exit 1; fi
+fi"""
+AGENT_STOP = r"""if [ -f ~/.testbed/agent.pid ] && kill -0 "$(cat ~/.testbed/agent.pid)" 2>/dev/null; then kill "$(cat ~/.testbed/agent.pid)"; rm -f ~/.testbed/agent.pid; echo stopped; else rm -f ~/.testbed/agent.pid; echo "not running"; fi"""
+
+
+def hub_token(path=TOKEN_FILE):
+    """The shared secret of the agents: created once on the hub (mode 600) and copied to every laptop by `agents start`."""
+    path = Path(path)
+    if not path.exists() or not path.read_text().strip():
+        import secrets
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch(mode=0o600)
+        path.write_text(secrets.token_hex(16) + "\n")
+    path.chmod(0o600)
+    return path.read_text().strip()
+
+
+def cmd_agents(laps, action, token_path=TOKEN_FILE, port=AGENT_PORT):
+    token = hub_token(token_path)
+    if action == "check":
+        try:
+            from testbed.agentcheck import run_check
+        except ImportError:
+            from agentcheck import run_check
+        ok = run_check(laps, token, port)
+        print("\nagent check: " + ("OK" if ok else "PROBLEMS (see above)"))
+        return 0 if ok else 1
+    if action == "status":
+        try:
+            from testbed.agentclient import AgentClient
+        except ImportError:
+            from agentclient import AgentClient
+
+        def one(lap):
+            try:
+                c = AgentClient(lap.get("wifi_ip") or lap["ssh"], port, token, timeout=5)
+                st = c.call("status")
+                c.close()
+                late = st["lateness_s"]
+                return lap, True, (f"running, {st['instances']} instances, {st['counters']['tasks']} tasks, "
+                                   f"lateness max {late['max'] * 1e3:.1f} ms over {late['n']} timers, speed {st['speed']:g}")
+            except Exception as e:                                       # noqa: BLE001 - report any failure per laptop
+                return lap, False, f"not reachable: {short(str(e), 80)}"
+        bad = 0
+        for lap, ok, info in pmap(one, laps):
+            bad += not ok
+            print(f"  {lap['name']:<8} {info}")
+        return 1 if bad else 0
+
+    def one(lap):
+        if action == "start":
+            if not lap.get("local"):
+                rc, _, err = sh(lap, "mkdir -p ~/.testbed && umask 077 && cat > ~/.testbed/agent.token", input=token + "\n", timeout=30)
+                if rc:
+                    return lap, False, "could not place the token: " + short(err)
+            rc, out, err = sh(lap, AGENT_START.format(port=port), timeout=60)
+        else:
+            rc, out, err = sh(lap, AGENT_STOP, timeout=30)
+        return lap, rc == 0, short(out or err)
+    bad = 0
+    for lap, ok, info in pmap(one, laps):
+        bad += not ok
+        print(f"  {lap['name']:<8} {info}")
+    return 1 if bad else 0
+
+
 # ------------------------------------------------------------------------------------------------ command line
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--cluster", default=str(CLUSTER))
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("list", "status", "run", "sync", "env", "reboot", "discover"):
+    for name in ("list", "status", "run", "sync", "env", "reboot", "discover", "agents"):
         p = sub.add_parser(name)
-        if name in ("status", "run", "env", "reboot"):
+        if name in ("status", "run", "env", "reboot", "agents"):
             p.add_argument("--on", help="comma-separated laptop names (default: all)")
         if name == "status":
             p.add_argument("--measured", action="store_true")
@@ -370,6 +448,8 @@ def main(argv=None):
             p.add_argument("--yes", action="store_true", help="required: this reboots the laptops")
         if name == "discover":
             p.add_argument("--write", action="store_true")
+        if name == "agents":
+            p.add_argument("action", choices=("start", "stop", "status", "check"))
     a = ap.parse_args(argv)
     laps = select(load_cluster(a.cluster), getattr(a, "on", None))
     if a.cmd == "list":
@@ -389,6 +469,8 @@ def main(argv=None):
         if not a.yes:
             raise SystemExit("this reboots " + ", ".join(lap["name"] for lap in laps if not lap.get("local")) + "; add --yes to do it")
         return cmd_reboot(laps)
+    if a.cmd == "agents":
+        return cmd_agents(laps, a.action)
     return cmd_discover(load_cluster(a.cluster), a.write, a.cluster)
 
 

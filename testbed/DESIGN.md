@@ -1,8 +1,12 @@
 # Real testbed on 4 laptops: design (draft, 2026-11-11)
 
-Status (2026-11-11): **phase 1 implemented** (`preflight.py`, `bootstrap.sh`, `requirements.txt`, `SETUP.md`, `tests/test_preflight.py`;
-check-only, verified on the coordinator candidate only, not yet on the other three machines). Phases 2-6 not started.
-Written against the code at commit a41144a plus the uncommitted path fixes.
+Status (2026-11-11): **phase 1 done** (preflight, bootstrap, pinned environment, setup guide, hub-side connect tool and `fleet.py`; all four
+laptops enrolled and set up for measured runs except text boot). **Phase 2 built, not yet run on the laptops:** `agent.py` (node agent:
+container slots with cold starts, task timers, per-node storage, real state transfers paced to the nominal Eq.1-2 time, JSONL log),
+`agentclient.py` (hub side), `agentcheck.py` + `fleet.py agents start|stop|status|check` (acceptance run on the real laptops), 12
+loopback tests including four agents transferring between every pair. Found and fixed during testing: a background task that Python
+could garbage-collect (a transfer then hung silently with no event), and errors that were not reported. Phases 3-6 not started.
+Written against the code at commit a41144a plus the commits on this branch.
 
 ## Goal
 Run DFPS (B*), its variants and the baselines (SR, SG, Heu, RL, ...) on real machines and measure real makespan, cold starts,

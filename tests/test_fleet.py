@@ -136,3 +136,18 @@ def test_discover_updates_changed_addresses_only_with_write(monkeypatch, capsys,
     data = json.loads(path.read_text())["laptops"]
     assert data[1]["ssh"] == "10.0.0.22" and data[1]["wifi_mac"] == "aa:bb:cc:00:00:02"
     assert data[2]["wifi_ip"] == "10.0.0.3" and data[0]["ssh"] == "10.0.0.1"
+
+
+def test_agent_token_is_created_once_with_private_mode(tmp_path):
+    import os
+    path = tmp_path / "d" / "agent.token"
+    t1 = fl.hub_token(path)
+    assert len(t1) == 32 and oct(os.stat(path).st_mode & 0o777) == "0o600"
+    assert fl.hub_token(path) == t1
+
+
+def test_agent_start_and_stop_scripts_are_valid_bash():
+    import subprocess
+    for script in (fl.AGENT_START.format(port=5300), fl.AGENT_STOP):
+        assert subprocess.run(["bash", "-n"], input=script, text=True).returncode == 0
+    assert "--port 5300" in fl.AGENT_START.format(port=5300) and "--token-file" in fl.AGENT_START

@@ -7,8 +7,11 @@ are commands you run. The Fast path below installs packages, and asks before it 
 **Direction (decided 2026-11-11).** The experiment is controlled from the hub laptop (`edge-1`, the one with Claude), so that you run
 as little as possible by hand on the others. Today the steps below are still manual on the other three laptops. They are being
 replaced by a one-time enrollment line per laptop plus commands run from the hub, so that Part 2 (settings), Part 5 (text mode) and the
-re-checks are applied remotely, after you have approved exactly what the helper on each laptop may change. **That is not built yet**:
-until it is, use this guide as written. When a step becomes automatic, this file says so and keeps the manual commands as a fallback.
+re-checks are applied remotely, after you have approved exactly what the helper on each laptop may change. **Status 2026-11-11:** the
+four laptops are enrolled (SSH key, names, passwordless `sudo`, environment, code), and `testbed/fleet.py` gives `list`, `status`, `run`,
+`sync`, `env`, `reboot` and `discover` from the hub, so Parts 1 to 4 need no more typing on the other laptops. Part 2 (settings) and Part 5
+(text mode) are not automated yet: until they are, use those parts as written. When a step becomes automatic, this file says so and
+keeps the manual commands as a fallback.
 
 **Order at a glance** (the parts are not all done on one machine at a time):
 

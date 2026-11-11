@@ -99,3 +99,6 @@ grep.exe.stackdump
 # Derived Alibaba DAG sets (120 MB and 180 MB, above GitHub file-size limit); rebuilt from data/alibaba_raw by the scripts named in data/README.md
 data/alibaba_dags_lt60s.json
 data/alibaba_dags_lt60s_min1.json
+
+# Real addresses of the testbed laptops (the repository is public); see testbed/cluster.example.json
+testbed/cluster.json

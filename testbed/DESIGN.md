@@ -89,13 +89,23 @@ Claude), and avoid commands run by hand on the others. Consequences for the plan
   hub's dedicated SSH key (a new ed25519 key on the hub, private half never leaves it), and installs a root helper (below).
 - **Reach by name, not address:** `edge-N.local` (mDNS, avahi runs on Ubuntu, also in text mode) with the registry's IP as fallback,
   so a changed DHCP address does not break control.
-- **Fleet controller on the hub** (`testbed/fleet.py`, reads the registry that `connect.py hub` already writes): run in parallel on
-  all laptops with per-host results: `status` (preflight on all), `sync` (push the code and check every commit is equal),
-  `env` (bootstrap), `apply-settings` and `text-mode on/off` (root helper), `reboot` (waits until the laptop is back), `agents
-  start/stop`, `collect` (pull logs and results back). Experiment runs, the grid and the merge of results are driven from the hub.
-- **Root on the other laptops** is needed only for system settings (governor, swap, updates, kernel hold, chrony, text boot). Open
-  decision: a restricted root-owned helper script with a sudoers rule for only that script (proposed), versus passwordless sudo.
-  Until decided, settings stay in `SETUP.md` Part 2.
+- **Fleet controller on the hub: `testbed/fleet.py` + `testbed/cluster.json` (built 2026-11-11; the real file with addresses and hardware addresses is local and git-ignored because the repository is public, `cluster.example.json` shows the format).** Commands, run in parallel with
+  per-laptop results over a dedicated SSH key (`~/.ssh/testbed_ed25519`): `list`, `status` (preflight on all plus the
+  cross-machine comparison), `run -- CMD`, `sync` (code to the hub's commit via a git bundle), `env [--fix]` (check packages, copy the
+  hub's venv), `reboot --yes` (waits until each is back), `discover [--write]` (re-find laptops when addresses change).
+  Verified on the real four laptops: `list`, `status`, `run`, `env`, `discover`. Not yet run for real: `sync` (needs a commit
+  first), `reboot`, `env --fix`, `discover --write`; these have unit tests (tests/test_fleet.py). Still to build: `apply-settings`,
+  `text-mode`, `agents start/stop`, `collect`.
+- **Enrolment as done (2026-11-11):** instead of the extended `join.sh`, the three laptops were enrolled by hand once:
+  `openssh-server` installed, the hub's key installed with `ssh-copy-id`, SSH password login turned off, hostnames set, passwordless
+  `sudo` for the user. The Python environment was copied from the hub over SSH because `files.pythonhosted.org` did not resolve
+  on the network (queries for that one name time out on every DNS server, from every laptop).
+- **Two interfaces on edge-2:** Ethernet (used for control) and Wi-Fi (used by experiments) are both
+  connected; the experiment traffic could take the wired path. Unplug Ethernet before Wi-Fi experiments and set `ssh` in
+  `cluster.json` to the Wi-Fi address (`discover --write`). `cluster.json` keeps both addresses.
+- **Root on the other laptops:** the three laptops have passwordless `sudo`, so system settings can be applied over SSH directly;
+  the restricted-helper option stays open for later hardening. Settings still need the user's approval of the exact list first
+  (`SETUP.md` Part 2 is the list).
 - **No GitHub login on the others:** code reaches them from the hub (bundle now, rsync later).
 - `SETUP.md` is the fallback and the record of what the automation does; new steps are added to the controller first.
 

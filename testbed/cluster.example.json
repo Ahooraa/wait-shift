@@ -1,0 +1,44 @@
+{
+  "_comment": "Copy to testbed/cluster.json (which git ignores) and fill in; or fill it in with: python testbed/fleet.py discover --write. 'ssh' is the address used to control a laptop, 'wifi_ip' the address experiments use (they can differ when a laptop also has Ethernet).",
+  "user": "YOUR_USER",
+  "wifi": "YOUR_5GHZ_NETWORK_NAME",
+  "laptops": [
+    {
+      "name": "edge-1",
+      "role": "hub",
+      "local": true,
+      "ssh": "192.0.2.11",
+      "wifi_ip": "192.0.2.11",
+      "wifi_iface": "wlan0",
+      "wifi_mac": "00:00:5e:00:53:01",
+      "hardware": "model, CPU, threads, RAM"
+    },
+    {
+      "name": "edge-2",
+      "role": "agent",
+      "ssh": "192.0.2.12",
+      "wifi_ip": "192.0.2.12",
+      "wifi_iface": "wlan0",
+      "wifi_mac": "00:00:5e:00:53:02",
+      "hardware": "model, CPU, threads, RAM"
+    },
+    {
+      "name": "edge-3",
+      "role": "agent",
+      "ssh": "192.0.2.13",
+      "wifi_ip": "192.0.2.13",
+      "wifi_iface": "wlan0",
+      "wifi_mac": "00:00:5e:00:53:03",
+      "hardware": "model, CPU, threads, RAM"
+    },
+    {
+      "name": "edge-4",
+      "role": "agent",
+      "ssh": "192.0.2.14",
+      "wifi_ip": "192.0.2.14",
+      "wifi_iface": "wlan0",
+      "wifi_mac": "00:00:5e:00:53:04",
+      "hardware": "model, CPU, threads, RAM"
+    }
+  ]
+}

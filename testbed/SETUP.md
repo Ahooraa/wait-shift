@@ -237,7 +237,7 @@ Wait two minutes, then check:
 chronyc tracking
 ```
 `Leap status` must be `Normal`, and `System time` should be a few thousandths of a second at most. `chronyc sources` shows the servers;
-the one marked `*` is the one in use. The router must be online for this.
+the one marked `*` is the one in use. The router must be online for this. From the hub, `fleet.py clock setup` goes further: it makes the hub the only time source of the other three, because laptops that each follow different internet servers can differ from each other by about 12 ms even though each is within 2 ms of its own server.
 
 **2.6 Wi-Fi power saving off** (the Wi-Fi drops for about ten seconds):
 ```bash
@@ -406,7 +406,7 @@ copy what the hub printed). On the manual path, bring the output of Part 3.3 and
 | 2.2 | `sudo systemctl enable --now apt-daily.timer apt-daily-upgrade.timer`, set both values in `/etc/apt/apt.conf.d/20auto-upgrades` back to `"1"`, `sudo snap refresh --unhold` |
 | 2.3 | `sudo mv /etc/fstab.bak /etc/fstab && sudo swapon -a` |
 | 2.4 | `sudo systemctl disable --now cpu-performance.service`, `sudo systemctl unmask power-profiles-daemon` if you masked it, then `echo powersave \| sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor` |
-| 2.5 | `sudo systemctl disable --now chrony` |
+| 2.5 | `sudo systemctl disable --now chrony`; if `fleet.py clock setup` was used: `fleet.py clock undo` |
 | 2.6 | `sudo rm /etc/NetworkManager/conf.d/wifi-powersave-off.conf && sudo systemctl restart NetworkManager` |
 | 2.7 | `sudo systemctl unmask sleep.target suspend.target hibernate.target hybrid-sleep.target && sudo rm /etc/systemd/logind.conf.d/testbed.conf` |
 | 5.2 | `sudo systemctl set-default graphical.target` then `sudo reboot` |

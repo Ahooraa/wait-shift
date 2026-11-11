@@ -104,6 +104,11 @@ Claude), and avoid commands run by hand on the others. Consequences for the plan
   `openssh-server` installed, the hub's key installed with `ssh-copy-id`, SSH password login turned off, hostnames set, passwordless
   `sudo` for the user. The Python environment was copied from the hub over SSH because `files.pythonhosted.org` did not resolve
   on the network (queries for that one name time out on every DNS server, from every laptop).
+- **One clock for all laptops (2026-11-11):** with each laptop on its own internet time servers the laptops differed by 11 to 14 ms
+  (the servers disagree by tens of ms). `fleet.py clock setup` makes the hub serve time to the LAN and the other three follow only the hub
+  (their pools are commented out, original config kept as `chrony.conf.testbed-orig`); measured by `agents check`, the offsets fell to
+  0.4 to 0.7 ms (the method's own resolution is about 1 ms over Wi-Fi). Absolute time follows the hub's upstream, which does not matter for
+  relative timestamps. If the hub's address changes the others lose their source: reserve its address in the router. `clock undo` reverts.
 - **Two interfaces on edge-2:** Ethernet (used for control) and Wi-Fi (used by experiments) are both
   connected; the experiment traffic could take the wired path. Unplug Ethernet before Wi-Fi experiments and set `ssh` in
   `cluster.json` to the Wi-Fi address (`discover --write`). `cluster.json` keeps both addresses.

@@ -151,3 +151,35 @@ def test_agent_start_and_stop_scripts_are_valid_bash():
     for script in (fl.AGENT_START.format(port=5300), fl.AGENT_STOP):
         assert subprocess.run(["bash", "-n"], input=script, text=True).returncode == 0
     assert "--port 5300" in fl.AGENT_START.format(port=5300) and "--token-file" in fl.AGENT_START
+
+
+def test_subnet_of():
+    assert fl.subnet_of("192.0.2.77") == "192.0.2.0/24"
+
+
+def test_clock_scripts_are_valid_bash_and_the_sed_is_safe_to_repeat(tmp_path):
+    import re
+    import subprocess
+    for sc in (fl.CLOCK_HUB.format(subnet="192.0.2.0/24"), fl.CLOCK_AGENT.format(hub="192.0.2.11"), fl.CLOCK_UNDO_HUB, fl.CLOCK_UNDO_AGENT, fl.CLOCK_STATUS):
+        assert subprocess.run(["bash", "-n"], input=sc, text=True).returncode == 0
+    conf = tmp_path / "chrony.conf"
+    conf.write_text("confdir /etc/chrony/conf.d\npool ntp.ubuntu.com iburst maxsources 4\nsourcedir /run/chrony-dhcp\nsourcedir /etc/chrony/sources.d\nrtcsync\n")
+    sed = re.search(r"sed -i (.*) /etc/chrony/chrony.conf", fl.CLOCK_AGENT).group(1)
+    subprocess.run(f"sed -i {sed} {conf}", shell=True, check=True)
+    once = conf.read_text()
+    assert "#testbed-disabled# pool ntp.ubuntu.com" in once and "#testbed-disabled# sourcedir /run/chrony-dhcp" in once
+    assert {"sourcedir /etc/chrony/sources.d", "rtcsync", "confdir /etc/chrony/conf.d"} <= set(once.splitlines())
+    subprocess.run(f"sed -i {sed} {conf}", shell=True, check=True)
+    assert conf.read_text() == once
+
+
+def test_clock_setup_serves_from_the_hub_first_and_points_the_others_at_it(monkeypatch, capsys, tmp_path):
+    laps = fl.load_cluster(write_cluster(tmp_path))
+    order = []
+    monkeypatch.setattr(fl, "run_root", lambda lap, script, timeout=120: (order.append((lap["name"], script)), (0, "ok\n", ""))[1])
+    assert fl.cmd_clock(laps, "setup") == 0
+    assert order[0][0] == "edge-1" and "allow 10.0.0.0/24" in order[0][1]
+    assert {n for n, _ in order[1:]} == {"edge-2", "edge-3"} and all("server 10.0.0.1 " in sc for _, sc in order[1:])
+    order.clear()
+    assert fl.cmd_clock(laps, "undo") == 0
+    assert "testbed-server.conf" in order[0][1] and all("testbed-orig" in sc for _, sc in order[1:])

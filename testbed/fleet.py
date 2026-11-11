@@ -12,6 +12,7 @@ Run on the hub (edge-1) with the venv python, from anywhere:  ~/venv-dfps/bin/py
   reboot [--on ...] --yes      reboot the laptops (never the hub) and wait until each is back
   discover [--write]           find the laptops on the LAN by name when their addresses changed; --write updates cluster.json
   agents start|stop|status|check   run the node agents (testbed/agent.py) on every laptop, and measure them (timers, transfers, clocks)
+  clock setup|status|undo      make the hub the time source of the other laptops (chrony), so their clocks agree to about a millisecond
 
 It uses the dedicated key ~/.ssh/testbed_ed25519, runs the laptops in parallel, and applies no system setting.
 Exit status is 1 when any laptop failed.
@@ -425,14 +426,73 @@ def cmd_agents(laps, action, token_path=TOKEN_FILE, port=AGENT_PORT):
     return 1 if bad else 0
 
 
+# ------------------------------------------------------------------------------------------------ clock
+# Each laptop synchronised to its own subset of internet servers, which disagree by tens of milliseconds, so the laptops differed by
+# about 12 ms although each said it was within 2 ms. One clock for all four: the hub serves time to the LAN, the others follow only the hub.
+CLOCK_HUB = r"""set -eu
+mkdir -p /etc/chrony/conf.d
+printf 'allow {subnet}\nlocal stratum 10\n' > /etc/chrony/conf.d/testbed-server.conf
+systemctl restart chrony
+echo "hub serves time to {subnet}"
+"""
+CLOCK_AGENT = r"""set -eu
+mkdir -p /etc/chrony/conf.d
+[ -f /etc/chrony/chrony.conf.testbed-orig ] || cp /etc/chrony/chrony.conf /etc/chrony/chrony.conf.testbed-orig
+sed -i -e 's/^pool /#testbed-disabled# pool /' -e 's/^sourcedir \/run\/chrony-dhcp/#testbed-disabled# sourcedir \/run\/chrony-dhcp/' /etc/chrony/chrony.conf
+printf 'server {hub} iburst prefer minpoll 3 maxpoll 5\n' > /etc/chrony/conf.d/testbed-client.conf
+systemctl restart chrony
+sleep 12
+chronyc makestep >/dev/null
+echo "now follows the hub only"
+"""
+CLOCK_UNDO_HUB = r"""rm -f /etc/chrony/conf.d/testbed-server.conf; systemctl restart chrony; echo "hub no longer serves time" """
+CLOCK_UNDO_AGENT = r"""rm -f /etc/chrony/conf.d/testbed-client.conf
+[ -f /etc/chrony/chrony.conf.testbed-orig ] && cp /etc/chrony/chrony.conf.testbed-orig /etc/chrony/chrony.conf
+systemctl restart chrony; echo "back to the original internet servers" """
+CLOCK_STATUS = r"""chronyc tracking | awk -F' : ' '/Reference ID|Stratum|System time/ {printf "%s=%s; ", $1, $2}'; echo; echo "sources: $(chronyc sources -n | grep -c '^[\^=#]'); selected: $(chronyc sources | awk '/^\^\*/ {print $2}')" """
+
+
+def subnet_of(ip):
+    return ".".join(ip.split(".")[:3]) + ".0/24"
+
+
+def run_root(lap, script, timeout=120):
+    import base64
+    b64 = base64.b64encode(script.encode()).decode()
+    return sh(lap, f"echo {b64} | base64 -d | sudo -n bash", timeout=timeout)
+
+
+def cmd_clock(laps, action):
+    hub = next((lap for lap in laps if lap.get("local")), None) or next(lap for lap in load_cluster() if lap.get("local"))
+    hub_ip = hub.get("wifi_ip") or hub["ssh"]
+    bad = 0
+    if action == "status":
+        for lap, (rc, out, err) in zip(laps, pmap(lambda lap: sh(lap, CLOCK_STATUS, timeout=30), laps)):
+            bad += rc != 0
+            print(f"  {lap['name']:<8} {short(out or err, 150)}")
+        return 1 if bad else 0
+    # the hub first (it must serve before the others ask), then the others in parallel
+    hub_script = CLOCK_HUB.format(subnet=subnet_of(hub_ip)) if action == "setup" else CLOCK_UNDO_HUB
+    others = [lap for lap in laps if not lap.get("local")]
+    if any(lap.get("local") for lap in laps):
+        rc, out, err = run_root(hub, hub_script)
+        bad += rc != 0
+        print(f"  {hub['name']:<8} {short(out or err)}")
+    script = CLOCK_AGENT.format(hub=hub_ip) if action == "setup" else CLOCK_UNDO_AGENT
+    for lap, (rc, out, err) in zip(others, pmap(lambda lap: run_root(lap, script, timeout=180), others)):
+        bad += rc != 0
+        print(f"  {lap['name']:<8} {short(out or err)}")
+    return 1 if bad else 0
+
+
 # ------------------------------------------------------------------------------------------------ command line
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--cluster", default=str(CLUSTER))
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("list", "status", "run", "sync", "env", "reboot", "discover", "agents"):
+    for name in ("list", "status", "run", "sync", "env", "reboot", "discover", "agents", "clock"):
         p = sub.add_parser(name)
-        if name in ("status", "run", "env", "reboot", "agents"):
+        if name in ("status", "run", "env", "reboot", "agents", "clock"):
             p.add_argument("--on", help="comma-separated laptop names (default: all)")
         if name == "status":
             p.add_argument("--measured", action="store_true")
@@ -450,6 +510,8 @@ def main(argv=None):
             p.add_argument("--write", action="store_true")
         if name == "agents":
             p.add_argument("action", choices=("start", "stop", "status", "check"))
+        if name == "clock":
+            p.add_argument("action", choices=("setup", "status", "undo"))
     a = ap.parse_args(argv)
     laps = select(load_cluster(a.cluster), getattr(a, "on", None))
     if a.cmd == "list":
@@ -471,6 +533,8 @@ def main(argv=None):
         return cmd_reboot(laps)
     if a.cmd == "agents":
         return cmd_agents(laps, a.action)
+    if a.cmd == "clock":
+        return cmd_clock(laps, a.action)
     return cmd_discover(load_cluster(a.cluster), a.write, a.cluster)
 
 

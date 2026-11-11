@@ -375,6 +375,35 @@ def build_bundle(dest):
     return branch, git("rev-parse", "HEAD"), origin, dirty
 
 
+# apt packages every testbed laptop needs (the same list as testbed/join.sh)
+PACKAGES = ["git", "python3-venv", "python3-pip", "build-essential", "rsync", "curl", "iw", "chrony"]
+
+
+def is_installed(pkg):
+    out = subprocess.run(["dpkg-query", "-W", "-f=${Status}", pkg], capture_output=True, text=True).stdout
+    return "install ok installed" in out
+
+
+def missing_packages(installed=is_installed):
+    return [p for p in PACKAGES if not installed(p)]
+
+
+def ensure_tools(assume_yes=False, installed=is_installed, ask=input, run=subprocess.run, say=print):
+    """Install the apt packages that are missing on this laptop (after asking, unless assume_yes). Returns True if all present."""
+    miss = missing_packages(installed)
+    if not miss:
+        say("tools: all installed")
+        return True
+    cmd = ["sudo", "apt-get", "install", "-y", *miss]
+    say(f"Missing tools on this laptop: {' '.join(miss)}\nThis runs:  sudo apt-get update  and  {' '.join(cmd)}\n(it asks for your password)")
+    if not assume_yes and ask("Install them now? [Y/n] ").strip().lower() in ("n", "no"):
+        say("skipped; the hub still works but the settings steps need these tools")
+        return False
+    ok = run(["sudo", "apt-get", "update", "-qq"]).returncode == 0 and run(cmd).returncode == 0
+    say("tools: installed" if ok else "tools: install FAILED; fix the error above and run the hub again")
+    return ok
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -383,6 +412,8 @@ def main(argv=None):
     h.add_argument("--port", type=int, default=DEFAULT_HTTP_PORT)
     h.add_argument("--out", default=str(Path.home() / "testbed-reports"))
     h.add_argument("--turn-timeout", type=float, default=180.0)
+    h.add_argument("--yes", action="store_true", help="install missing tools without asking")
+    h.add_argument("--no-install", action="store_true", help="do not check or install tools")
     j = sub.add_parser("join")
     j.add_argument("--hub", required=True, help="http://HUB_IP:PORT")
     j.add_argument("--token", required=True)
@@ -393,6 +424,8 @@ def main(argv=None):
         print(f"\n[{now()}] the hub has finished; its summary is on the hub laptop. This laptop probed {len(res)} peer(s).")
         return 0
 
+    if not a.no_install and not ensure_tools(a.yes):
+        print("continuing without the missing tools")
     tmp = Path(tempfile.mkdtemp(prefix="testbed-hub-"))
     branch, commit, origin, dirty = build_bundle(tmp / "dfps.bundle")
     token = secrets.token_hex(3)

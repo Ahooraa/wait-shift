@@ -99,3 +99,21 @@ def test_lan_ip_returns_an_address():
 def test_join_script_is_valid_bash():
     import subprocess
     assert subprocess.run(["bash", "-n", str(cn.HERE / "join.sh")]).returncode == 0
+
+
+def test_ensure_tools_asks_then_installs_only_missing():
+    calls, said = [], []
+    class R:  # fake subprocess result
+        returncode = 0
+    run = lambda cmd: (calls.append(cmd), R())[1]
+    have = {"git", "curl", "rsync", "python3-pip"}
+    ok = cn.ensure_tools(installed=lambda p: p in have, ask=lambda q: "y", run=run, say=said.append)
+    assert ok and calls[-1] == ["sudo", "apt-get", "install", "-y", "python3-venv", "build-essential", "iw", "chrony"]
+    assert calls[0][:3] == ["sudo", "apt-get", "update"]
+
+
+def test_ensure_tools_declined_or_complete():
+    calls = []
+    run = lambda cmd: calls.append(cmd)
+    assert cn.ensure_tools(installed=lambda p: True, run=run, say=lambda m: None) is True and not calls
+    assert cn.ensure_tools(installed=lambda p: False, ask=lambda q: "n", run=run, say=lambda m: None) is False and not calls

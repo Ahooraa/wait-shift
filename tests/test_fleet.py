@@ -183,3 +183,36 @@ def test_clock_setup_serves_from_the_hub_first_and_points_the_others_at_it(monke
     order.clear()
     assert fl.cmd_clock(laps, "undo") == 0
     assert "testbed-server.conf" in order[0][1] and all("testbed-orig" in sc for _, sc in order[1:])
+
+
+def test_guard_reports_each_laptop_and_fails_if_any_fails(capsys, tmp_path):
+    laps = fl.load_cluster(write_cluster(tmp_path))
+    ok = {"checks": [{"name": "no Wi-Fi scan source running", "status": "PASS", "detail": "none"}, {"name": "Wi-Fi link quality", "status": "PASS", "detail": ""}]}
+    scan = {"checks": [{"name": "no Wi-Fi scan source running", "status": "FAIL", "detail": "gnome-control-c"}, {"name": "Wi-Fi link quality", "status": "PASS", "detail": ""}]}
+    other = {"checks": [{"name": "boot target = multi-user (text)", "status": "FAIL", "detail": "graphical.target"}]}   # not required: not the guard's business
+    swap = {"checks": [{"name": "swap off", "status": "FAIL", "detail": "4095 MB"}]}                  # a setting the guard does check
+    lines = []
+    rc = fl.cmd_guard(laps, reports=[(laps[0], ok, ""), (laps[1], scan, ""), (laps[2], other, "")], extra=lambda lap: [], out=lines.append)
+    text = "\n".join(lines)
+    assert rc == 1 and "edge-2   FAIL  no Wi-Fi scan source running: gnome-control-c" in text and "edge-1   ok" in text and "edge-3   ok" in text
+    assert "1 laptop(s) NOT ready" in text
+    lines.clear()
+    assert fl.cmd_guard(laps, reports=[(laps[0], ok, ""), (laps[1], ok, ""), (laps[2], swap, "")], extra=lambda lap: [], out=lines.append) == 1
+    assert "swap off: 4095 MB" in "\n".join(lines)
+    lines.clear()
+    assert fl.cmd_guard(laps, reports=[(laps[0], ok, ""), (laps[1], ok, ""), (laps[2], ok, "")], extra=lambda lap: [], out=lines.append) == 0
+    assert lines[-1].startswith("guard: all laptops ready")
+    lines.clear()
+    assert fl.cmd_guard(laps, reports=[(laps[0], ok, ""), (laps[1], ok, ""), (laps[2], None, "no report")], extra=lambda lap: [], out=lines.append) == 1
+    lines.clear()
+    assert fl.cmd_guard(laps, reports=[(laps[0], ok, ""), (laps[1], ok, ""), (laps[2], ok, "")], extra=lambda lap: [("network monitor running", "no samples")] if lap["name"] == "edge-2" else [],
+                        out=lines.append) == 1                                                       # the monitor is not running on edge-2
+
+
+def test_calibration_refuses_to_start_when_the_guard_fails(monkeypatch, tmp_path):
+    from testbed import calibrate as C
+    monkeypatch.setattr(fl, "load_cluster", lambda *a, **k: [{"name": "edge-1", "ssh": "x", "user": "u"}])
+    monkeypatch.setattr(fl, "cmd_guard", lambda laps, *a, **k: 1)
+    monkeypatch.setattr(C.LiveLink, "from_cluster", classmethod(lambda cls, *a, **k: pytest.fail("must not connect when the guard fails")))
+    with pytest.raises(SystemExit, match="guard found problems"):
+        C.main(["--rates", "5", "--out", str(tmp_path)])

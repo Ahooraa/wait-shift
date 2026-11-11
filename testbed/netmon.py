@@ -212,6 +212,26 @@ def impaired_reasons(r):
     return why
 
 
+def recent_impairment(path, seconds=60, now=None, max_age_s=15.0):
+    """Share of the last `seconds` of a monitor log that were impaired: {'seconds', 'impaired', 'fraction', 'age_s'}, or None when the log is
+    missing, empty or stale (the monitor is not running, so nothing can be said about the last minute)."""
+    try:
+        recs = load_records(path)
+    except OSError:
+        return None
+    if not recs:
+        return None
+    now = time.time() if now is None else now
+    last = max(r["t"] for r in recs)
+    if now - last > max_age_s:
+        return None
+    win = [r for r in recs if now - seconds <= r["t"] <= now]
+    if not win:
+        return None
+    bad = sum(1 for r in win if impaired_reasons(r))
+    return {"seconds": len(win), "impaired": bad, "fraction": bad / len(win), "age_s": now - last}
+
+
 def episodes(records, gap_s=2.0):
     """Impaired seconds merged into episodes: [{'t0', 't1', 'seconds', 'reasons'}]; seconds closer than gap_s belong together."""
     eps = []

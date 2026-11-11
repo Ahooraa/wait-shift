@@ -1,6 +1,9 @@
 """Tests for testbed/preflight.py: parsers, the check logic, cross-machine comparison and a loopback probe."""
 import copy
+import json
 import threading
+
+import pytest
 
 from testbed import preflight as pf
 
@@ -120,3 +123,65 @@ def test_loopback_probe_measures_rtt_clock_and_throughput():
     assert r["rtt_ms"]["min"] >= 0 and r["rtt_ms"]["median"] < 50
     assert abs(r["clock_offset_ms_peer_minus_local"]) < 5          # same machine: same clock
     assert r["up_MBps"] > 1 and r["down_MBps"] > 1
+
+
+# ---- the Wi-Fi guard (2026-11-11: GNOME Settings open made three laptops scan every 15 s and stalled the testbed)
+IW_LINK = """Connected to 00:00:5e:00:53:01 (on wlan0)
+\tSSID: example
+\tfreq: 2457.0
+\tsignal: -36 dBm
+\trx bitrate: 144.4 MBit/s MCS 15 short GI
+\ttx bitrate: 130.0 MBit/s MCS 14 short GI
+"""
+IW_EVENT = ("1794423317.090903: wlan0 (phy #0): scan started\n1794423323.410147: wlan0 (phy #0): scan finished: 2412 2417\n"
+            "1794423332.087665: wlan0 (phy #0): scan started\n1794423333.0: wlan0 (phy #0): connected to 00:00:5e:00:53:01\n")
+
+
+def test_guard_parsers():
+    assert pf.running_scan_sources("systemd\ngnome-shell\ngnome-control-c\nbash\nnm-applet\n") == ["gnome-control-c", "nm-applet"]
+    assert pf.running_scan_sources("systemd\nbash\n") == [] and pf.running_scan_sources(None) == []
+    assert pf.parse_iw_link(IW_LINK) == {"signal_dbm": -36.0, "tx_bitrate_mbps": 130.0, "freq_mhz": 2457.0}
+    assert pf.parse_iw_link("Not connected.") == {}
+    assert pf.count_scan_events(IW_EVENT) == 2 and pf.count_scan_events("") == 0
+
+
+def guard_report(**kw):
+    rep = good_report()
+    rep["wifi"] = {"interface": "wlan0", "power_save": "off"}
+    rep["wifi_guard"] = {"scan_sources": [], "link": {"signal_dbm": -40.0, "tx_bitrate_mbps": 144.4}, "scan_events": 0, "watch_s": 20,
+                         "recent_impairment": {"seconds": 60, "impaired": 2, "fraction": 2 / 60, "age_s": 1.0}}
+    rep["wifi_guard"].update(kw)
+    return rep
+
+
+def test_guard_passes_on_a_quiet_good_link_and_fails_on_each_problem_when_measured():
+    rows = pf.evaluate(guard_report(), measured=True)
+    assert not [r for r in rows if r[1] == pf.FAIL], rows
+    cases = {"no Wi-Fi scan source running": {"scan_sources": ["gnome-control-c"]},
+             "no Wi-Fi scan observed": {"scan_events": 4},
+             "Wi-Fi link quality": {"link": {"signal_dbm": -72.0, "tx_bitrate_mbps": 144.4}},
+             "recent Wi-Fi impairment": {"recent_impairment": {"seconds": 60, "impaired": 30, "fraction": 0.5, "age_s": 1.0}}}
+    for name, kw in cases.items():
+        assert status(pf.evaluate(guard_report(**kw), measured=True), name) == pf.FAIL, name
+        assert status(pf.evaluate(guard_report(**kw), measured=False), name) == pf.WARN, name          # only a warning while setting up
+    assert status(pf.evaluate(guard_report(link={"signal_dbm": -40.0, "tx_bitrate_mbps": 72.2}), measured=True), "Wi-Fi link quality") == pf.FAIL   # the weak edge-4 link
+
+
+def test_guard_without_a_monitor_warns_and_a_wired_laptop_skips_the_wifi_checks():
+    rows = pf.evaluate(guard_report(recent_impairment=None), measured=True)
+    assert [s for n, s, d in rows if n == "recent Wi-Fi impairment"] == [pf.WARN]
+    rep = good_report()                                                              # no wifi_guard at all (wired)
+    assert not [n for n, s, d in pf.evaluate(rep, measured=True) if "Wi-Fi scan" in n]
+
+
+def test_recent_impairment_reads_the_monitors_log(tmp_path):
+    from testbed import netmon as N
+    now = 1000.0
+    def line(t, bad=False):
+        return json.dumps({"t": t, "rtt": {"p": {"n": 10, "lost": 3 if bad else 0, "p50_ms": 3, "p99_ms": 6, "max_ms": 6}}})
+    log = tmp_path / "m.jsonl"
+    log.write_text("\n".join(line(940.0 + i, bad=(i % 10 == 0)) for i in range(60)) + "\n")      # 6 of the last 60 s impaired
+    r = N.recent_impairment(log, seconds=60, now=now)
+    assert r["seconds"] == 60 and r["impaired"] == 6 and r["fraction"] == pytest.approx(0.1)
+    assert N.recent_impairment(log, now=now + 100) is None                              # stale: the monitor stopped
+    assert N.recent_impairment(tmp_path / "missing.jsonl") is None

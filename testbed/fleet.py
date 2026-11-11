@@ -13,6 +13,7 @@ Run on the hub (edge-1) with the venv python, from anywhere:  ~/venv-dfps/bin/py
   discover [--write]           find the laptops on the LAN by name when their addresses changed; --write updates cluster.json
   agents start|stop|status|check   run the node agents (testbed/agent.py) on every laptop, and measure them (timers, transfers, clocks)
   clock setup|status|undo      make the hub the time source of the other laptops (chrony), so their clocks agree to about a millisecond
+  guard [--seconds N]          the check before a measured run: no Wi-Fi scan source, no scan seen, link quality, recent impairment, settings, agent, monitor
   monitor start|stop|status|collect|report   the network monitor (testbed/netmon.py) on every laptop: Wi-Fi state and a UDP latency probe between laptops
 
 It uses the dedicated key ~/.ssh/testbed_ed25519, runs the laptops in parallel, and applies no system setting.
@@ -122,15 +123,15 @@ def cmd_list(laps):
 
 
 # ------------------------------------------------------------------------------------------------ status
-def remote_status_cmd(lap, measured):
+def remote_status_cmd(lap, measured, watch_s=0):
     role = "coordinator" if lap.get("role") == "hub" else "agent"
     return ("cd ~/DFPS-implementation 2>/dev/null && ~/venv-dfps/bin/python testbed/preflight.py report "
-            f"--role {role} {'--measured' if measured else ''} --out /tmp/fleet_status.json >/dev/null 2>&1; cat /tmp/fleet_status.json")
+            f"--role {role} {'--measured' if measured else ''} {f'--watch-scans {watch_s}' if watch_s else ''} --out /tmp/fleet_status.json >/dev/null 2>&1; cat /tmp/fleet_status.json")
 
 
-def get_reports(laps, measured=False):
+def get_reports(laps, measured=False, watch_s=0):
     def one(lap):
-        rc, out, err = sh(lap, remote_status_cmd(lap, measured), timeout=180)
+        rc, out, err = sh(lap, remote_status_cmd(lap, measured, watch_s), timeout=180 + watch_s)
         try:
             return lap, json.loads(out), ""
         except ValueError:
@@ -552,14 +553,64 @@ def cmd_monitor(laps, action, all_laps=None, out_dir=None):
     return NM.main(["analyze", "--monitor", *mons, "--agent", *[a for m in mons for a in ags if Path(a).name.split("-")[0] == Path(m).name.split("-")[0]]])
 
 
+# ------------------------------------------------------------------------------------------------ guard before a measured run
+GUARD_CHECKS = ("no Wi-Fi scan source running", "no Wi-Fi scan observed", "Wi-Fi link quality", "recent Wi-Fi impairment", "Wi-Fi power save off",
+                "chrony synchronised", "cpu governor = performance", "swap off", "packages == testbed/requirements.txt")
+
+
+def guard_extra(lap, port=None):
+    """The agent answers and the network monitor is running and fresh; a list of problems (empty = fine)."""
+    problems = []
+    try:
+        from testbed.agentclient import AgentClient
+    except ImportError:
+        from agentclient import AgentClient
+    try:
+        AgentClient(lap.get("wifi_ip") or lap["ssh"], port or AGENT_PORT, hub_token(), timeout=5).close()
+    except Exception as e:                                           # noqa: BLE001 - any failure to connect is a problem to report
+        problems.append(("agent reachable", f"no: {short(str(e), 60)}"))
+    rc, out, err = sh(lap, MONITOR_LAST, timeout=30)
+    try:
+        age = int(out.strip().splitlines()[1].split()[1])
+        if age > 10:
+            problems.append(("network monitor running", f"last sample {age} s ago"))
+    except (ValueError, IndexError):
+        problems.append(("network monitor running", "no samples"))
+    return problems
+
+
+def cmd_guard(laps, seconds=20, reports=None, extra=None, out=print):
+    """Refuse-to-run check for a measured run, on every laptop in parallel: no Wi-Fi scan source (a Settings window makes a laptop scan every 15 s
+    and stalls the whole testbed), no scan seen in `seconds`, link quality, recent impairment seen by the monitor, plus the software and setting
+    checks of the preflight (--measured), the agent and the monitor. Prints one line per laptop; returns 1 if any laptop fails."""
+    got = reports if reports is not None else get_reports(laps, measured=True, watch_s=seconds)
+    extras = pmap((extra or guard_extra), laps) if extra is not False else [[] for _ in laps]
+    bad = 0
+    for (lap, rep, err), ex in zip(got, extras):
+        if rep is None:
+            bad += 1
+            out(f"  {lap['name']:<8} FAIL  no report: {err}")
+            continue
+        fails = [(c["name"], c["detail"]) for c in rep.get("checks", []) if c["status"] == "FAIL" and c["name"] in GUARD_CHECKS] + list(ex)
+        warns = [c["name"] for c in rep.get("checks", []) if c["status"] == "WARN" and c["name"] in GUARD_CHECKS]
+        ran = [c["name"] for c in rep.get("checks", []) if c["name"] in GUARD_CHECKS]
+        if fails:
+            bad += 1
+            out(f"  {lap['name']:<8} FAIL  " + "; ".join(f"{n}: {short(d, 90)}" for n, d in fails))
+        else:
+            out(f"  {lap['name']:<8} ok    {len(ran)} checks" + (f", warnings: {', '.join(warns)}" if warns else ""))
+    out("guard: " + ("all laptops ready for a measured run" if not bad else f"{bad} laptop(s) NOT ready; fix them (nothing was changed) before measuring"))
+    return 1 if bad else 0
+
+
 # ------------------------------------------------------------------------------------------------ command line
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--cluster", default=str(CLUSTER))
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("list", "status", "run", "sync", "env", "reboot", "discover", "agents", "clock", "monitor"):
+    for name in ("list", "status", "run", "sync", "env", "reboot", "discover", "agents", "clock", "monitor", "guard"):
         p = sub.add_parser(name)
-        if name in ("status", "run", "env", "reboot", "agents", "clock", "monitor"):
+        if name in ("status", "run", "env", "reboot", "agents", "clock", "monitor", "guard"):
             p.add_argument("--on", help="comma-separated laptop names (default: all)")
         if name == "status":
             p.add_argument("--measured", action="store_true")
@@ -581,6 +632,8 @@ def main(argv=None):
             p.add_argument("action", choices=("setup", "status", "undo"))
         if name == "monitor":
             p.add_argument("action", choices=("start", "stop", "status", "collect", "report"))
+        if name == "guard":
+            p.add_argument("--seconds", type=int, default=20, help="how long to watch the Wi-Fi driver for scans")
     a = ap.parse_args(argv)
     laps = select(load_cluster(a.cluster), getattr(a, "on", None))
     if a.cmd == "list":
@@ -606,6 +659,8 @@ def main(argv=None):
         return cmd_clock(laps, a.action)
     if a.cmd == "monitor":
         return cmd_monitor(laps, a.action, load_cluster(a.cluster))
+    if a.cmd == "guard":
+        return cmd_guard(laps, a.seconds)
     return cmd_discover(load_cluster(a.cluster), a.write, a.cluster)
 
 

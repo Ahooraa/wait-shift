@@ -39,6 +39,11 @@ ROOT = Path(__file__).resolve().parent.parent
 REQUIREMENTS = Path(__file__).resolve().parent / "requirements.txt"
 DATA_DIRS = ("input/data", "data", "library")          # needed by the coordinator only (it builds the scenario)
 CHRONY_MAX_OFFSET_S = 0.005
+# the Wi-Fi guard (see testbed/DESIGN.md): the first thresholds, to be checked against more data
+SCAN_SOURCES = {"gnome-control-c", "nm-connection-e", "nm-applet", "iwgtk", "wpa_gui"}      # process names (ps truncates them to 15 characters)
+SIGNAL_MIN_DBM = -60.0
+LINK_MIN_MBPS = 100.0
+IMPAIRED_MAX_FRACTION = 0.10
 DEFAULT_PORT = 5201
 
 
@@ -81,6 +86,26 @@ def parse_chrony_tracking(text):
     if m:
         out["leap"] = m.group(1).strip()
     return out or None
+
+
+def running_scan_sources(ps_text):
+    """Names of the programs in `ps -eo comm` output that make NetworkManager scan for Wi-Fi networks while they are open."""
+    return sorted({ln.strip() for ln in (ps_text or "").splitlines() if ln.strip() in SCAN_SOURCES})
+
+
+def parse_iw_link(text):
+    """signal, transmit bit rate and frequency from `iw dev X link`; {} when not connected."""
+    out = {}
+    for key, pat in (("signal_dbm", r"signal:\s*(-?[\d.]+)"), ("tx_bitrate_mbps", r"tx bitrate:\s*([\d.]+)"), ("freq_mhz", r"freq:\s*([\d.]+)")):
+        m = re.search(pat, text or "")
+        if m:
+            out[key] = float(m.group(1))
+    return out
+
+
+def count_scan_events(text):
+    """Scans the driver started, from `iw event -t` output."""
+    return sum(1 for ln in (text or "").splitlines() if "scan started" in ln)
 
 
 def parse_periodic(text):
@@ -180,6 +205,22 @@ def collect_wifi():
     return out
 
 
+def collect_wifi_guard(iface, watch_s=0):
+    """What could disturb a measured run through the Wi-Fi: programs that trigger scans, scans actually seen during `watch_s` seconds, the link
+    quality now, and the share of the last minute the network monitor found impaired (None when no monitor is running)."""
+    try:
+        from testbed import netmon
+    except ImportError:
+        import netmon
+    g = {"scan_sources": running_scan_sources(sh("ps", "-eo", "comm", any_rc=True)), "link": parse_iw_link(sh("iw", "dev", iface, "link", any_rc=True)),
+         "scan_events": None, "watch_s": watch_s, "recent_impairment": None}
+    if watch_s > 0:
+        g["scan_events"] = count_scan_events(sh("timeout", str(watch_s), "iw", "event", "-t", any_rc=True, timeout=watch_s + 10))
+    logs = sorted(Path.home().glob("testbed-logs/netmon-*.jsonl"), key=lambda f: f.stat().st_mtime)
+    g["recent_impairment"] = netmon.recent_impairment(logs[-1]) if logs else None
+    return g
+
+
 def collect_python():
     import importlib.metadata as md
     pins = pinned_requirements()
@@ -205,7 +246,7 @@ def collect_repo():
             "dirty_tracked": bool(git("status", "--porcelain", "--untracked-files=no"))}
 
 
-def collect(role="agent"):
+def collect(role="agent", watch_scans_s=0):
     du = os.statvfs(ROOT)
     rep = {"role": role, "hostname": socket.gethostname(), "time_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
            "os": {"pretty": (re.search(r'PRETTY_NAME="(.+)"', read("/etc/os-release") or "") or [None, None])[1]},
@@ -213,6 +254,8 @@ def collect(role="agent"):
            "cpu": collect_cpu(), "mem": collect_mem(), "time": collect_time(), "boot": {"default_target": sh("systemctl", "get-default")},
            "updates": collect_updates(), "power": collect_power(), "wifi": collect_wifi(), "python": collect_python(),
            "repo": collect_repo(), "loadavg_1m": os.getloadavg()[0], "disk_free_gb": round(du.f_bavail * du.f_frsize / 2**30, 1)}
+    if rep["wifi"]["interface"]:
+        rep["wifi_guard"] = collect_wifi_guard(rep["wifi"]["interface"], watch_scans_s)
     held = rep["updates"]["apt_held"]
     rep["kernel"]["running_pinned_by_hold"] = any(h.startswith("linux-image") or h == "linux-generic" for h in held)
     if role == "coordinator":
@@ -254,6 +297,21 @@ def evaluate(rep, measured=False):
     if wf["interface"]:
         add("Wi-Fi power save off", wf.get("power_save") == "off", f"{wf.get('power_save')} (None = 'iw' not installed)", soft)
         out.append(("Wi-Fi link", INFO, f"{wf.get('ssid')} ch {wf.get('channel')} {wf.get('rate')} signal {wf.get('signal')}"))
+    g = rep.get("wifi_guard")
+    if g:
+        add("no Wi-Fi scan source running", not g["scan_sources"], ", ".join(g["scan_sources"]) or "none", soft)
+        if g["scan_events"] is not None:
+            add("no Wi-Fi scan observed", g["scan_events"] == 0, f"{g['scan_events']} in {g['watch_s']} s", soft)
+        lk = g["link"]
+        if lk.get("signal_dbm") is not None:
+            add("Wi-Fi link quality", lk["signal_dbm"] >= SIGNAL_MIN_DBM and lk.get("tx_bitrate_mbps", 0) >= LINK_MIN_MBPS,
+                f"signal {lk['signal_dbm']:.0f} dBm (needs >= {SIGNAL_MIN_DBM:.0f}), link {lk.get('tx_bitrate_mbps', 0):.0f} Mbit/s (needs >= {LINK_MIN_MBPS:.0f})", soft)
+        ri = g["recent_impairment"]
+        if ri is None:
+            out.append(("recent Wi-Fi impairment", WARN if measured else INFO, "no running network monitor (fleet.py monitor start)"))
+        else:
+            add("recent Wi-Fi impairment", ri["fraction"] <= IMPAIRED_MAX_FRACTION,
+                f"{ri['impaired']} of the last {ri['seconds']} s impaired ({ri['fraction']:.0%}, limit {IMPAIRED_MAX_FRACTION:.0%})", soft)
     # always required
     py = rep["python"]
     pins = pinned_requirements()
@@ -400,6 +458,7 @@ def main(argv=None):
     r.add_argument("--role", choices=("agent", "coordinator"), default="agent")
     r.add_argument("--measured", action="store_true")
     r.add_argument("--out")
+    r.add_argument("--watch-scans", type=int, default=0, metavar="SECONDS", help="also watch the Wi-Fi driver for this long and fail on any scan")
     c = sub.add_parser("compare")
     c.add_argument("reports", nargs="+")
     s = sub.add_parser("netserver")
@@ -411,7 +470,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
 
     if a.cmd == "report":
-        rep = collect(a.role)
+        rep = collect(a.role, a.watch_scans)
         rows = evaluate(rep, a.measured)
         rep["checks"] = [{"name": n, "status": s_, "detail": d} for n, s_, d in rows]
         if a.out:

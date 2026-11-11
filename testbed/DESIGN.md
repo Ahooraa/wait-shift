@@ -193,3 +193,76 @@ laptop to a local results folder, merges the impaired seconds into episodes (pro
 retransmits, beacon loss, signal below -75 dBm) and counts how many slow agent transfers (over 0.5 s) fall inside an episode of the sender or of any
 laptop. Peers are named by laptop, so the logs hold no addresses. The thresholds are initial values, to be checked against the first real data.
 
+### Calibration with the monitors running (2026-11-11, nine runs: 5, 20, 50 requests/s, three times each, interleaved; Trip Booking, 20 nodes)
+- Hub and agents: all requests completed in all nine runs; no late hub events, hub CPU 3 to 51%, at most 29 events queued. Queue-free requests were
+  slower than in the simulator by a median of 34 to 76 ms (4.7 to 12.6 ms per task; p95 48 to 305 ms); live and simulated p99 makespan agreed within 2 to 4%
+  in eight runs (ratio 1.02 to 1.04) and in one run (50 requests/s, the sixth) the live p99 was 2.83 times the simulated one, not explained. So the
+  testbed adds roughly 5 to 13 ms per task, which is more than the work of Trip Booking's tasks (milliseconds): for that application it measures
+  orchestration as much as work. 350 tasks/s was sustained with margin; 700 tasks/s once, at 81% hub CPU (earlier run).
+- Wi-Fi, from the monitors (about 450 s per laptop): impaired seconds 46 (edge-1), 38 (edge-2), 35 (edge-3) and 157 (edge-4, 35% of the time); the monitor's
+  thresholds (probe above 100 ms) flag 8 to 10% of seconds even on the good laptops, so "impaired" is not "a problem for the experiment" and severity
+  levels are needed. One laptop is chronically worse: edge-4, impaired in 11 to 23 s of every run, signal median -58 dBm (min -62), link 390 Mbit/s median,
+  mostly TCP retransmits. Three or more of the four laptops were impaired in the same second for 31 s of 432 (7%), 11 s of them in the first run,
+  at identical clock times: a disturbance of the shared medium. It was not driven by load (the first, lowest-load run had the most).
+- The 7 agent transfers over 0.5 s in the window were all inside a monitor episode of the sender (7 of 7): the stalls coincide with network impairment seen
+  by an independent probe, not with our software. A small sample.
+- Consequences: R_max for the inclusion rule can be set at 350 tasks/s (conservative, nine runs); the placement of edge-4 should be improved or its
+  weakness logged and accepted; runs are repeated and interleaved with the monitors on, and their per-run impaired seconds reported with the results.
+
+### After moving the router and edge-4 (2026-11-11, about 21:40): worse, and not explained by signal or neighbours
+- The same three calibration runs (5, 20, 50 requests/s) after the move: impaired seconds per laptop rose from 2 to 27% of a run (before: nine runs) to
+  28 to 67% (after: three runs). Over the monitored periods (about 560 s before, 330 s after): edge-1 12 to 32%, edge-2 9 to 23%, edge-3 9 to 20%,
+  edge-4 35 to 49%; probes above 500 ms or lost went from 1 to 2% to about 9% on all four laptops; TCP retransmits per second rose three to four times.
+  Calibration after the move: the 5 requests/s run had a p95 queue-free overhead of 7 s (p99 ratio 4.8) and the 50 requests/s run a p99 ratio of 2.3, with
+  no late hub events (the hub was fine).
+- Signal strength is not the driver: edge-4's signal and link improved (-58 to -54 dBm, 390 to 585 Mbit/s) and its impairment did not; edge-1's signal
+  improved (-34 to -28 dBm) and its impairment rose from 12 to 32%.
+- Not a channel change (all laptops on 5745 MHz before and after) and not neighbouring networks: a fresh scan from the hub heard 3 networks, only ours on
+  5 GHz and none on the channels that overlap our 80 MHz block. What remains is the access point (an ISP router) and non-Wi-Fi interference; the
+  simultaneous multi-laptop stalls at identical clock times point at the single common element, the access point.
+- Not conclusive: one before/after comparison, confounded with the time of day. A fair test alternates the placements (A, B, A, B) with the same load.
+
+### Isolated router, and the cause of the periodic stalls (2026-11-11, 22:13 to 22:21)
+- All four laptops joined the isolated router on 2.4 GHz (channel 10; link 58 to 144 Mbit/s). End-to-end calibration was steady (live p99 makespan 1.02 to 1.08
+  times the simulator's in all nine runs, hub CPU at most 38%, no late events) but the queue-free p95 overhead was 374 to 490 ms in every run, and the
+  monitors showed 39 to 50% of seconds impaired, mostly all four laptops at once.
+- Timing of the stalls (484 s of monitor data): strictly periodic. 26 of 37 gaps between episodes are exactly 15 s; the autocorrelation peaks at 15, 30, 45,
+  60 and 75 s (0.69 to 0.79); episodes start at fixed offsets within the minute (5, 20, 35, 50 s); each lasts about 5 s (median 5, max 10); 71 to 85% of
+  the stall seconds are shared between any two laptops; the share is the same before the first run (38%) and during the runs (38%): not load-dependent.
+- Mechanism found with `iw event -t` for 50 s: edge-2, edge-3 and edge-4 each ran a full scan of all twelve 2.4 GHz channels every 15 s (edge-2 and edge-3 in
+  the same second, edge-4 one second later), each taking 1.2 to 6.3 s with the radio off the channel; edge-1 ran none. `gnome-control-center` (GNOME Settings,
+  whose Wi-Fi panel makes NetworkManager rescan every 15 s while it is open) was running on exactly those three laptops (open 16 to 20 minutes) and not on edge-1.
+  So the stalls seen here are caused by the laptops' own scans, not by the router. Not yet confirmed by closing the windows and measuring again.
+- Open: whether the earlier stalls on the household network had the same cause (the pattern there was irregular); preflight should refuse a measured run while a
+  Wi-Fi settings window or any other scan source is active; text boot mode (SETUP.md Part 5) removes GNOME and with it this source.
+
+### Confirmed: after closing GNOME Settings on edge-2, 3 and 4 (isolated router, 2.4 GHz; 22:29 to 22:37, nine runs)
+- Scan events over 50 s on every laptop: 0 (before: a 12-channel scan every 15 s on three laptops).
+- Calibration: all requests completed; live p99 makespan 1.02 to 1.04 times the simulator's in all nine runs; queue-free p95 overhead 58 to 119 ms (before the fix
+  374 to 490 ms); extra time per task 5.4 to 9.9 ms (before 11 to 19 ms); no late hub events; hub CPU at most 39%; 0 agent transfers over 0.5 s (before 11).
+- Monitors (491 to 495 s each): impaired seconds edge-1 15%, edge-2 8%, edge-3 12%, edge-4 34% (before 39 to 50% on all). Seconds with 3 or more laptops impaired:
+  23 of 496 (5%; before about 38%); 8 shared episodes of 1 to 4 s with gaps of 43 to 203 s, no 15 s cycle.
+- Remaining: edge-4 is still the weakest (median signal -52 dBm, min -68; link median 72 Mbit/s, min 29); stalls on paths to or from edge-4 are 7 to 12% of seconds
+  against 2 to 4% elsewhere. The monitor's 100 ms threshold also flags ordinary jitter.
+- Conclusion: the stalls were caused by the laptops' own scans, not by the router or the 2.4 GHz band. The earlier household-network stalls may have had the same cause
+  (not established; the pattern there was irregular). Guard needed: preflight must refuse a measured run while gnome-control-center or any other scan source is active.
+
+### edge-4 moved into the room (2026-11-11, about 22:44; isolated router, 2.4 GHz, Settings closed) - provisional, 160 s and three runs
+- edge-4's link: median signal -52 dBm (min -68) and link 72 Mbit/s (min 29) before, -36 dBm (min -37) and 144 Mbit/s (min 130) after. The laptop had rebooted for the move
+  (its agent and monitor had to be restarted; its settings survived).
+- Impaired seconds (monitor thresholds unchanged): edge-4 7 of 160 s (4%, before 34%); edge-1 1, edge-2 2, edge-3 1 of about 157 s (at most 1%, before 8 to 15%). No second with
+  3 or more laptops impaired except one. 0 agent transfers over 0.5 s. Calibration (5, 20, 50 requests/s, one run each): queue-free p95 overhead 52 to 75 ms, extra time per
+  task 4.9 to 7.3 ms, live p99 makespan 1.02 times the simulator's, no late hub events, hub CPU at most 39%.
+- Plausible reading, not tested: a weak client at 29 to 72 Mbit/s holds the channel longer per frame (airtime), so fixing it improved every laptop. Needs a longer series
+  (the nine-run design) before it goes into any result.
+
+### The guard before a measured run (built 2026-11-11)
+`fleet.py guard [--seconds N]` checks every laptop in parallel and exits 1 if any is not ready; `calibrate.py` runs it first and refuses to start unless it
+passes (`--no-guard` for a trial). It uses the preflight's `--measured` checks and four new Wi-Fi checks in `preflight.py` (`wifi_guard`): (1) no program that makes
+NetworkManager scan is running (GNOME Settings `gnome-control-center`, `nm-connection-editor`, `nm-applet`, `iwgtk`, `wpa_gui`), (2) no Wi-Fi scan seen by the driver during
+a watch of N seconds (default 20), (3) link quality now: signal at least -60 dBm and a transmit rate of at least 100 Mbit/s (the weak edge-4 link of 72 Mbit/s would have
+failed), (4) at most 10% of the last 60 s impaired according to the running monitor (a warning when no monitor runs). The guard also requires the settings and software
+checks (power save, clock, governor, swap, packages), a reachable agent and a fresh monitor. The thresholds are first values to be checked against more data. It changes
+nothing: it only reports. Tested with 59 tests; tried on the hub (ready, then NOT ready with a stand-in process named like GNOME Settings, then ready again); not yet run on the
+other three laptops (they need the new code: commit and `fleet.py sync`).
+

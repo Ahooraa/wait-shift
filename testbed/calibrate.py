@@ -119,10 +119,13 @@ def main(argv=None):
     ap.add_argument("--ne", type=int, default=20)
     ap.add_argument("--duration", type=float, default=40.0)
     ap.add_argument("--out", default=str(Path.home() / "testbed-results"))
+    ap.add_argument("--no-guard", action="store_true", help="skip the check that the Wi-Fi and the laptops are ready (not for measured runs)")
     a = ap.parse_args(argv)
-    from testbed.fleet import hub_token, load_cluster
-    laps = load_cluster()
-    link = LiveLink.from_cluster(laps, hub_token(), a.ne)
+    from testbed import fleet
+    laps = fleet.load_cluster()
+    if not a.no_guard and fleet.cmd_guard(laps):
+        raise SystemExit("the guard found problems (listed above); fix them or use --no-guard for a trial run")
+    link = LiveLink.from_cluster(laps, fleet.hub_token(), a.ne)
     rows = []
     print(f"{'req/s':>6} {'tasks/s':>8} {'done':>9} {'queue-free overhead p50/p95 ms':>31} {'per task':>9} {'p50 ratio':>9} {'p99 ratio':>9} {'late ev':>8} {'inbox':>6} {'hub cpu':>8}")
     for rate in [float(x) for x in a.rates.split(",")]:

@@ -36,7 +36,7 @@ def test_unwritable_stamp_never_raises(monkeypatch, tmp_path):
     rm.mark_run_end()                                                # must not raise
 
 
-@pytest.mark.parametrize("script", ["testbed/fleet.py", "testbed/calibrate.py"])
+@pytest.mark.parametrize("script", ["testbed/fleet.py", "testbed/calibrate.py", "testbed/controller_check.py"])
 def test_the_scripts_start_as_scripts(script):
     """pytest has the repository root on its path, a script started by hand does not: an import that only works under pytest broke `fleet.py guard`
     (2026-11-11) and no unit test noticed."""

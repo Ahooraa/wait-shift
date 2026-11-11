@@ -318,3 +318,35 @@ Logs: `~/testbed-results/netmon-20261111-235805`, `calibration-20261111-234841/2
   (about 2 to 3% outside the one 30 s shared disturbance in the idle window before). Still not tested whether it is the testbed's own traffic slowing the probes on the shared 2.4 GHz
   channel; a run with the monitors' probes on and a laptop pair sending a controlled load would separate the two.
 - Not established: 5 GHz; the cause of the 30 s shared disturbance in the idle window; whether the load-dependent impairment is self-induced.
+
+## Phase 4: the paper's controller (FROZEN-4) on the testbed (2026-11-12)
+Code: `testbed/frozen_live.py` (the controller built once for `Sim` and `LiveSim`: B* annealer wrapped in `O3SimAdjuster`, `cand_mode="nosim"`, blind forecast, `transfer_only`
+dispatcher, criticality queue order; configurations from `output/data-analysis/frozen2.py`; arms `frozen4`, `frozen4_mv3`, `frozen4_p8`, `frozen3`), `testbed/controller_check.py` (the check on the
+laptops), `tests/test_frozen_live.py`. Results: `~/testbed-results/controller-frozen4-*.json` (local).
+- Equivalence with the paper's pipeline: on the stored scenario F1, load 0.5, seed 1 (900 s) the builder gives the stored event hash of the `fill1` arm (= FROZEN-4),
+  `7974387182b98e5c2c21bb068e4cbbb3`, and the same P99 (88.9296 s): same controller, event for event. It is a test (`-m slow`, skipped when the local stored results are absent).
+  The builder is deterministic (two runs, same hash) and leaves the initial layout untouched.
+- Loopback, three agent processes at speed 10 (MapReduce, 6 nodes, load 0.1): all requests completed, cold starts 32 in both, live P50 1.12 s against 0.99 s, no late events, hub CPU 41%,
+  re-layout moves reached the agents (37 relocation transfers). The same scenario at load 0.4 (1,850 tasks per wall second at speed 10) overloaded the hub (CPU 115%): a test-load error, not a controller one.
+- On the four laptops (guard first; MapReduce, 10 logical nodes, 240 s of load, warm-up 60 s, random initial layout, CAP-U, common random numbers; the simulator run is the reference):
+
+  | load (seed) | req/s = tasks/s | completed live / sim | P50 live/sim | P99 live/sim | cold starts live / sim | moved live / sim | late events | queued events max | hub CPU | adjust p95 live (sim) |
+  |---|---|---|---|---|---|---|---|---|---|---|
+  | 0.3 (1) | 19.8 = 198 | 3543/3543 / 3543 | 1.04 | 1.03 | 54 / 54 | 3572 / 3426 | 0 | 91 | 18% | 2.2 (1.5) ms |
+  | 0.5 (1) | 33.0 = 330 | 5929/5929 / 5929 | 1.04 | 1.12 | 56 / 55 | 14568 / 14045 | 0 | 409 | 25% | 2.9 (2.2) ms |
+  | 0.5 (2) | 33.6 = 336 | 6075/6075 / 6075 | 1.07 | 1.03 | 54 / 54 | 14867 / 14135 | 0 | 173 | 23% | 1.9 (1.0) ms |
+
+  Plan time (p95) 1.1 to 1.3 ms. The controller's own compute is milliseconds, small against the 4 s move period, so it does not stall the hub: no late events, hub CPU 18 to 25% at up to 336 tasks/s
+  (the static-placement calibration gave 24 to 45% at 350 tasks/s). R_max = 350 tasks/s is not lowered by the controller on this application and size. Live runs move 3 to 5% more requests than the simulator.
+- The P99 ratio of 1.12 (load 0.5, seed 1) is not a testbed fault by itself: the controller is chaotic. The simulator with the move clock shifted by 1 to 3 ms (placebo runs) gives P99 between 5.29 and
+  5.84 s on that seed (spread 1.105x, six runs) and 6.27 to 6.44 s on seed 2 (1.027x). The live ratios (1.12, 1.03) are at the edge of and inside those spreads. Consequence: judge the live
+  system against the simulator on several seeds and against the simulator's own run-to-run spread, never against one reference run. The mean ratio of P99 over seeds is the quantity to report.
+- Two defects found on the way, both mine, both fixed: (1) an agent keeps ONE control connection and a new one closes the old one, so the guard's reachability check closed the link the check had opened
+  before it (`ping: connection_lost`); the link is now opened after the guard, as `calibrate.py` does; (2) the first attempt at load 0.5 was refused by the guard (all four laptops 7 of 60 s impaired,
+  12%, a shared episode, after the cooldown had passed). The idle baseline is already 7 to 8% impaired, so a limit of 10% over 60 s refuses by chance fairly often. `controller_check.py` now retries a refused
+  guard up to twice, 60 s apart, and stores the number of refusals in each result row (`guard_refusals_before`). The window and limit are first values and should be set from a longer quiet series.
+- Planning input for the pre-registration (load rates at 20 nodes, SeBS-Flow measured profile): tasks per second needed for load 0.5 / 0.85: Video 15 / 26, Trip Booking 6,137 / 10,433, MapReduce 708 / 1,203,
+  ExCamera 12 / 21, ML 570 / 970, 1000Genome 2 / 4. Against R_max = 350, Trip Booking, MapReduce and ML cannot be driven at those loads on 20 nodes: they need a smaller cluster or a rate cap
+  (`rho_effective` records what was offered); Video, ExCamera and 1000Genome are light on the hub but their requests are long, so run length decides how many requests a run contains.
+- Limits of this step: one application (MapReduce), CAP-U, 10 nodes, 240 s runs (re-layouts at 60, 120, 180 s), random initial layout, three live runs, the monitors' impaired seconds for these runs not yet analysed.
+  Not yet done: the B* (annealer) path and the baselines (SR, SG, Heu, RL) through `LiveSim`, the experiment driver (phase 5), and the validation against the simulator over many seeds (phase 6).

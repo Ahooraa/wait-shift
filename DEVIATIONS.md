@@ -46,7 +46,7 @@ E-6 Alg.1 l.23 queue name (only the corrected reading exists).
   mixture, and one unit for container sizes (the `memory` setting of each workflow's config.json), which removes the median rescaling that
   `dfps/profiles.py` needs to mix Alibaba and SeBS-Flow profiles. The DFPS Fig. 1 workflow is left out because it is not from SeBS-Flow.
   Not changed: the earlier simulator results (CAP-U, CAP-W1) keep the original mixed workload; they are not re-labelled.
-- **DEV-T2 (what is and is not SeBS-Flow data):** SeBS-Flow publishes workflow-level runtimes and total transfer volumes, not per-function
+- **DEV-T2 (SUPERSEDED 2026-11-11 by DEV-T4; what was and was not SeBS-Flow data):** SeBS-Flow publishes workflow-level runtimes and total transfer volumes, not per-function
   durations or per-edge payloads. Those still come from the frozen plan (durations from Azure 2021 empirical distributions, state sizes 10-50 MB) and
   must be stated as assumptions in any write-up. Known mismatches with the SeBS-Flow tables (see dfps/sebsflow.py): MapReduce unrolls to 10 functions
   (paper: 9), ExCamera critical path 8 (paper: 6), 1000Genome critical path 3 (paper: 4). With only six DAGs a "workload" is defined by its seed
@@ -54,3 +54,22 @@ E-6 Alg.1 l.23 queue name (only the corrected reading exists).
 - **DEV-T3 (open):** the testbed grid, metrics and stop rule are not yet pre-registered; the methodology (quantitative) requires that before any
   measured run. Optional, not decided: measuring real per-function runtimes by running the SeBS-Flow function code once on one laptop (not
   checked whether the benchmark inputs are available offline).
+- **DEV-T4 (workload data, user decision 2026-11-11: measured SeBS-Flow):** the testbed workload uses only measurements from the SeBS-Flow
+  replication package (Zenodo 10.5281/zenodo.14907321, CC BY 4.0, AWS 2024): task durations are drawn from the measured quantiles of each of the
+  25 functions (provider execution duration; warm run; 1000Genome from its burst run, which has no warm run), cold start is the measured
+  initialisation time (0.22-0.35 s), state sizes are the measured bytes (producer's median upload split over its successors, the root's median
+  download as input; 1 kB where none was measured), capacity is CAP-U (CAP-W2 = weights from the measured memory is available). Code:
+  `testbed/derive_sebs_profile.py`, `testbed/sebs_profiles.json` (derived summary, attribution in `testbed/SEBS_DATA_NOTICE.md`),
+  `testbed/sebs_scenario.py`. This replaces the Azure 2021 durations, Huawei cold starts and 10-50 MB states of the frozen plan for the
+  testbed. Consequences: cold starts are about 10 times shorter than the DFPS paper's 2-10 s; most tasks are far below 10 s (MapReduce,
+  ML, Trip Booking: milliseconds to a third of a second) while Video (19 s), ExCamera (7-28 s) and 1000Genome (about 120 s) are long. The
+  DFPS-paper ranges (2-10 s durations and cold starts, 10-50 MB states) become a sensitivity run, not yet built. Limits: measured on cloud
+  hardware, not on edge nodes; the cold start is the runtime initialisation, not an image pull; Trip Booking's failing `confirm` has no
+  measured row and uses the pooled reserve_* calls; the measured functions per request match the DAG expansions of `dfps/sebsflow.py` for
+  five applications, and Trip Booking has 7 tasks in the DAG against 6 recorded (the failing call leaves no record); MapReduce is
+  confirmed at 10 tasks (the paper text says 9).
+- **DEV-T5 (open, workload mix and timing resolution):** with equal request shares, 1000Genome (about 1,340 container-seconds per request
+  against 0.2 to 213 for the others) is about 84% of the offered work, so results are dominated by that application; `mix="equal_load"`
+  gives each application an equal share of the work instead. Which mix to pre-register is open. Also open: the control plane's own
+  latencies (hub to agent round trip 2-5 ms, timer lateness 2-3 ms on the laptops) are comparable to the millisecond tasks of Trip Booking,
+  ML and MapReduce, so for those the testbed measures orchestration overhead as much as work; this is realistic but must be stated.

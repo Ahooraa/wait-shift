@@ -5,7 +5,18 @@ laptops enrolled and set up for measured runs except text boot). **Phase 2 built
 container slots with cold starts, task timers, per-node storage, real state transfers paced to the nominal Eq.1-2 time, JSONL log),
 `agentclient.py` (hub side), `agentcheck.py` + `fleet.py agents start|stop|status|check` (acceptance run on the real laptops), 12
 loopback tests including four agents transferring between every pair. Found and fixed during testing: a background task that Python
-could garbage-collect (a transfer then hung silently with no event), and errors that were not reported. Phases 3-6 not started.
+could garbage-collect (a transfer then hung silently with no event), and errors that were not reported.
+**Phase 3 built, tested on loopback only:** `livesim.py` (`LiveSim` for `Sim`, `LiveOnDemandSim` for `OnDemandSim`) runs the simulators' own logic on a
+real clock; the controller, dispatchers and baselines are unchanged. Time is the wall clock since the run started; the cold start, task run,
+state transfer and relocation the simulator only models are done by the agents and come back as the simulator's own events, so real network
+delays and the controller's real computing time show up in the makespans. The only change to the simulators is a hook `Sim._stt(...)`
+at the 7 places that schedule a state move (8 of 8 event hashes identical before and after: static, SA, join-bind, Heu on two seeds).
+Tests: static, DFPS-style reconfiguration (the agents' containers equal the simulator's at the end), Heu on demand, a broken agent
+connection is fatal, and (slow) six seeds against the plain simulator: mean p50 makespan ratio 1.035, p99 1.079. Limits: speed above 1
+is a test option (the controller's real planning time then looks `speed` times longer in simulated time); the simulator's own capacity and
+storage accounting is authoritative (the agents are told not to enforce either); the agents on the laptops must be synced and restarted to
+get the new `store` option; not yet run on the laptops; the workload is still the old mixed one, the SeBS-only generator is not built.
+Phases 4-6 not started.
 Written against the code at commit a41144a plus the commits on this branch.
 
 ## Goal
@@ -123,8 +134,8 @@ All workflows in testbed runs, and in the simulator runs they are compared with,
 Table 4 configuration (`dfps/sebsflow.py`: Video Analysis 4 functions, Trip Booking 7, MapReduce 10, ExCamera 16, Machine
 Learning 3, 1000Genome 19). No Alibaba DAGs and no DFPS Fig. 1 workflow. Container sizes come from each workflow's `memory`
 setting (config.json), a single source and unit. Arrivals repeat the six applications at fixed total load (rho = 0.5, 0.7, 0.85);
-a "workload" is a seed (arrival times, origins, popularity weights). Per-function runtimes and state sizes are not SeBS-Flow data
-and stay as assumptions from the frozen plan (Azure 2021 durations, 10-50 MB states). Because the mean task count is about 9.8
+a "workload" is a seed (arrival times, origins, popularity weights). (Superseded the same day: per-function durations, cold starts, state sizes and memory now
+come from the measured SeBS-Flow replication data, see DEV-T4 in `DEVIATIONS.md`, `sebs_scenario.py` and `sebs_profiles.json`.) Because the mean task count is about 9.8
 instead of 4.5, the arrival rate for a given load is lower than in the earlier scenarios. Logged as DEV-T1 to DEV-T3 in
 `DEVIATIONS.md`, since it departs from the frozen plan's workflow list.
 
@@ -134,3 +145,10 @@ instead of 4.5, the arrival rate for a given load is lower than in the earlier s
 - Tag results with `capacity_model`, `mover_impl`, `place_impl` and controller version as the project conventions require.
 - Read `_start`, `_ev_done`, `_ev_state`, `relocate` in `dfps/sim.py` line by line to confirm `LiveSim` only has to override
   task start, transfer accounting and the clock.
+
+## Measured SeBS-Flow data (decided 2026-11-11)
+The SeBS-Flow replication package (Zenodo 10.5281/zenodo.14907321, CC BY 4.0) holds one measured row per function invocation. The testbed
+uses it for everything the workload needs: `derive_sebs_profile.py` makes the small committed table `sebs_profiles.json` (the 622 MB dataset
+stays outside the repository), `sebs_scenario.py` builds the scenario (DAGs from `dfps/sebsflow.py`, whose task counts match the measured
+invocations for five of six applications) and a duration sampler from the measured quantiles. Open points are DEV-T4 limits and DEV-T5
+(request mix, timing resolution) in `DEVIATIONS.md`. The DFPS paper's 2-10 s ranges are a later sensitivity run.

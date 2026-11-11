@@ -120,7 +120,7 @@ class OnDemandSim(Sim):
             for t in range(wf.n):                                   # A-23: reserve the input states' storage at planning
                 self.storage_used[r.plan[t]] += wf.input_total(t)
             for root in wf.roots:
-                self._at(self.now + self.net.stt(wf.input_size, r.origin, r.plan[root]), "state", r, root)
+                self._at(self.now + self._stt(wf.input_size, r.origin, r.plan[root]), "state", r, root)
             return True
         for root in wf.roots:                                        # mode 'ready': roots are ready at arrival
             if not self._decide(r, root):
@@ -139,7 +139,7 @@ class OnDemandSim(Sim):
         else:
             srcs = [(r.plan[p], wf.ss[(p, t)]) for p in wf.parents[t]]
         for node, size in srcs:
-            self._at(self.now + self.net.stt(size, node, k), "state", r, t)
+            self._at(self.now + self._stt(size, node, k), "state", r, t)
         return True
 
     def _retry_waiting(self):
@@ -333,7 +333,7 @@ class OnDemandSim(Sim):
         self.policy.on_task_done(self, run)
         for ch in wf.children[t]:
             if self.mode == "plan":
-                self._at(self.now + self.net.stt(wf.ss[(t, ch)], k, r.plan[ch]), "state", r, ch)
+                self._at(self.now + self._stt(wf.ss[(t, ch)], k, r.plan[ch]), "state", r, ch)
             else:
                 r.rdy[ch] -= 1
                 if r.rdy[ch] == 0:

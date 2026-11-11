@@ -156,6 +156,11 @@ class Sim:
     def _at(self, t, kind, a=None, b=None, c=None):
         heapq.heappush(self.events, (t, next(self.seq), kind, a, b, c))
 
+    def _stt(self, size_mb, k, k2):
+        """Transfer time of one state from node k to node k2, as used by every event that schedules a state move (Eq. 1-2). A hook:
+        the model here; testbed/livesim.py overrides it to learn which state moves where and sends the bytes through real agents."""
+        return self.net.stt(size_mb, k, k2)
+
     def _critical_path(self, wf):
         """Unloaded critical path of a workflow: longest path of mean execution times (no queueing, cold starts, transfers)."""
         d = [0.0] * wf.n
@@ -349,7 +354,7 @@ class Sim:
         for t in range(wf.n):                                    # A-23: reserve the input states' storage at planning
             self.storage_used[r.plan[t]] += wf.input_total(t)
         for root in wf.roots:
-            self._at(self.now + self.net.stt(wf.input_size, r.origin, r.plan[root]), "state", r, root)
+            self._at(self.now + self._stt(wf.input_size, r.origin, r.plan[root]), "state", r, root)
         return True
 
     def _retry_waiting(self):
@@ -413,7 +418,7 @@ class Sim:
         # function of size and hops, with no link contention). Measured in the winning configuration, relocations add 41% to
         # the total state volume, and P99 improves monotonically as their cap is lifted, i.e. nothing prices them. A factor
         # > 1 charges each relocation that multiple of its nominal transfer time, for every controller alike.
-        delay = self.move_cost * sum(self.net.stt(s, k_old, k_new) for s in run.sizes)
+        delay = self.move_cost * sum(self._stt(s, k_old, k_new) for s in run.sizes)
         if self.trace is not None and self.in_window(run.req.t_arr):      # trace only: per-move cost, nothing here changes the dynamics
             self.trace.setdefault("moves", []).append((run.req.id, run.task, self.now, delay, run.t_first))
         self.storage_used[k_old] -= run.total
@@ -586,7 +591,7 @@ class Sim:
                 if len(h) == len(wf.parents[ch]):
                     self._bind_join(r, ch, h)
             else:
-                self._at(self.now + self.net.stt(wf.ss[(t, ch)], k, r.plan[ch]), "state", r, ch)
+                self._at(self.now + self._stt(wf.ss[(t, ch)], k, r.plan[ch]), "state", r, ch)
         if self.trace is not None and self.in_window(r.t_arr):
             self.trace["tasks"].append((r.id, wf.id, t, r.plan[t], k, run.t_first, run.t_start, self.now, run.n_moves))
         r.left -= 1
@@ -633,7 +638,7 @@ class Sim:
             self.storage_used[k] += total
             r.plan[t] = k
         for s, size in held:
-            self._at(self.now + self.net.stt(size, s, k), "state", r, t)
+            self._at(self.now + self._stt(size, s, k), "state", r, t)
         del r.held[t]
 
     def _maybe_retry(self):

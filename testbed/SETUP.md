@@ -4,6 +4,12 @@ Every command is written out in full, and after each step there is a **Check** t
 an hour per laptop, mostly downloads. Nothing in this repository changes a system setting by itself: the settings in Parts 2 and 5
 are commands you run. The Fast path below installs packages, and asks before it does.
 
+**Direction (decided 2026-11-11).** The experiment is controlled from the hub laptop (`edge-1`, the one with Claude), so that you run
+as little as possible by hand on the others. Today the steps below are still manual on the other three laptops. They are being
+replaced by a one-time enrollment line per laptop plus commands run from the hub, so that Part 2 (settings), Part 5 (text mode) and the
+re-checks are applied remotely, after you have approved exactly what the helper on each laptop may change. **That is not built yet**:
+until it is, use this guide as written. When a step becomes automatic, this file says so and keeps the manual commands as a fallback.
+
 **Order at a glance** (the parts are not all done on one machine at a time):
 
 | Round | What | Where |
@@ -13,6 +19,35 @@ are commands you run. The Fast path below installs packages, and asks before it 
 | C | Part 5 (text boot mode), and Part 6 (the data) on the coordinator only | on each laptop, last |
 
 Part 7 is the table you fill in and bring back, and Part 8 is the undo list.
+
+**Which laptop does what.** The hub is this laptop (`edge-1`); it is also the coordinator unless you decide another machine is
+stronger. The other three are `edge-2`, `edge-3` and `edge-4`. "Auto" means the Fast path script does it, so you type nothing.
+
+| Part / step | Hub laptop (`edge-1`, this one) | The other three (`edge-2` to `edge-4`) |
+|---|---|---|
+| 0 Checklist (Ubuntu 24.04, Wi-Fi password, USB stick) | do | do |
+| 1.1 Connect to the 5 GHz house network | do | do |
+| 1.2 Give it its own name | do (`edge-1`) | do (`edge-2`, `edge-3`, `edge-4`) |
+| 1.3 Update and restart | do | do |
+| 1.4 Write down the kernel (all four must match) | do | do |
+| 1.5 Install the tools | do (it only lacks `iw` and `chrony`) | auto (Fast path) or do (manual path) |
+| 1.6 GitHub login | already done | not needed on the Fast path; manual path only |
+| 1.7 Get the code | already done | auto (Fast path) or do (manual path) |
+| 1.8 Build the Python environment | already done | auto (Fast path) or do (manual path) |
+| F1 Start the hub | do | not needed |
+| F2 Paste the hub's one line | not needed | do, on each of the three |
+| F3 Read the matrix and verdict | do (it prints on the hub) | not needed |
+| 2.1 to 2.8 Settings for measured runs | do | do |
+| F4 Run the hub and join again after Part 2 | do (starts the hub) | do (the second line the hub prints) |
+| 3 Compare the machines | auto (Fast path) or do (manual path) | auto (Fast path) or send the report (manual path) |
+| 4 Connection test | auto (Fast path) or do (manual path) | auto (Fast path) or do (manual path) |
+| 5 Text boot mode (last) | do | do |
+| 6 Copy the data (11 GB) | already done (it has the data) | not needed |
+| 7 Record sheet | fill in, with the hub's `summary.txt` | read off its own values for the table |
+| 8 Undo | only if needed | only if needed |
+
+If a different machine becomes the coordinator, it takes the hub column from Part 1.6 to 1.8 and Part 6, and the old hub then
+joins like the other three.
 
 How to read this file:
 - Open a terminal with **Ctrl+Alt+T**. Type (or copy) each grey block exactly. Do not type a leading `$`.

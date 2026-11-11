@@ -81,6 +81,24 @@ Each phase ends with tests that run without the laptops (loopback) and a short r
 5. **RAM 8 or 16 GB, mixed.** Slots per logical node are identical on all machines (fairness); a machine's memory is not what
    limits emulated containers. `preflight.py` reports cores and RAM; the coordinator goes on the strongest machine.
 
+## Control strategy: everything from the hub (decided 2026-11-11)
+User strategy: keep the experiment simple and automated, control all devices from this laptop (the hub, `edge-1`, the one with
+Claude), and avoid commands run by hand on the others. Consequences for the plan:
+- **Enrollment is the only manual part**, once per laptop: connect to the 5 GHz house network (tick "Make available to other users" so Wi-Fi
+  survives text mode), set the hostname, paste ONE line. That line (an extended `join.sh`) installs `openssh-server`, authorises the
+  hub's dedicated SSH key (a new ed25519 key on the hub, private half never leaves it), and installs a root helper (below).
+- **Reach by name, not address:** `edge-N.local` (mDNS, avahi runs on Ubuntu, also in text mode) with the registry's IP as fallback,
+  so a changed DHCP address does not break control.
+- **Fleet controller on the hub** (`testbed/fleet.py`, reads the registry that `connect.py hub` already writes): run in parallel on
+  all laptops with per-host results: `status` (preflight on all), `sync` (push the code and check every commit is equal),
+  `env` (bootstrap), `apply-settings` and `text-mode on/off` (root helper), `reboot` (waits until the laptop is back), `agents
+  start/stop`, `collect` (pull logs and results back). Experiment runs, the grid and the merge of results are driven from the hub.
+- **Root on the other laptops** is needed only for system settings (governor, swap, updates, kernel hold, chrony, text boot). Open
+  decision: a restricted root-owned helper script with a sudoers rule for only that script (proposed), versus passwordless sudo.
+  Until decided, settings stay in `SETUP.md` Part 2.
+- **No GitHub login on the others:** code reaches them from the hub (bundle now, rsync later).
+- `SETUP.md` is the fallback and the record of what the automation does; new steps are added to the controller first.
+
 ## Workload: SeBS-Flow only (decided 2026-11-11)
 All workflows in testbed runs, and in the simulator runs they are compared with, are the 6 SeBS-Flow applications at the paper's
 Table 4 configuration (`dfps/sebsflow.py`: Video Analysis 4 functions, Trip Booking 7, MapReduce 10, ExCamera 16, Machine

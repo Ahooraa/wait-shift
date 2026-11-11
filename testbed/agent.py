@@ -35,6 +35,7 @@ import time
 from pathlib import Path
 
 VERSION = 1
+PREWARM = 4                    # connections opened to every other agent at configure time
 HDR = struct.Struct("!I")
 MAX_HDR = 1 << 20
 CHUNK = 1 << 20
@@ -131,10 +132,18 @@ class Agent:
         self.scale = float(m.get("payload_scale", 1.0))
         self.inst, self.states = {}, {}
         self.late = []
+        for idle in self.pool.values():
+            for _, w in idle:
+                w.close()
+        self.pool = {}
         for k in self.counters:
             self.counters[k] = 0
         self.emit("configured", nodes=sorted(self.nodes), payload_scale=self.scale, bw_MBps=self.net["bw"])
-        return {"nodes": sorted(self.nodes)}
+        try:
+            await asyncio.wait_for(self._prewarm(), 20)
+        except asyncio.TimeoutError:
+            self.emit("prewarm_failed", error="timeout")
+        return {"nodes": sorted(self.nodes), "prewarmed": sum(len(v) for v in self.pool.values())}
 
     def _node(self, k):
         if int(k) not in self.nodes:
@@ -239,15 +248,30 @@ class Agent:
         task.add_done_callback(self.tasks.discard)
         return {"accepted": True}
 
+    async def _prewarm(self):
+        """Open PREWARM connections to every other agent now, so that no transfer of a run has to set one up (a run's first transfers on
+        fresh connections were the slow ones, up to seconds, when the calibration measured them)."""
+        addrs = {a for k, a in self.peers.items() if k not in self.nodes}
+
+        async def one(a):
+            try:
+                r, w = await self._peer_conn(*a)
+                self.pool.setdefault(a, []).append((r, w))
+            except Exception as e:                               # noqa: BLE001 - reported, the run may still work with fresh connections
+                self.emit("prewarm_failed", error=type(e).__name__, detail=str(e))
+        await asyncio.gather(*(one(a) for a in addrs for _ in range(PREWARM)))
+
     async def _peer_conn(self, host, port):
-        """An idle connection to the peer if there is a healthy one, else a new one (hello, TCP_NODELAY)."""
+        """An idle connection to the peer if there is a healthy one, else a new one (hello, TCP_NODELAY); a new one is timed in the log."""
         idle = self.pool.setdefault((host, port), [])
         while idle:
             r, w = idle.pop()
             if not w.is_closing() and not r.at_eof():
                 return r, w
             w.close()
+        t0 = time.monotonic()
         reader, writer = await asyncio.wait_for(asyncio.open_connection(host, port), 10)
+        t1 = time.monotonic()
         sock = writer.get_extra_info("socket")
         if sock is not None:
             sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
@@ -257,6 +281,7 @@ class Agent:
             writer.close()
             raise AgentError("peer_refused")
         self.counters["peer_connections"] += 1
+        self.emit("peer_connected", connect_s=t1 - t0, hello_s=time.monotonic() - t1)
         return reader, writer
 
     async def _send(self, m):

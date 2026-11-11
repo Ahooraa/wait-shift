@@ -217,9 +217,29 @@ def test_transfers_reuse_peer_connections():
         cl[0].call("send_state", src_node=0, dst_node=2, state_id=tid, size_MB=5, transfer_id=tid)
         cl[0].wait_event("transfer_done", transfer_id=tid, timeout=10)                # one after the other: the same connection can be reused
     c = cl[0].call("status")["counters"]
-    assert c["sent_transfers"] == 12 and c["peer_connections"] <= 2
+    assert c["sent_transfers"] == 12 and c["peer_connections"] == 4                  # the 4 opened at configure time; none for the transfers
     assert cl[1].call("status")["counters"]["recv_transfers"] == 12
     for c_ in cl:
         c_.close()
+    for a, _ in agents:
+        a.stop()
+
+
+def test_configure_prewarms_connections_and_times_them():
+    agents, cl, where = start_mesh(3)
+    for c in cl:
+        st = c.call("status")["counters"]
+        assert st["peer_connections"] == 8                                           # 4 to each of the 2 other agents, before any transfer
+    ev = cl[0].call("get_log", since_seq=0)["lines"]
+    conn = [json.loads(x) for x in ev if json.loads(x)["kind"] == "peer_connected"]
+    assert len(conn) == 8 and all(0 <= e["connect_s"] < 2 and 0 <= e["hello_s"] < 2 for e in conn)
+    # more simultaneous transfers than prewarmed connections: extra connections are opened, nothing fails
+    for i in range(10):
+        cl[0].call("send_state", src_node=0, dst_node=2, state_id=f"s{i}", size_MB=2, transfer_id=f"p{i}")
+    for i in range(10):
+        cl[0].wait_event("transfer_done", transfer_id=f"p{i}", timeout=10)
+    assert cl[0].call("status")["counters"]["sent_transfers"] == 10
+    for c in cl:
+        c.close()
     for a, _ in agents:
         a.stop()

@@ -164,9 +164,19 @@ load, and 1000Genome needs runs of over an hour. Both are decisions for the pre-
 and reports what the testbed adds; the highest rate that keeps the overhead near its low-rate value, with the hub keeping up, is the sustainable
 rate and sets the inclusion rule of the pre-registration (DEV-T7). Task durations are drawn with common random numbers (`Sim._exec_s` hook,
 `CrnSampler`: the same task of the same request gets the same duration under every controller; event hashes of 8 reference runs unchanged).
-First real measurement, Trip Booking at 5 requests/s on the four laptops, one run only: all 168 requests completed, median overhead about
-62 ms per request (about 9 ms per task), but a long tail (p99 overhead 2.7 s). Cause found: the agent opened a new TCP connection for every
-state transfer, and on Wi-Fi a lost connection-setup packet costs a 1 s retransmit wait. Fixed by pooled, reused connections with TCP_NODELAY
-(tested on loopback only). A second bug found at the same time: an earlier run's event readers stole the next run's events; each run now
-stops its readers. The calibration over all rates has not yet been completed on the fixed code.
+Measurements so far (Trip Booking, 20 nodes, one run per rate, static placement, four laptops on Wi-Fi):
+- Saturation: at 5 and 20 requests/s the paired overhead over the simulator is small (median 45 to 60 ms per request, about 7 ms per task);
+  at 50 requests/s (350 tasks/s) the tail grows (p99 about 2 s); at 100 requests/s (700 tasks/s) the hub's event queue backs up and the run
+  collapses (median overhead 23 s, 7,000 late events, 237 events queued); at 200 requests/s it does not complete. The hub's single Python event
+  loop is the limit, so the sustainable rate for tasks of this size is roughly 350 tasks/s or less; the finished calibration decides.
+- The timers are not the problem: timer lateness p99 2 ms, max 5 ms on every laptop over 140,000 tasks.
+- Tail latency: runs that were the first after an agent (re)start showed overhead tails of 1.3 to 5.4 s (p99), and in one such run 14 newly opened
+  agent-to-agent connections coincided with 14 transfers of 0.5 to 2.3 s. A later single run at 5 requests/s on warm connections was clean
+  (p50 45 ms, p99 129 ms, no request over 0.5 s). Raw TCP connection setup between the laptops (600 connections) and the hub-to-agent control round
+  trip (p50 1 to 4 ms, max 153 ms) show no second-scale stalls, so the first explanation (lost SYN packets, 1 s / 3 s retransmits) is NOT supported;
+  why a freshly opened agent connection's first transfer can take up to seconds is not yet understood. Mitigation built: connection pools are opened
+  at configure time (4 per peer) and every new connection is timed in the agent log (`peer_connected`); a run should never pay for a connection.
+  Not yet re-measured on the laptops with this change.
+- Also fixed on the way: an earlier run's event readers stole the next run's events (each run now stops its readers).
+
 

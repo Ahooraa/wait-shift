@@ -31,6 +31,20 @@ from dfps.sim import Sim
 CRITERIA = {"overhead_p99_x": 2.0, "late_event_fraction": 0.01, "completed_fraction": 0.99}      # the definition of "sustained"
 
 
+def transfer_stats(link):
+    """Cross-laptop transfers of the run just finished, from the agents' own logs: how many, how many were slow, the slowest, connections opened."""
+    nets, conns = [], 0
+    for c in link.clients.values():
+        for ln in c.call("get_log", since_seq=0, limit=1000000, timeout=60)["lines"]:
+            r = json.loads(ln)
+            if r["kind"] == "transfer_done" and not r["local"]:
+                nets.append(r["net_s"])
+        conns += c.call("status")["counters"]["peer_connections"]
+    nets = np.array(nets) if nets else np.zeros(1)
+    return {"transfers_cross": int(len(nets)), "transfers_over_0_5s": int((nets > 0.5).sum()), "transfers_over_1s": int((nets > 1.0).sum()),
+            "transfer_net_max_s": float(nets.max()), "transfer_net_p50_ms": float(np.percentile(nets, 50) * 1e3), "peer_connections_opened": int(conns)}
+
+
 def paired(ref_log, live_log):
     r = {i: m for i, _, m, _ in ref_log}
     pairs = [(r[i], m) for i, _, m, _ in live_log if i in r]
@@ -47,6 +61,7 @@ def run_rate(link, rate, app="6200.trip-booking", seed=1, ne=20, duration=40.0, 
     t0 = time.time()
     res = live.run()
     wall = time.time() - t0
+    slow = transfer_stats(link)
     sim_ms, live_ms = paired(ref.request_log, live.request_log)
     d = (live_ms - sim_ms) * 1e3
     tasks = sc.workflows[0].n
@@ -58,18 +73,20 @@ def run_rate(link, rate, app="6200.trip-booking", seed=1, ne=20, duration=40.0, 
             "overhead_mean_ms": float(d.mean()), "overhead_p50_ms": float(np.percentile(d, 50)), "overhead_p99_ms": float(np.percentile(d, 99)),
             "overhead_per_task_ms": float(d.mean() / tasks), "late_events": lv["late_events"], "inbox_max": lv["inbox_max"],
             "hub_cpu_fraction": lv["hub_cpu_fraction"], "agent_ops": lv["agent_ops"], "agent_timer_lateness_max_ms": max(a["lateness_s"]["max"] for a in lv["agents"].values()) * 1e3,
-            "n_events_total": ops}
+            "n_events_total": ops, **slow}
 
 
 def verdict(rows):
     """Mark each rate sustained or not against the stated criteria, relative to the lowest rate."""
     base = max(rows[0]["overhead_p99_ms"], 1.0)
     for r in rows:
+        if "failed" in r:
+            continue
         r["completed_fraction"] = r["n_completed"] / max(1, r["n_arrived"])
         r["late_event_fraction"] = r["late_events"] / max(1, r["n_events_total"])
         r["sustained"] = bool(r["overhead_p99_ms"] <= CRITERIA["overhead_p99_x"] * base and r["late_event_fraction"] <= CRITERIA["late_event_fraction"]
                               and r["completed_fraction"] >= CRITERIA["completed_fraction"])
-    ok = [r["rate_per_s"] for r in rows if r["sustained"]]
+    ok = [r["rate_per_s"] for r in rows if r.get("sustained")]
     return max(ok) if ok else None
 
 
@@ -87,10 +104,15 @@ def main(argv=None):
     rows = []
     print(f"{'req/s':>6} {'tasks/s':>8} {'done':>9} {'sim p50':>8} {'live p50':>9} {'overhead mean/p99 ms':>21} {'per task':>9} {'late ev':>8} {'inbox':>6} {'hub cpu':>8}")
     for rate in [float(x) for x in a.rates.split(",")]:
-        r = run_rate(link, rate, a.app, ne=a.ne, duration=a.duration)
+        try:
+            r = run_rate(link, rate, a.app, ne=a.ne, duration=a.duration)
+        except RuntimeError as e:                    # the testbed gave out at this rate: that is the finding, record it and stop
+            rows.append({"rate_per_s": rate, "failed": str(e), "sustained": False})
+            print(f"{rate:>6.0f} FAILED: {e}  (the testbed cannot drive this rate)", flush=True)
+            break
         rows.append(r)
         print(f"{r['rate_per_s']:>6.0f} {r['tasks_per_s']:>8.0f} {r['n_completed']:>4}/{r['n_arrived']:<4} {r['sim_p50_ms']:>7.1f}ms {r['live_p50_ms']:>8.1f}ms "
-              f"{r['overhead_mean_ms']:>9.1f} /{r['overhead_p99_ms']:>8.1f} {r['overhead_per_task_ms']:>8.2f}ms {r['late_events']:>8} {r['inbox_max']:>6} {r['hub_cpu_fraction']:>7.0%}", flush=True)
+              f"{r['overhead_mean_ms']:>9.1f} /{r['overhead_p99_ms']:>8.1f} {r['overhead_per_task_ms']:>8.2f}ms {r['late_events']:>8} {r['inbox_max']:>6} {r['hub_cpu_fraction']:>7.0%}  conns {r['peer_connections_opened']:>3} slow>0.5s {r['transfers_over_0_5s']:>4}/{r['transfers_cross']:<5} max {r['transfer_net_max_s']:.1f}s", flush=True)
     best = verdict(rows)
     print(f"\nsustainable rate (criteria {CRITERIA}): {best} requests/s -> {best * rows[0]['tasks_per_s'] / rows[0]['rate_per_s']:.0f} tasks/s" if best else "\nno rate met the criteria")
     out = Path(a.out)

@@ -13,6 +13,7 @@ Run on the hub (edge-1) with the venv python, from anywhere:  ~/venv-dfps/bin/py
   discover [--write]           find the laptops on the LAN by name when their addresses changed; --write updates cluster.json
   agents start|stop|status|check   run the node agents (testbed/agent.py) on every laptop, and measure them (timers, transfers, clocks)
   clock setup|status|undo      make the hub the time source of the other laptops (chrony), so their clocks agree to about a millisecond
+  monitor start|stop|status|collect|report   the network monitor (testbed/netmon.py) on every laptop: Wi-Fi state and a UDP latency probe between laptops
 
 It uses the dedicated key ~/.ssh/testbed_ed25519, runs the laptops in parallel, and applies no system setting.
 Exit status is 1 when any laptop failed.
@@ -485,14 +486,80 @@ def cmd_clock(laps, action):
     return 1 if bad else 0
 
 
+# ------------------------------------------------------------------------------------------------ network monitor
+MONITOR_START = r"""mkdir -p ~/testbed-logs ~/.testbed
+if [ -f ~/.testbed/netmon.pid ] && kill -0 "$(cat ~/.testbed/netmon.pid)" 2>/dev/null; then
+  echo "already running (pid $(cat ~/.testbed/netmon.pid))"
+else
+  cd ~/DFPS-implementation && [ -f testbed/netmon.py ] || {{ echo "FAILED: testbed/netmon.py is not on this laptop (commit, then fleet.py sync)"; exit 1; }}
+  (setsid nohup python3 -I testbed/netmon.py run {peers} >> ~/testbed-logs/netmon.out 2>&1 < /dev/null & echo $! > ~/.testbed/netmon.pid)
+  sleep 1
+  if kill -0 "$(cat ~/.testbed/netmon.pid)" 2>/dev/null; then echo "started (pid $(cat ~/.testbed/netmon.pid))"; else echo "FAILED to start"; tail -5 ~/testbed-logs/netmon.out; exit 1; fi
+fi"""
+MONITOR_STOP = r"""if [ -f ~/.testbed/netmon.pid ] && kill -0 "$(cat ~/.testbed/netmon.pid)" 2>/dev/null; then kill "$(cat ~/.testbed/netmon.pid)"; rm -f ~/.testbed/netmon.pid; echo stopped; else rm -f ~/.testbed/netmon.pid; echo "not running"; fi"""
+MONITOR_LAST = r"""f=$(ls -t ~/testbed-logs/netmon-*.jsonl 2>/dev/null | head -1); [ -n "$f" ] && tail -n 1 "$f" && echo "AGE $(( $(date +%s) - $(stat -c %Y "$f") ))" """
+
+
+def monitor_start_cmd(lap, all_laps, echo_port=5301):
+    peers = " ".join(f"--peer {o['name']}={o.get('wifi_ip') or o['ssh']}" for o in all_laps if o["name"] != lap["name"])
+    return MONITOR_START.format(peers=peers)
+
+
+def cmd_monitor(laps, action, all_laps=None, out_dir=None):
+    all_laps = all_laps or laps
+    if action in ("start", "stop"):
+        bad = 0
+        for lap, (rc, out, err) in zip(laps, pmap(lambda lap: sh(lap, monitor_start_cmd(lap, all_laps) if action == "start" else MONITOR_STOP, timeout=60), laps)):
+            bad += rc != 0
+            print(f"  {lap['name']:<8} {short(out or err)}")
+        return 1 if bad else 0
+    if action == "status":
+        bad = 0
+        for lap, (rc, out, err) in zip(laps, pmap(lambda lap: sh(lap, MONITOR_LAST, timeout=30), laps)):
+            try:
+                lines = out.strip().splitlines()
+                rec, age = json.loads(lines[0]), int(lines[1].split()[1])
+                worst = max([p["max_ms"] or 0 for p in rec["rtt"].values()] or [0])
+                print(f"  {lap['name']:<8} last sample {age} s ago, signal {rec['signal_dbm']} dBm, link {rec['tx_bitrate_mbps']} Mbit/s, probe worst {worst:.1f} ms")
+                bad += age > 10
+            except (ValueError, IndexError):
+                bad += 1
+                print(f"  {lap['name']:<8} no samples (not running?) {short(err or out, 80)}")
+        return 1 if bad else 0
+    # collect / report: copy the newest monitor log and agent log of every laptop to a local, git-ignored results folder
+    out = Path(out_dir or Path.home() / "testbed-results" / f"netmon-{time.strftime('%Y%m%d-%H%M%S')}")
+    out.mkdir(parents=True, exist_ok=True)
+    mons, ags = [], []
+    for lap in laps:
+        rc, listing, _ = sh(lap, "ls -t ~/testbed-logs/netmon-*.jsonl 2>/dev/null | head -1; ls -t ~/testbed-logs/agent-5300-*.jsonl 2>/dev/null | head -1", timeout=30)
+        names = listing.split()
+        for kind, remote, bucket in (("netmon", next((x for x in names if "netmon-" in x), None), mons), ("agent", next((x for x in names if "agent-5300" in x), None), ags)):
+            if not remote:
+                continue
+            dest = out / f"{lap['name']}-{kind}.jsonl"
+            if lap.get("local"):
+                subprocess.run(["cp", remote, str(dest)], check=True)
+            else:
+                subprocess.run(["scp", "-q", *SSH_OPTS, f"{lap['user']}@{lap['ssh']}:{remote}", str(dest)], check=True, capture_output=True)
+            bucket.append(str(dest))
+    print(f"collected {len(mons)} monitor log(s) and {len(ags)} agent log(s) into {out}")
+    if action == "collect":
+        return 0
+    try:
+        from testbed import netmon as NM
+    except ImportError:
+        import netmon as NM
+    return NM.main(["analyze", "--monitor", *mons, "--agent", *[a for m in mons for a in ags if Path(a).name.split("-")[0] == Path(m).name.split("-")[0]]])
+
+
 # ------------------------------------------------------------------------------------------------ command line
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--cluster", default=str(CLUSTER))
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("list", "status", "run", "sync", "env", "reboot", "discover", "agents", "clock"):
+    for name in ("list", "status", "run", "sync", "env", "reboot", "discover", "agents", "clock", "monitor"):
         p = sub.add_parser(name)
-        if name in ("status", "run", "env", "reboot", "agents", "clock"):
+        if name in ("status", "run", "env", "reboot", "agents", "clock", "monitor"):
             p.add_argument("--on", help="comma-separated laptop names (default: all)")
         if name == "status":
             p.add_argument("--measured", action="store_true")
@@ -512,6 +579,8 @@ def main(argv=None):
             p.add_argument("action", choices=("start", "stop", "status", "check"))
         if name == "clock":
             p.add_argument("action", choices=("setup", "status", "undo"))
+        if name == "monitor":
+            p.add_argument("action", choices=("start", "stop", "status", "collect", "report"))
     a = ap.parse_args(argv)
     laps = select(load_cluster(a.cluster), getattr(a, "on", None))
     if a.cmd == "list":
@@ -535,6 +604,8 @@ def main(argv=None):
         return cmd_agents(laps, a.action)
     if a.cmd == "clock":
         return cmd_clock(laps, a.action)
+    if a.cmd == "monitor":
+        return cmd_monitor(laps, a.action, load_cluster(a.cluster))
     return cmd_discover(load_cluster(a.cluster), a.write, a.cluster)
 
 

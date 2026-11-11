@@ -183,4 +183,13 @@ Measurements so far (Trip Booking, 20 nodes, static placement, four laptops on W
 - Pooled connections opened at configure time (4 per peer) remove the cost of fresh connections; each new connection is timed in the agent log.
 - Also fixed on the way: an earlier run's event readers stole the next run's events (each run now stops its readers).
 
+## Network monitor (built 2026-11-11, not yet run on the laptops)
+`netmon.py` runs next to the agents on every laptop and writes one JSON line per second to `~/testbed-logs/netmon-<time>.jsonl`: the Wi-Fi link
+state from `iw station dump` (signal, bit rates, and the per-second change of tx retries, tx failures, beacon losses and dropped frames), the change in
+TCP retransmitted segments, the load, and a UDP round-trip probe from every laptop to every other (10 per second, independent of the agents and the hub).
+The probe separates the two explanations of a stall: if it is clean while the agents' transfers stall, the cause is in our software; if it stalls
+too, the network. `fleet.py monitor start|stop|status|collect|report` runs it from the hub; `report` copies the newest monitor and agent logs of every
+laptop to a local results folder, merges the impaired seconds into episodes (probe lost or above 100 ms, tx retries above 25% of packets, 3 or more TCP
+retransmits, beacon loss, signal below -75 dBm) and counts how many slow agent transfers (over 0.5 s) fall inside an episode of the sender or of any
+laptop. Peers are named by laptop, so the logs hold no addresses. The thresholds are initial values, to be checked against the first real data.
 

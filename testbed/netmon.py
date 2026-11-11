@@ -252,6 +252,34 @@ def correlate(slow_transfers, eps_by_host, margin_s=1.0):
     return {"slow_transfers": len(slow_transfers), "inside_sender_episode": own, "inside_any_episode": anyhost}
 
 
+def run_starts_from_agent_log(path):
+    """Wall-clock start of every LiveSim run: each run begins by configuring the agents, which logs a `configured` event."""
+    out = []
+    for ln in Path(path).read_text().splitlines():
+        try:
+            r = json.loads(ln)
+        except ValueError:
+            continue
+        if r.get("kind") == "configured":
+            out.append(r["t"])
+    return out
+
+
+def impaired_per_run(records_by_host, run_starts):
+    """For each run (from its start to the next run's start): seconds monitored, impaired seconds per laptop, and seconds with 3 or more laptops
+    impaired at once (a shared disturbance of the medium rather than one laptop's problem)."""
+    imp = {h: {int(r["t"]) for r in rs if impaired_reasons(r)} for h, rs in records_by_host.items()}
+    secs = sorted({int(r["t"]) for rs in records_by_host.values() for r in rs})
+    bounds = list(run_starts) + [float("inf")]
+    rows = []
+    for i in range(len(run_starts)):
+        win = [t for t in secs if bounds[i] <= t < bounds[i + 1]]
+        if win:
+            rows.append({"run": i + 1, "seconds": len(win), "impaired": {h: sum(t in imp[h] for t in win) for h in sorted(imp)},
+                         "shared_3plus": sum(1 for t in win if sum(t in imp[h] for h in imp) >= 3)})
+    return rows
+
+
 def within_span(transfers, span):
     """The transfers that started inside the time span [t0, t1] covered by the monitors."""
     return [t for t in transfers if span[0] <= t["t_start"] <= span[1]]
@@ -297,9 +325,11 @@ def main(argv=None):
         except KeyboardInterrupt:
             mon.stop()
         return 0
-    eps_by_host, slow, span = {}, [], [float("inf"), 0.0]
+    eps_by_host, slow, span, recs_by_host = {}, [], [float("inf"), 0.0], {}
     for i, f in enumerate(x.monitor):
         recs = load_records(f)
+        if recs:
+            recs_by_host[recs[0].get("host")] = recs
         if recs:
             span = [min(span[0], recs[0]["t"]), max(span[1], recs[-1]["t"])]
         s = summary(recs)
@@ -311,6 +341,12 @@ def main(argv=None):
         if i < len(x.agent):
             slow += slow_transfers_from_agent_log(x.agent[i], s["host"])
     if x.agent:
+        starts = run_starts_from_agent_log(x.agent[0])
+        rows = impaired_per_run(recs_by_host, starts)
+        if rows:
+            print("impaired seconds per run (a run starts when the agents are configured); 3+ = three or more laptops impaired in the same second:")
+            for r in rows:
+                print(f"   run {r['run']:>2}: {r['seconds']:>3} s monitored; " + "; ".join(f"{h} {n}" for h, n in r["impaired"].items()) + f"; 3+ laptops {r['shared_3plus']} s")
         covered = within_span(slow, span)                      # only transfers that happened while the monitors were running
         print(f"slow agent transfers (> 0.5 s): {len(slow)} in the agent logs, {len(covered)} while the monitors ran; against monitor episodes:",
               correlate(covered, eps_by_host))

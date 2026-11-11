@@ -119,3 +119,21 @@ def test_fleet_monitor_commands_probe_the_other_laptops_and_are_valid_bash():
 def test_only_transfers_inside_the_monitored_time_span_are_counted():
     tr = [{"t_start": 50.0, "net_s": 1.0, "host": "a"}, {"t_start": 150.0, "net_s": 1.0, "host": "a"}, {"t_start": 400.0, "net_s": 1.0, "host": "a"}]
     assert [t["t_start"] for t in N.within_span(tr, [100.0, 300.0])] == [150.0]
+
+
+def test_impaired_seconds_are_counted_per_run_and_shared_ones_are_found(tmp_path):
+    bad = lambda t: rec(t, d_tcp_retrans=9)
+    a = [rec(t) for t in range(100, 110)] + [rec(t) for t in range(110, 120)]
+    b = list(a)
+    for t in (102, 103):
+        a[t - 100], b[t - 100] = bad(t), bad(t)                     # run 1: both laptops impaired at the same two seconds
+    b[15] = bad(115)                                                # run 2: only one laptop, one second
+    rows = N.impaired_per_run({"a": a, "b": b}, [100.0, 110.0])
+    assert rows == [{"run": 1, "seconds": 10, "impaired": {"a": 2, "b": 2}, "shared_3plus": 0},
+                    {"run": 2, "seconds": 10, "impaired": {"a": 0, "b": 1}, "shared_3plus": 0}]
+    c = list(a)
+    rows3 = N.impaired_per_run({"a": a, "b": b, "c": c}, [100.0])
+    assert rows3[0]["shared_3plus"] == 2                           # seconds 102 and 103: all three laptops impaired
+    log = tmp_path / "agent.jsonl"
+    log.write_text(json.dumps({"kind": "configured", "t": 5.0}) + "\n" + json.dumps({"kind": "task_done"}) + "\n" + json.dumps({"kind": "configured", "t": 9.0}) + "\n")
+    assert N.run_starts_from_agent_log(log) == [5.0, 9.0]

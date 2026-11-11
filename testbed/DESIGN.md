@@ -303,3 +303,18 @@ Design: Trip Booking, 20 nodes, 5 / 20 / 50 requests per second, three passes (p
   stamped run end printed "cooling down 75 s", then all four laptops passed. A test now starts `fleet.py` and `calibrate.py` as scripts, because the first version imported a module
   in a way that only works under pytest.
 - Not established: whether 5 GHz changes any of this; the cause of the 30 s shared disturbance; whether the load-dependent impairment is self-induced. Trip Booking's timing-resolution limits (DEV-T5) apply.
+
+### The nine-run series again, with the cooldown (2026-11-11, 23:45 to 23:57; same setup as the first series, laptops synced to 0bd70ac, 90 s settle after the sync)
+Logs: `~/testbed-results/netmon-20261111-235805`, `calibration-20261111-234841/235311/235742.json` (local, not in the repository).
+- Guard: 3 checks, 0 refusals; before passes 2 and 3 it waited 82 s and 81 s (cooldown since the last run's end), then all four laptops passed all 10 checks. The first series had 2 refusals in 5 checks,
+  both straight after a 50 requests/s run. So the refusals came from our own traffic, and the cooldown removes them.
+- Testbed (nine runs): all requests completed (168/168, 638/638, 1644/1644 at 5, 20, 50 requests/s); no late hub events; no agent transfer over 0.5 s; live p99 makespan 1.01 to 1.04 times
+  the simulator's; p50 1.26 to 1.44 times. Queue-free p95 overhead 46 to 48 ms (5/s), 55 to 58 ms (20/s), 81 to 88 ms (50/s); extra time per task 4.8, 5.4 to 5.7, 7.6 to 8.1 ms;
+  hub CPU 4%, 15 to 16%, 33 to 40%. The first series gave 78 to 88 ms and 7.3 to 8.2 ms at 50 requests/s: the numbers repeat across series. R_max = 350 tasks/s stands.
+- Wi-Fi, impaired seconds inside the nine runs' 50 s windows (450 s): edge-1 39 (9%), edge-2 34 (8%), edge-3 34 (8%), edge-4 36 (8%); three or more laptops impaired in the same second 32 s (7%).
+  Whole series (725 s): impaired 8 to 9% per laptop; signal median -35 to -42 dBm (min -47); link median 130 to 144 Mbit/s (min 58 on edge-2 and edge-4); almost all "probe slow"
+  (above 100 ms), 1 to 2 TCP-retransmit seconds on edge-1 and edge-2, 2 retry seconds on edge-4. Edge-4 is level with the others (snapd still stopped on it).
+- Load dependence, second observation: impaired laptop-seconds by rate 3% (5/s), 9% (20/s), 12% (50/s); first series 5%, 7%, 13%. The 5 requests/s level is close to the idle level
+  (about 2 to 3% outside the one 30 s shared disturbance in the idle window before). Still not tested whether it is the testbed's own traffic slowing the probes on the shared 2.4 GHz
+  channel; a run with the monitors' probes on and a laptop pair sending a controlled load would separate the two.
+- Not established: 5 GHz; the cause of the 30 s shared disturbance in the idle window; whether the load-dependent impairment is self-induced.

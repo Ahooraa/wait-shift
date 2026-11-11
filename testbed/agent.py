@@ -28,6 +28,7 @@ import argparse
 import asyncio
 import json
 import secrets
+import socket
 import struct
 import sys
 import time
@@ -82,8 +83,9 @@ class Agent:
         self.net, self.scale = None, 1.0
         self.seq, self.log_f, self.log_path = 0, None, log_path
         self.late = []
-        self.counters = {"tasks": 0, "cold_starts": 0, "sent_bytes": 0, "recv_bytes": 0, "sent_transfers": 0, "recv_transfers": 0}
+        self.counters = {"tasks": 0, "cold_starts": 0, "sent_bytes": 0, "recv_bytes": 0, "sent_transfers": 0, "recv_transfers": 0, "peer_connections": 0}
         self.ctl = None
+        self.pool = {}                  # (host, port) -> idle peer connections, reused: a new connection costs a handshake, and on Wi-Fi a lost SYN a 1 s stall
         self.tasks = set()              # strong references: the event loop only keeps weak ones, and a collected task would hang silently
         self.stop_event = None
         self.loop = None
@@ -237,6 +239,26 @@ class Agent:
         task.add_done_callback(self.tasks.discard)
         return {"accepted": True}
 
+    async def _peer_conn(self, host, port):
+        """An idle connection to the peer if there is a healthy one, else a new one (hello, TCP_NODELAY)."""
+        idle = self.pool.setdefault((host, port), [])
+        while idle:
+            r, w = idle.pop()
+            if not w.is_closing() and not r.at_eof():
+                return r, w
+            w.close()
+        reader, writer = await asyncio.wait_for(asyncio.open_connection(host, port), 10)
+        sock = writer.get_extra_info("socket")
+        if sock is not None:
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        writer.write(pack({"op": "hello", "role": "peer", "token": self.token}))
+        await writer.drain()
+        if not (await read_frame(reader)).get("ok"):
+            writer.close()
+            raise AgentError("peer_refused")
+        self.counters["peer_connections"] += 1
+        return reader, writer
+
     async def _send(self, m):
         src, dst, tid, size = int(m["src_node"]), int(m["dst_node"]), m["transfer_id"], float(m["size_MB"])
         nominal = self.net["hops"][src][dst] * size / self.net["bw"]
@@ -246,16 +268,20 @@ class Agent:
             if not local:
                 nbytes = int(size * 1e6 / self.scale)
                 host, port = self.peers[dst]
-                reader, writer = await asyncio.wait_for(asyncio.open_connection(host, port), 10)
-                writer.write(pack({"op": "hello", "role": "peer", "token": self.token}))
-                await writer.drain()
-                if not (await read_frame(reader)).get("ok"):
-                    raise AgentError("peer_refused")
-                writer.write(pack({"op": "state", "transfer_id": tid, "dst_node": dst, "from_node": src, "state_id": m["state_id"],
-                                   "size_MB": size, "bytes": nbytes, "store": store}))
-                await send_zeros(writer, nbytes)
-                ack = await read_frame(reader)
-                writer.close()
+                reader, writer = await self._peer_conn(host, port)
+                try:
+                    writer.write(pack({"op": "state", "transfer_id": tid, "dst_node": dst, "from_node": src, "state_id": m["state_id"],
+                                       "size_MB": size, "bytes": nbytes, "store": store}))
+                    await send_zeros(writer, nbytes)
+                    ack = await read_frame(reader)
+                except BaseException:
+                    writer.close()                                   # a broken connection is never put back
+                    raise
+                idle = self.pool.setdefault((host, port), [])
+                if len(idle) < 16:
+                    idle.append((reader, writer))
+                else:
+                    writer.close()
                 net_s = time.monotonic() - t0
                 if not ack.get("ok"):
                     raise AgentError(ack.get("error", "peer_error"), ack.get("detail", ""))
@@ -297,31 +323,36 @@ class Agent:
 
     # ---------------------------------------------------------------- connections
     async def _peer(self, reader, writer):
+        """Serve state transfers on one connection until the sender closes it (senders reuse their connections)."""
         try:
-            m = await read_frame(reader)
-            if m.get("op") != "state":
-                return
-            n = int(m["bytes"])
-            store = bool(m.get("store", True))             # the controller's own accounting is authoritative when it asks for store=False
-            try:
-                if store:
-                    self._reserve(m["dst_node"], m["state_id"], float(m["size_MB"]))
-            except AgentError as e:
-                await drain_bytes(reader, n)
-                writer.write(pack({"ok": False, "error": e.code, "detail": e.detail}))
+            while True:
+                try:
+                    m = await read_frame(reader)
+                except (asyncio.IncompleteReadError, ConnectionError, OSError):
+                    return
+                if m.get("op") != "state":
+                    return
+                n = int(m["bytes"])
+                store = bool(m.get("store", True))             # the controller's own accounting is authoritative when it asks for store=False
+                try:
+                    if store:
+                        self._reserve(m["dst_node"], m["state_id"], float(m["size_MB"]))
+                except AgentError as e:
+                    await drain_bytes(reader, n)
+                    writer.write(pack({"ok": False, "error": e.code, "detail": e.detail}))
+                    await writer.drain()
+                    continue
+                try:
+                    await drain_bytes(reader, n)
+                except (ConnectionError, OSError):
+                    if store:
+                        self._release(m["dst_node"], m["state_id"])
+                    return
+                self.counters["recv_bytes"] += n
+                self.counters["recv_transfers"] += 1
+                self.emit("state_received", transfer_id=m["transfer_id"], node=int(m["dst_node"]), state_id=m["state_id"], bytes=n)
+                writer.write(pack({"ok": True}))
                 await writer.drain()
-                return
-            try:
-                await drain_bytes(reader, n)
-            except (ConnectionError, OSError):
-                if store:
-                    self._release(m["dst_node"], m["state_id"])
-                raise
-            self.counters["recv_bytes"] += n
-            self.counters["recv_transfers"] += 1
-            self.emit("state_received", transfer_id=m["transfer_id"], node=int(m["dst_node"]), state_id=m["state_id"], bytes=n)
-            writer.write(pack({"ok": True}))
-            await writer.drain()
         finally:
             writer.close()
 
@@ -355,6 +386,9 @@ class Agent:
             writer.close()
 
     async def handle(self, reader, writer):
+        sock = writer.get_extra_info("socket")
+        if sock is not None:
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         try:
             hello = await asyncio.wait_for(read_frame(reader), 10)
             ok = hello.get("op") == "hello" and secrets.compare_digest(str(hello.get("token", "")).encode(), self.token.encode())

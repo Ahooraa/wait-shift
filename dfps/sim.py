@@ -156,6 +156,17 @@ class Sim:
     def _at(self, t, kind, a=None, b=None, c=None):
         heapq.heappush(self.events, (t, next(self.seq), kind, a, b, c))
 
+    def _exec_s(self, run):
+        """Execution time of one run. A sampler with a `for_run(function, request id, task)` method draws it from the seed and the run's identity
+        (common random numbers: every method then sees the same duration for the same task of the same request, whatever the order in which
+        the methods start their tasks); any other sampler is called as exec_sampler(function, rng) from the shared stream, as before."""
+        mu = self.exec_time[run.f]
+        if self.exec_sampler is None:
+            return float(self.rng.exponential(mu))
+        if hasattr(self.exec_sampler, "for_run"):
+            return float(self.exec_sampler.for_run(run.f, run.req.id, run.task))
+        return float(self.exec_sampler(run.f, self.rng))
+
     def _stt(self, size_mb, k, k2):
         """Transfer time of one state from node k to node k2, as used by every event that schedules a state move (Eq. 1-2). A hook:
         the model here; testbed/livesim.py overrides it to learn which state moves where and sends the bytes through real agents."""
@@ -457,8 +468,7 @@ class Sim:
                     self._start(ins, run)
 
     def _start(self, ins, run):
-        mu = self.exec_time[run.f]
-        s = float(self.rng.exponential(mu)) if self.exec_sampler is None else float(self.exec_sampler(run.f, self.rng))
+        s = self._exec_s(run)
         ins.state, ins.run, ins.busy_until = BUSY, run, self.now + s
         run.t_start = self.now
         if self.trace is not None and getattr(self, "trace_snap", False):

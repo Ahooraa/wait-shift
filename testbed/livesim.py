@@ -33,6 +33,11 @@ import numpy as np
 from dfps.ondemand import OnDemandSim
 from dfps.sim import Sim
 
+try:
+    from testbed.agentclient import AgentClient
+except ImportError:                                    # run as a script: testbed/ is sys.path[0]
+    from agentclient import AgentClient
+
 BIG = 1e12
 
 
@@ -43,6 +48,12 @@ class LiveLink:
         self.clients = clients                      # {agent name: AgentClient}
         self.node_agent = node_agent                # {node id: agent name}
         self.speed, self.payload_scale = float(speed), float(payload_scale)
+
+    @classmethod
+    def from_cluster(cls, laps, token, ne, port=5300, speed=1.0, payload_scale=100.0):
+        """Connect to the agents of the laptops listed in the (local) cluster file; the logical nodes go to them in contiguous blocks."""
+        clients = {lap["name"]: AgentClient(lap.get("wifi_ip") or lap["ssh"], port, token) for lap in laps}
+        return cls(clients, cls.blocks(ne, list(clients)), speed, payload_scale)
 
     @staticmethod
     def blocks(n_nodes, names):
@@ -82,7 +93,7 @@ class LiveMixin:
         self._reg = {}                                        # id(instance) -> (instance, iid at the agent)
         self._warm, self._runs, self._xfers = {}, {}, {}
         self._fatal, self.n_agent_ops = None, 0
-        self.live_log = {"warm": 0, "runs": 0, "transfers": 0, "relocation_transfers": 0, "late_events": 0}
+        self.live_log = {"warm": 0, "runs": 0, "transfers": 0, "relocation_transfers": 0, "late_events": 0, "inbox_max": 0, "hub_cpu_fraction": None}
         super().__init__(*args, **kw)
         self.t_end = float(self.duration) + self.drain_s
         self.speed = link.speed
@@ -177,12 +188,13 @@ class LiveMixin:
         elif k == "transfer_failed" and self._fatal is None:
             self._fatal = f"transfer failed: {ev.get('error')} {ev.get('detail', '')}"
 
-    def _pump(self, name, client):
-        while True:
+    def _pump(self, client, stop):
+        """Forward the agent's events to the run's inbox until the run ends (a reader left over would steal the next run's events)."""
+        while not stop.is_set():
             try:
-                self.inbox.put(client.events.get())
-            except Exception:                                    # noqa: BLE001 - the thread ends with the process
-                return
+                self.inbox.put(client.events.get(timeout=0.2))
+            except queue.Empty:
+                continue
 
     # ---------------------------------------------------------------- housekeeping
     def _gc_agents(self):
@@ -199,8 +211,24 @@ class LiveMixin:
     # ---------------------------------------------------------------- the run
     def run(self):
         self.link.configure(self.sc)
-        for name, c in self.link.clients.items():
-            threading.Thread(target=self._pump, args=(name, c), daemon=True).start()
+        stop = threading.Event()
+        for c in self.link.clients.values():                        # events left over from an earlier run on the same connections
+            while True:
+                try:
+                    c.events.get_nowait()
+                except queue.Empty:
+                    break
+        pumps = [threading.Thread(target=self._pump, args=(c, stop), daemon=True) for c in self.link.clients.values()]
+        for t in pumps:
+            t.start()
+        try:
+            return self._run_body()
+        finally:
+            stop.set()
+            for t in pumps:
+                t.join(timeout=1.0)
+
+    def _run_body(self):
         ready = set()
         for row in self.inst:                                       # containers that exist at the start (static placement): idle at t = 0
             for lst in row:
@@ -226,6 +254,7 @@ class LiveMixin:
                 raise RuntimeError(self._fatal)
         self._live_on = True
         self._t0 = time.time()
+        cpu0 = time.process_time()
         self.now, last_gc = 0.0, 0.0
         while True:
             if self._fatal:
@@ -239,6 +268,7 @@ class LiveMixin:
             try:
                 ev = self.inbox.get(timeout=wait)
                 self.now = self._clock()
+                self.live_log["inbox_max"] = max(self.live_log["inbox_max"], self.inbox.qsize() + 1)
                 self._handle(ev)
                 continue
             except queue.Empty:
@@ -257,6 +287,7 @@ class LiveMixin:
                 last_gc = now
                 self._gc_agents()
         self.n_unfinished = self.active + len(self.waiting)
+        self.live_log["hub_cpu_fraction"] = (time.process_time() - cpu0) / max(1e-9, time.time() - self._t0)   # share of one core the hub process used
         res = self.results()
         res["live"] = {"speed": self.speed, "payload_scale": self.link.payload_scale, "agent_ops": self.n_agent_ops, **self.live_log,
                        "agents": {a: {"lateness_s": s["lateness_s"], "counters": s["counters"]} for a, s in self.link.statuses().items()}}

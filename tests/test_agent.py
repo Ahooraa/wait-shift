@@ -208,3 +208,18 @@ def test_agent_check_runs_on_loopback_agents(capsys):
     assert "clocks" in text
     for a, _ in agents:
         a.stop()
+
+
+def test_transfers_reuse_peer_connections():
+    agents, cl, where = start_mesh(2)
+    for i in range(12):
+        tid = f"t{i}"
+        cl[0].call("send_state", src_node=0, dst_node=2, state_id=tid, size_MB=5, transfer_id=tid)
+        cl[0].wait_event("transfer_done", transfer_id=tid, timeout=10)                # one after the other: the same connection can be reused
+    c = cl[0].call("status")["counters"]
+    assert c["sent_transfers"] == 12 and c["peer_connections"] <= 2
+    assert cl[1].call("status")["counters"]["recv_transfers"] == 12
+    for c_ in cl:
+        c_.close()
+    for a, _ in agents:
+        a.stop()

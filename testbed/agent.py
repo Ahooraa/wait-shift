@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import resource
 import secrets
 import socket
 import struct
@@ -444,6 +445,17 @@ class Agent:
             self.loop.call_soon_threadsafe(self.stop_event.set)
 
 
+def raise_fd_limit():
+    """Raise the soft limit on open files to the hard limit. Every state transfer between laptops holds a TCP connection until its nominal time, so a busy
+    run keeps hundreds open at once; the default soft limit (1024 on the laptops) made an agent fail with "Too many open files" and the run abort (12 Nov 2026,
+    B* on ML, where the matcher spreads tasks over all nodes). Returns (soft, hard) as set."""
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    target = hard if hard != resource.RLIM_INFINITY else 1048576
+    if soft < target:
+        resource.setrlimit(resource.RLIMIT_NOFILE, (target, hard))
+    return resource.getrlimit(resource.RLIMIT_NOFILE)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -459,7 +471,9 @@ def main(argv=None):
         raise SystemExit("empty token file")
     log = Path(a.log_dir).expanduser() / f"agent-{a.port}-{time.strftime('%Y%m%d-%H%M%S')}.jsonl"
     agent = Agent(token, log, a.speed)
-    print(f"agent listening on {a.bind}:{a.port}, log {log}", flush=True)
+    soft, hard = raise_fd_limit()
+    agent.emit("fd_limit", soft=soft, hard=hard)
+    print(f"agent listening on {a.bind}:{a.port}, log {log}, open-files limit {soft}", flush=True)
     try:
         asyncio.run(agent.serve(a.bind, a.port))
     except KeyboardInterrupt:

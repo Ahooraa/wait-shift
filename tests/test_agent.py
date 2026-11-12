@@ -243,3 +243,15 @@ def test_configure_prewarms_connections_and_times_them():
         c.close()
     for a, _ in agents:
         a.stop()
+
+
+def test_the_open_files_limit_is_raised_to_the_hard_limit():
+    import resource
+    from testbed import agent as A
+    soft0, hard0 = resource.getrlimit(resource.RLIMIT_NOFILE)
+    try:
+        resource.setrlimit(resource.RLIMIT_NOFILE, (min(256, hard0), hard0))
+        soft, hard = A.raise_fd_limit()
+        assert hard == hard0 and soft == (hard0 if hard0 != resource.RLIM_INFINITY else 1048576) and soft > 256
+    finally:
+        resource.setrlimit(resource.RLIMIT_NOFILE, (soft0, hard0))

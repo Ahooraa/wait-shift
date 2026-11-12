@@ -25,6 +25,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))        # run as a script: the repository root must be importable
 
 from testbed import baselines_live as BL                                # noqa: E402
+from testbed import bstar_live as BSL                                   # noqa: E402
 from testbed import frozen_live as FL                                   # noqa: E402
 from testbed import runmark                                             # noqa: E402
 from testbed import sebs_scenario as S                                  # noqa: E402
@@ -40,7 +41,9 @@ def pick(r):
 
 
 def systems(arm):
-    """(build, warm-up, live class, needs X0) of a system: the controller arms of frozen_live, or `rl`."""
+    """(build, warm-up, live class, needs X0) of a system: the controller arms of frozen_live, `bstar` or `rl`."""
+    if arm == "bstar":
+        return (lambda sc, X0, seed, **kw: BSL.build(sc, X0, seed, **kw)), (lambda sc, X0, seed: BSL.warm_up(sc, X0, seed)), LiveSim
     if arm == "rl":
         return (lambda sc, X0, seed, **kw: BL.build_rl(sc, seed, **kw)), (lambda sc, X0, seed: BL.warm_up_rl(sc, seed)), LiveOnDemandSim
     return (lambda sc, X0, seed, **kw: FL.build(sc, X0, seed, arm=arm, **kw)), (lambda sc, X0, seed: FL.warm_up_kernels(sc, X0, seed=seed, arm=arm)), LiveSim
@@ -80,7 +83,7 @@ def main(argv=None):
     ap.add_argument("--duration", type=float, default=240.0)
     ap.add_argument("--warmup", type=float, default=60.0)
     ap.add_argument("--drain", type=float, default=60.0)
-    ap.add_argument("--arm", default="frozen4", choices=sorted(FL.ARMS) + ["rl"])
+    ap.add_argument("--arm", default="frozen4", choices=sorted(FL.ARMS) + ["rl", "bstar"])
     ap.add_argument("--seeds", default="1")
     ap.add_argument("--out", default=str(Path.home() / "testbed-results"))
     ap.add_argument("--guard-retries", type=int, default=2, help="how often a refused guard is retried (after --guard-wait seconds) before the run is given up")

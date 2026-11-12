@@ -430,7 +430,7 @@ class Agent:
     async def serve(self, host="0.0.0.0", port=5300, ready=None):
         self.loop = asyncio.get_running_loop()
         self.stop_event = asyncio.Event()
-        server = await asyncio.start_server(self.handle, host, port)
+        server = await asyncio.start_server(self.handle, host, port, backlog=LISTEN_BACKLOG)
         bound = server.sockets[0].getsockname()[1]
         self.emit("agent_started", port=bound, version=VERSION)
         if ready:
@@ -443,6 +443,9 @@ class Agent:
     def stop(self):
         if self.loop and self.stop_event:
             self.loop.call_soon_threadsafe(self.stop_event.set)
+
+
+LISTEN_BACKLOG = 4096    # asyncio's default of 100 overflowed under bursts of simultaneous state transfers (12 Nov 2026: 1,687 listen overflows on one laptop, connections reset); the kernel caps it at somaxconn
 
 
 def raise_fd_limit():

@@ -99,6 +99,8 @@ measure orchestration as much as work (DEV-T5). Sensitivity runs, in this order 
 bootstrap, Wilcoxon-Holm, G6 rule), [[independent-baselines-capw1]] (held-out seeds 7-10), the run-noise note (placebo runs).
 
 ## 11. Decisions
+Open before the freeze: FROZEN-5 (queue-aware binding at ready time) is pre-registered in [[workflow-aware-decision-rules]] and may replace FROZEN-4 as system F4's controller if confirmed on seeds 4-6; whether FROZEN-4 then stays as a reference arm (20 more runs, about 5.4 hours) is the user's call. The freeze waits for that result.
+
 Decided by the user on 2026-11-12: (1) systems = F4, B*, RL, Graph-Aware and FaaSPR as independent systems; SR, SG, Heu removed; (2) 10 logical nodes; (3) one load per application, the highest the hub allows; (5) 4 seeds (7-10).
 **Not yet answered, kept as proposed until the user says otherwise:** (4) applications: ML, MapReduce, Video and ExCamera in the Q1 claim, Trip Booking capped and outside it, 1000Genome simulator-only with one demonstration run;
 (6) thresholds: 99% completion, late-event fraction 1% and hub CPU 90%, repeat once, the 25% impairment cut of the sensitivity analysis.

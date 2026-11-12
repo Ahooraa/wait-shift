@@ -944,3 +944,22 @@ author: llm
 ## [2026-11-12] synthesis | user | Testbed pre-registration: decisions of the user applied
 - [[testbed-preregistration]] updated: systems F4, B*, RL, Graph-Aware and FaaSPR (independent); SR, SG, Heu removed; 10 nodes; one load per application (highest the hub allows); 4 seeds (7-10). 100 runs, about 27 h.
 - Still proposed, not answered: which applications are in the Q1 claim; the thresholds. Not frozen.
+
+## [2026-11-12] result | user | dry run of the testbed protocol on development seeds 1-3 (30 items, FROZEN-4 and RL, five applications)
+- 30 of 30 done after the guard's refusals were waited out; the four items skipped overnight (real outage and Wi-Fi impairment 04:00-09:00) were rerun and finished. A rerun started with the system Python (no numpy) wasted an hour; its crashes were read as guard refusals because the item logs still held the overnight text. Restarted with `~/venv-dfps/bin/python`; the log line records it. Not yet fixed in code: the queue should read only the current attempt's output and check its interpreter.
+- FROZEN-4 live against its simulator: P99 ratio 1.00-1.10 in all cells, cold starts equal; MV-4 recorded in every row. RL: P99 ratio 0.95-1.46, cold starts differ up to 30% in both directions (ML and MapReduce worst).
+- FROZEN-4 / RL P99 (live, mean of 3 seeds): Trip Booking 0.54, Video 0.44, ML 0.80, ExCamera 1.50, MapReduce 2.08.
+
+## [2026-11-12] diagnosis | user | where FROZEN-4's queueing comes from (simulator, development seeds 1-3)
+- `testbed/diag/` (uncommitted): critical-path breakdown, stranded capacity, node view, dispatcher and mover-period probes, late-binding oracle. Execution is identical for both systems; the difference is queueing (FROZEN-4) against cold-start wait (RL); transfers under 1%.
+- Cause 1: queue-blind arrival placement (`transfer_only`). Oracle late binding: MapReduce -40% P99, ML -31%, ExCamera -6%, Video -4%, Trip Booking 0%; paper cases -3.4% [0.948, 0.982]. Cause 2 (ExCamera): function 0's containers all busy in bursts while other functions' containers idle; not addressed.
+- Earlier statements corrected: the oracle is causal (live state the hub holds), not an upper bound; an average of idle containers against queue length mixed samples with and without queues.
+
+## [2026-11-12] plan | user | FROZEN-5, queue-aware binding at ready time, pre-registered
+- User: "Yes, pre-register". Router line reopened for this one test. Rule, runs (SeBS seeds 4-6, 18 CAP-W1 development cases, two live checks on seed 1), readings C1-C4 and the confirmed / not-confirmed outcomes written before any run of the implemented rule: [[workflow-aware-decision-rules]], section "FROZEN-5: queue-aware binding at ready time". Nothing implemented yet; FROZEN-4 unchanged.
+
+## [2026-11-12] code | user | FROZEN-5 late_bind switch implemented
+- `Sim(late_bind=False)`, arm `frozen5`, tests in `tests/test_frozen_live.py`. Off: stored paper hash reproduced, 180 tests pass. On: same P99 as the diagnostic oracle on the five SeBS development cells and the 18 CAP-W1 development cases (0.966 [0.948, 0.982], 15 of 18); decision time p99 under 0.4 ms. Confirmation on seeds 4-6 and the live checks not run yet. See [[workflow-aware-decision-rules]], "FROZEN-5: implementation check".
+
+## [2026-11-12] result | user | FROZEN-5 confirmation on SeBS seeds 4-6 (simulator): CONFIRMED, live checks pending
+- C1: P99 ratio to FROZEN-4 0.664 [0.541, 0.806] over 12 Q1 pairs, better in 12 of 12; C2: every application at or below 1.00 (ML 0.53, MapReduce 0.44, Video 0.95, ExCamera 0.88, Trip Booking 1.00), cold starts unchanged; C4 simulator part: decision p99 0.77 ms. C3 met earlier on development cases. FROZEN-5 ahead of RL on ML, MapReduce, Video, Trip Booking; RL still ahead on ExCamera (1.03-1.38). Details in [[workflow-aware-decision-rules]]. User decides whether F5 replaces F4 in the testbed pre-registration.

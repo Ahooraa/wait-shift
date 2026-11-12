@@ -24,10 +24,11 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))        # run as a script: the repository root must be importable
 
+from testbed import baselines_live as BL                                # noqa: E402
 from testbed import frozen_live as FL                                   # noqa: E402
 from testbed import runmark                                             # noqa: E402
 from testbed import sebs_scenario as S                                  # noqa: E402
-from testbed.livesim import LiveLink, LiveSim                           # noqa: E402
+from testbed.livesim import LiveLink, LiveOnDemandSim, LiveSim         # noqa: E402
 from dfps.nsga2 import PlacementProblem                                 # noqa: E402
 
 KEYS = ("n_arrived", "n_completed", "n_unfinished", "p50_makespan", "p99_makespan", "cold_starts", "n_adjust", "n_noop_adjust", "n_moved",
@@ -38,15 +39,23 @@ def pick(r):
     return {k: r.get(k) for k in KEYS}
 
 
+def systems(arm):
+    """(build, warm-up, live class, needs X0) of a system: the controller arms of frozen_live, or `rl`."""
+    if arm == "rl":
+        return (lambda sc, X0, seed, **kw: BL.build_rl(sc, seed, **kw)), (lambda sc, X0, seed: BL.warm_up_rl(sc, seed)), LiveOnDemandSim
+    return (lambda sc, X0, seed, **kw: FL.build(sc, X0, seed, arm=arm, **kw)), (lambda sc, X0, seed: FL.warm_up_kernels(sc, X0, seed=seed, arm=arm)), LiveSim
+
+
 def one_seed(link, args, seed):
+    build, warm, live_cls = systems(args.arm)
     sc, samp = S.build(seed, apps=[args.app], rho=args.rho, ne=args.ne, duration_s=args.duration, rate_cap=args.rate_cap)
     X0 = PlacementProblem(sc.network, sc.ecc, np.array([f.exec_time for f in sc.functions])).random(np.random.default_rng(seed))
-    ref_sim, _ = FL.build(sc, X0, seed, arm=args.arm, warmup=args.warmup, duration=args.duration, exec_sampler=samp)
+    ref_sim, _ = build(sc, X0, seed, warmup=args.warmup, duration=args.duration, exec_sampler=samp)
     t0 = time.time()
     ref = ref_sim.run()
     ref_wall = time.time() - t0
-    FL.warm_up_kernels(sc, X0, seed=seed, arm=args.arm)
-    sim, adj = FL.build(sc, X0, seed, arm=args.arm, warmup=args.warmup, duration=args.duration, exec_sampler=samp, sim_cls=LiveSim, link=link, drain_s=args.drain)
+    warm(sc, X0, seed)
+    sim, adj = build(sc, X0, seed, warmup=args.warmup, duration=args.duration, exec_sampler=samp, sim_cls=live_cls, link=link, drain_s=args.drain)
     t0 = time.time()
     live = sim.run()
     wall = time.time() - t0
@@ -71,7 +80,7 @@ def main(argv=None):
     ap.add_argument("--duration", type=float, default=240.0)
     ap.add_argument("--warmup", type=float, default=60.0)
     ap.add_argument("--drain", type=float, default=60.0)
-    ap.add_argument("--arm", default="frozen4", choices=sorted(FL.ARMS))
+    ap.add_argument("--arm", default="frozen4", choices=sorted(FL.ARMS) + ["rl"])
     ap.add_argument("--seeds", default="1")
     ap.add_argument("--out", default=str(Path.home() / "testbed-results"))
     ap.add_argument("--guard-retries", type=int, default=2, help="how often a refused guard is retried (after --guard-wait seconds) before the run is given up")
@@ -93,10 +102,12 @@ def main(argv=None):
         r = one_seed(link, a, seed)
         r["guard_refusals_before"] = refusals
         rows.append(r)
+        def f1(x):
+            return "n/a" if x is None or x != x else f"{x:.1f}"
         print(f"seed {seed}: {r['rate_per_s']:.1f} req/s ({r['tasks_per_s']:.0f} tasks/s), done {r['live']['n_completed']}/{r['live']['n_arrived']} "
               f"(sim {r['sim']['n_completed']}/{r['sim']['n_arrived']}); p50 ratio {r['p50_ratio']:.2f}, p99 ratio {r['p99_ratio']:.2f}; cold {r['live']['cold_starts']} "
-              f"(sim {r['sim']['cold_starts']}); moved {r['live']['n_moved']} (sim {r['sim']['n_moved']}); late events {r['late_events']}, inbox {r['inbox_max']}, "
-              f"hub cpu {r['hub_cpu_fraction']:.0%}; adjust p95 {r['live']['adjust_ms_p95']:.1f} ms (sim {r['sim']['adjust_ms_p95']:.1f}), plan p95 {r['live']['plan_ms_p95']:.1f} ms; "
+              f"(sim {r['sim']['cold_starts']}); moved {r['live'].get('n_moved')} (sim {r['sim'].get('n_moved')}); late events {r['late_events']}, inbox {r['inbox_max']}, "
+              f"hub cpu {r['hub_cpu_fraction']:.0%}; adjust p95 {f1(r['live']['adjust_ms_p95'])} ms (sim {f1(r['sim']['adjust_ms_p95'])}), plan p95 {f1(r['live']['plan_ms_p95'])} ms; "
               f"wall {r['live_wall_s']:.0f} s", flush=True)
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)

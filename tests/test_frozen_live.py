@@ -55,6 +55,29 @@ def test_builder_reproduces_the_papers_stored_frozen4_run():
     assert r["event_hash"] == ref["event_hash"] and r["p99_makespan"] == ref["p99_makespan"]
 
 
+def test_late_bind_is_off_by_default_and_changes_events_when_on():
+    sc, samp, X0 = small(rho=0.3, ne=6, dur=240.0)
+    off1, _ = FL.build(sc, X0, 1, arm="frozen4", warmup=30.0, duration=240.0, exec_sampler=samp)
+    off2, _ = FL.build(sc, X0, 1, arm="frozen4", warmup=30.0, duration=240.0, exec_sampler=samp, late_bind=False)
+    h_off = off1.run()["event_hash"]
+    assert off1.late_bind is False and h_off == off2.run()["event_hash"] and off1.late_bind_ms == []
+    on, _ = FL.build(sc, X0, 1, arm="frozen5", warmup=30.0, duration=240.0, exec_sampler=samp)
+    r = on.run()
+    assert r["event_hash"] != h_off                                                  # on: the node choices differ, so the events do
+    assert on.late_bind and len(on.late_bind_ms) > 0 and r["n_unfinished"] == 0 and np.percentile(on.late_bind_ms, 99) < 10.0
+
+
+def test_late_bind_is_deterministic_and_keeps_storage_balanced():
+    sc, samp, X0 = small(rho=0.3, ne=6, dur=240.0)
+    out = []
+    for _ in range(2):
+        sim, _ = FL.build(sc, X0, 1, arm="frozen5", warmup=30.0, duration=240.0, exec_sampler=samp)
+        out.append(sim.run()["event_hash"])
+        sim.check_invariants()                                                      # storage within capacity, every function present
+        assert (sim.storage_used >= -1e-6).all()
+    assert out[0] == out[1]
+
+
 @pytest.fixture(scope="module")
 def agents():
     procs, ports = start_agent_processes(3, SPEED)

@@ -33,6 +33,7 @@ import frozen2                                          # noqa: E402
 
 ARMS = {"frozen4": frozen2.FROZEN4,                     # the paper's controller (PL-5 fill, MV-4 mover)
         "frozen4_mv3": frozen2.FROZEN4_MV3,             # the same decisions with the MV-3 mover (no numba needed)
+        "frozen5": frozen2.FROZEN4,                     # FROZEN-4 + queue-aware binding of single-parent tasks at ready time (Sim late_bind; pre-registered 12 Nov 2026)
         "frozen4_p8": frozen2.FROZEN4_P8,               # PL-5p: 8 fill passes, the scale option
         "frozen3": frozen2.FROZEN3}                     # the controller of the results before 9 Nov 2026
 MOVE_PERIOD_S = 4.0
@@ -58,6 +59,8 @@ def build(sc, X0, seed, *, arm="frozen4", warmup, duration, sim_cls=Sim, move_pe
     adj = O3SimAdjuster(make_adjuster("B_STAR", A, seed=seed + 300), move_period, epoch=epoch, horizon=30.0, K=8, seed=seed + 800, warmup=warmup,
                         blind=True, cand_mode="nosim", churn=dict(ARMS[arm], lam=LAM))
     kw["interval"] = adj.next_interval
+    if arm == "frozen5":
+        kw["late_bind"] = True
     kw.update(extra)
     return sim_cls(sc, np.array(X0).copy(), adjuster=adj, seed=seed + 400, **kw), adj
 

@@ -43,14 +43,15 @@ class ORun(Run):
 
 class OnDemandSim(Sim):
     def __init__(self, sc, policy, seed=0, duration=None, warmup=30.0, drain_factor=20.0, debug=False, keep_warm=None, exec_mult=None,
-                 X0=None):
+                 X0=None, **sim_kw):
+        # sim_kw (2026-11-12, testbed): further Sim arguments, e.g. exec_sampler (common random numbers), record_requests, trace. Nothing passed = nothing changed.
         # X0 (2026-11-01, user question: is the empty-slot start part of why Heu/RL show so many cold starts?): optional [N, F]
         # placement of WARM idle containers to start from, e.g. the same NSGA-II layout B* and ours start from (P["X0"] in
         # results/d1_headroom/*.prep.pkl). None = the paper's own model, every slot empty (DFPS p.9-11, the default above).
         # This only changes the t=0 state; dispatch, recycling and cold-start accounting afterwards are unchanged.
         N, F = sc.network.ne, len(sc.functions)
         super().__init__(sc, np.zeros((N, F), dtype=int), adjuster=None, seed=seed, duration=duration, warmup=warmup,
-                         drain_factor=drain_factor, debug=debug, allow_empty=True)
+                         drain_factor=drain_factor, debug=debug, allow_empty=True, **sim_kw)
         self.policy, self.mode = policy, policy.mode
         self.ecc = sc.ecc.astype(int)
         self.idle = np.zeros((F, N), dtype=int)       # idle containers of f on k

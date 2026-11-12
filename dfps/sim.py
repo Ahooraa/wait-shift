@@ -50,7 +50,7 @@ class Sim:
     def __init__(self, sc, X, adjuster=None, interval=None, seed=0, fst_variant="prose", k_best=10, n_trees=5,
                  lam_window=5, lam_update=1.0, duration=None, warmup=30.0, drain_factor=20.0, use_source=True, debug=False,
                  allow_empty=False, admission=None, exec_sampler=None, slo_factor=3.0, match_objective="sum", retry_min_interval=0.0, retry_max_attempts=None, lam_source=None, record_requests=False,
-                 move_cost=1.0, elastic=False, dispatcher=None, trace=False, queue_priority=None, join_bind=False):
+                 move_cost=1.0, elastic=False, dispatcher=None, trace=False, queue_priority=None, join_bind=False, late_bind=False):
         from .constants import PAPER
         self.sc, self.net = sc, sc.network
         self.N, self.F = self.net.ne, len(sc.functions)
@@ -80,6 +80,12 @@ class Sim:
         # plan and its storage reservation are the fallback (the reservation moves only if the new node has room). Simplification: held
         # states stay accounted on the planned node's storage until binding. False = all tasks bound at arrival, the original behaviour.
         self.join_bind = join_bind
+        # late_bind (12 Nov 2026, FROZEN-5; pre-registered in knowledge/synthesis/workflow-aware-decision-rules.md): when the only parent of a
+        # single-parent task finishes, the task's node is chosen again from the live state: smallest (input transfer from the parent's node +
+        # expected wait), among the nodes that hold a container of the function and have room for the task's input. Roots and joins keep their
+        # arrival plan. Off (the default) changes nothing: event hashes equal the stored runs. `late_bind_ms` collects the decision times.
+        self.late_bind = bool(late_bind)
+        self.late_bind_ms = []
         self.n_join_bound = self.n_join_rebound = 0
         self.trace = {"tasks": [], "reqs": []} if trace else None      # per-task trace of in-window requests (dfps/diagnostics.py)
         self._snap_due = []                                            # trace-only snapshot timers (trace_snap, 2026-11-04); empty = off
@@ -585,9 +591,45 @@ class Sim:
         self.__dict__.setdefault("_infl_key", {})[(r.id, ch)] = int(r.plan[ch])
         infl[(wf.ft[ch], int(r.plan[ch]))] = infl.get((wf.ft[ch], int(r.plan[ch])), 0) + 1
 
+    def _late_bind(self, r, wf, t, k0):
+        """FROZEN-5 rule, called at the very start of a task's completion (its container still counts as busy, its input still as stored).
+        wait(k) = 0 if idle containers of f on k exceed (queued + tasks this completion has already sent there), else
+        (queued + sent + 1 - idle) x nominal execution time / containers of f on k. Ties: smaller transfer, then lower node index."""
+        t0 = time.perf_counter()
+        sent = {}
+        for ch in wf.children[t]:
+            if len(wf.parents[ch]) != 1:
+                continue
+            f, tot = wf.ft[ch], wf.input_total(ch)
+            old = int(r.plan[ch])
+            size = wf.ss[(t, ch)]
+            best, bs, bt = old, float("inf"), float("inf")
+            for k in np.flatnonzero(self.cnt[f] > 0):
+                k = int(k)
+                if self.esc[k] - self.storage_used[k] + (tot if k == old else 0.0) < tot - 1e-9:
+                    continue
+                idle = 0
+                for i in self.inst[k][f]:
+                    if i.state == IDLE and i.run is None:
+                        idle += 1
+                ql = len(self.queue[k][f]) + sent.get((f, k), 0)
+                wait = 0.0 if idle > ql else (ql + 1 - idle) * float(self.exec_time[f]) / max(1, int(self.cnt[f, k]))
+                tr = self.net.stt(size, k0, k)
+                sc_ = tr + wait
+                if sc_ < bs - 1e-12 or (abs(sc_ - bs) <= 1e-12 and tr < bt - 1e-12):
+                    bs, bt, best = sc_, tr, k
+            sent[(f, best)] = sent.get((f, best), 0) + 1
+            if best != old:
+                self.storage_used[old] -= tot
+                self.storage_used[best] += tot
+                r.plan[ch] = best
+        self.late_bind_ms.append((time.perf_counter() - t0) * 1e3)
+
     def _ev_done(self, ins, token, c):
         run = ins.run
         r, wf, t, k = run.req, run.req.wf, run.task, ins.node
+        if self.late_bind:
+            self._late_bind(r, wf, t, k)
         ins.run, ins.state = None, IDLE
         self.storage_used[k] -= run.total                          # consumed input states are removed (p.5)
         for ch in wf.children[t]:

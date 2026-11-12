@@ -963,3 +963,9 @@ author: llm
 
 ## [2026-11-12] result | user | FROZEN-5 confirmation on SeBS seeds 4-6 (simulator): CONFIRMED, live checks pending
 - C1: P99 ratio to FROZEN-4 0.664 [0.541, 0.806] over 12 Q1 pairs, better in 12 of 12; C2: every application at or below 1.00 (ML 0.53, MapReduce 0.44, Video 0.95, ExCamera 0.88, Trip Booking 1.00), cold starts unchanged; C4 simulator part: decision p99 0.77 ms. C3 met earlier on development cases. FROZEN-5 ahead of RL on ML, MapReduce, Video, Trip Booking; RL still ahead on ExCamera (1.03-1.38). Details in [[workflow-aware-decision-rules]]. User decides whether F5 replaces F4 in the testbed pre-registration.
+
+## [2026-11-12] result | user | FROZEN-5 live checks, MapReduce and ML, development seed 1
+- Both complete every request; live P99 ratio to the simulator twin 1.03 and 1.02; cold starts equal; late events 0. Hub CPU 22% and 19% against 18% and 16% for FROZEN-4 in the dry run: the registered "no more hub CPU" is not met as worded (3-4 points, the rule's own cost). Details in [[workflow-aware-decision-rules]]. The user decides whether F5 replaces F4.
+
+## [2026-11-12] decision | user | FROZEN-5 adopted as the paper's controller (system F5 in the testbed)
+- User: "Yes, adopt F5". F5 replaces F4 in the testbed pre-registration; FROZEN-4 is not run as a reference arm (100 runs stay); FROZEN-4 results before today stay valid. CLAUDE.md "Controller versions" updated. Open: the live hub-CPU criterion is not met as worded (recorded), and RL is still ahead on ExCamera. Testbed pre-registration remains a draft; not frozen.

@@ -1008,3 +1008,7 @@ author: llm
 - Live plan `azure-capw2` (F5, B*, RL, Graph-Aware; 4 apps x 2 seeds = 32 runs) and `smoke-capw2` (one 300 s ML cell per system). FaaSPR remains in `testbed/sim_sweep.py` runs.
 - FaaSPR Video explosion traced to CAP-W2 weights of 1.0002 (a container fewer per node); weights now rounded to 0.01. Simulator sweep v4 (`~/testbed-results/sim-sweep-capw2-v4/`, 40 runs) is the current simulator overview.
 - Simulator resource tracking (`track_res`): container-seconds, warm idle, busy, cold, relocated MB and total state MB, same definitions as the agents' live measure.
+
+## [2026-11-14] decision | user | live systems F5, B*, RL, Heu; Heu ported to capacity units
+- Graph-Aware and FaaSPR out of the live plan (not independent of our re-layout engine); Heu back in. Plan `azure-capw2` = 32 runs; `smoke-heu` = one 300 s ML cell.
+- Heu prune ported to weight units (`dfps/heu.py`), arm `heu` in `controller_check.py` (`baselines_live.build_heu`). Next: Heu simulator runs on CAP-W2 rounded, then the Heu smoke test, then the live plan.

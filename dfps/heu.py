@@ -66,7 +66,11 @@ class HeuPolicy:
             for q in range(1, len(comps)):
                 w.append(float(sum(wf.ss[(u, v)] for u in comps[q - 1] for v in wf.children[u])))
             node_delay = [max(sim.exec_time[wf.ft[t]] + sim.cold_start[wf.ft[t]] for t in comp) for comp in comps]
-            need_slots = np.stack([np.minimum(len(comp), sim.ecc) for comp in comps])  # a component larger than a node runs in waves (AB-H1)
+            if sim.hetero:                                           # container sizes (CAP-W1/W2, 13 Nov 2026): the component's demand in capacity units, one container per task
+                fw = np.asarray(sim.sc.fw, dtype=float)
+                need_slots = np.stack([np.minimum(sum(fw[wf.ft[t]] for t in comp), sim.ecc.astype(float)) for comp in comps])
+            else:
+                need_slots = np.stack([np.minimum(len(comp), sim.ecc) for comp in comps])  # a component larger than a node runs in waves (AB-H1)
             need_store = np.array([sum(wf.input_total(t) for t in comp) for comp in comps])[:, None]
             s = self._static[wf.id] = (w, node_delay, need_slots, need_store)
         return s
@@ -74,9 +78,25 @@ class HeuPolicy:
     def feasible(self, sim, wf):
         """Pruning (Alg.1 l.5): residual container slots and storage must meet the component's demand."""
         _, _, need_slots, need_store = self._static_of(sim, wf)
-        resid = sim.ecc - sim.occ - np.array([len(q) for q in sim.nq])
+        if sim.hetero:                                               # the same residual in capacity units: containers busy or cold-starting for a bound task, and queued runs, by size
+            resid = sim.ecc - self._occupied_weight(sim) - np.array([sum(sim.sc.fw[run.f] for run in q) for q in sim.nq])
+        else:
+            resid = sim.ecc - sim.occ - np.array([len(q) for q in sim.nq])
         free_store = sim.esc - sim.storage_used
         return (resid[None, :] >= need_slots) & (free_store[None, :] >= need_store)
+
+    @staticmethod
+    def _occupied_weight(sim):
+        """Capacity units held per node by containers that are busy or cold-starting for a bound task (what `sim.occ` counts, in sizes)."""
+        from .solution import BUSY, COLD
+        fw = sim.sc.fw
+        occ = np.zeros(sim.N)
+        for k in range(sim.N):
+            for f in range(sim.F):
+                for ins in sim.inst[k][f]:
+                    if ins.state == BUSY or (ins.state == COLD and ins.run is not None):
+                        occ[k] += fw[f]
+        return occ
 
     def _path(self, sim, origin, w, feas, metric_w, jitter):
         """Least-weight layered path. metric_w[q]: weight per hop of the transfer into layer q. Returns (nodes, total)."""

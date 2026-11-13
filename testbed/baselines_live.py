@@ -39,6 +39,21 @@ def build_rl(sc, seed, *, warmup, duration, sim_cls=OnDemandSim, ckpt=RL_CKPT, *
     return sim_cls(sc, load_rl(ckpt, seed), seed=seed + 400, duration=duration, warmup=warmup, **extra), None
 
 
+def build_heu(sc, seed, *, warmup, duration, sim_cls=OnDemandSim, **extra):
+    """(sim, None) for one run of the Heu baseline (Xu et al., IEEE TC 2023, adapted to the DFPS model, dfps/heu.py): on-demand containers, no scaler, no re-layout, no mover.
+    Seeds as in the stored runs: policy seed + 500, simulator seed + 400."""
+    from dfps.heu import HeuPolicy
+    return sim_cls(sc, HeuPolicy(seed=seed + 500), seed=seed + 400, duration=duration, warmup=warmup, **extra), None
+
+
+def warm_up_heu(sc, seed=1, seconds=40.0):
+    """One short plain-simulator run so every code path has been taken once BEFORE a live run."""
+    t0 = time.time()
+    sim, _ = build_heu(sc, seed, warmup=min(10.0, seconds / 3), duration=seconds)
+    sim.run()
+    return time.time() - t0
+
+
 def warm_up_rl(sc, seed=1, seconds=40.0, ckpt=RL_CKPT):
     """One short plain-simulator run, so the network is loaded and torch's first-call costs are paid BEFORE a live run."""
     t0 = time.time()

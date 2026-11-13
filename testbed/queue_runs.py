@@ -31,14 +31,48 @@ CELLS = {"690.ml": (0.56, None, 60, 300, 60), "660.map-reduce": (0.45, None, 60,
 ORDER = ["690.ml", "660.map-reduce", "650.vid", "6200.trip-booking", "680.excamera"]
 
 
-def build_plan(name):
-    if name != "dev-protocol":
-        raise SystemExit(f"unknown plan {name!r}")
+PLANS = {   # name -> (applications, seeds, systems); the order of the systems inside a block is drawn once per block. `systems` is a list, or a dict seed -> list
+    "dev-protocol": (ORDER, (1, 2, 3), ["frozen4", "rl"]),                                                         # the overnight dry run of 12 Nov 2026 (30 items)
+    "initial-f5-bstar": (["690.ml", "660.map-reduce", "650.vid", "680.excamera"], (1, 2), ["frozen5", "bstar"]),    # initial runs, development seeds 1 and 2 (user, 12 Nov): F5 and B* on the dry run's cells
+    # 13 Nov (user): the steady-Poisson initial runs were stopped ("the steady Poisson ruined the experiment") and replaced by trace-driven arrivals: Azure 2019 only, extended
+    # windows, two development seeds, five systems. Seed-major order, so a whole seed (every application, every system) is complete before the second starts.
+    "azure-initial": dict(apps=["690.ml", "660.map-reduce", "650.vid", "680.excamera"], seeds=(1, 2), arms=["frozen5", "bstar", "rl", "faaspr", "ga"],
+                          arrivals="azure", seed_major=True),
+}
+
+
+# Azure-arrival cells: application -> (mean rho, warm-up, window, drain). One mean load for every application (0.5, the lower of the two levels agreed on 12 Nov); where the busiest
+# minute would offer more than 300 tasks per second (the hub's limit) the whole series is scaled down (meta rho_effective / rho_peak say what was offered). The window is 15 minutes
+# (15 minute-bins of the trace) for every application; ExCamera keeps its longer warm-up. The drain is a MAXIMUM of 600 s, not a fixed wait: a live run ends as soon as every request
+# has completed (livesim.py: no events left), so the drain only costs time for a system that has a backlog; requests still unfinished after it are reported (n_unfinished), never dropped.
+AZURE_CELLS = {"690.ml": (0.5, 60, 900, 600), "660.map-reduce": (0.5, 60, 900, 600), "650.vid": (0.5, 60, 900, 600), "680.excamera": (0.5, 180, 900, 600)}
+
+
+def build_azure_plan(spec):
     items = []
-    for app in ORDER:
+    blocks = [(app, seed) for seed in spec["seeds"] for app in spec["apps"]] if spec.get("seed_major") else [(app, seed) for app in spec["apps"] for seed in spec["seeds"]]
+    for app, seed in blocks:
+        rho, warm, window, drain = AZURE_CELLS[app]
+        systems = list(spec["arms"])
+        random.Random(f"azure-{app}-{seed}").shuffle(systems)            # the order inside a block is drawn once, per block, and recorded
+        for arm in systems:
+            argv = ["testbed/controller_check.py", "--arm", arm, "--app", app, "--ne", "10", "--rho", str(rho), "--duration", str(warm + window), "--warmup", str(warm),
+                    "--drain", str(drain), "--seeds", str(seed), "--arrivals", spec["arrivals"], "--weights", spec.get("weights", "memory")]   # 13 Nov: CAP-W2, never CAP-U
+            items.append({"id": f"{app}.s{seed}.{arm}", "argv": argv})
+    return items
+
+
+def build_plan(name):
+    if name not in PLANS:
+        raise SystemExit(f"unknown plan {name!r}; known: {sorted(PLANS)}")
+    if isinstance(PLANS[name], dict):
+        return build_azure_plan(PLANS[name])
+    apps, seeds, arms = PLANS[name]
+    items = []
+    for app in apps:
         rho, cap, warm, window, drain = CELLS[app]
-        for seed in (1, 2, 3):                                     # development seeds only: the held-out seeds 7-10 are never in a dry run
-            systems = ["frozen4", "rl"]
+        for seed in seeds:                                         # development seeds only: the held-out seeds 7-10 are never in a dry run or an initial run
+            systems = list(arms[seed] if isinstance(arms, dict) else arms)
             random.Random(f"{app}-{seed}").shuffle(systems)        # the order inside a block is drawn once, per block, and recorded
             for arm in systems:
                 argv = ["testbed/controller_check.py", "--arm", arm, "--app", app, "--ne", "10", "--rho", str(rho), "--duration", str(warm + window),
@@ -56,7 +90,10 @@ def git_state():
 
 
 def fleet(*a, timeout=180):
-    return subprocess.run([PY, str(ROOT / "testbed" / "fleet.py"), *a], cwd=ROOT, capture_output=True, text=True, timeout=timeout)
+    try:
+        return subprocess.run([PY, str(ROOT / "testbed" / "fleet.py"), *a], cwd=ROOT, capture_output=True, text=True, timeout=timeout)
+    except Exception as e:                                          # an unreachable laptop must not end the queue: the next item's guard will say what is wrong
+        return subprocess.CompletedProcess(a, returncode=1, stdout="", stderr=f"fleet {' '.join(a)} failed: {e!r}")
 
 
 def main(argv=None):
@@ -65,7 +102,12 @@ def main(argv=None):
     ap.add_argument("--dir", required=True)
     ap.add_argument("--guard-wait", type=float, default=300.0)
     ap.add_argument("--guard-tries", type=int, default=6)
+    ap.add_argument("--item-timeout", type=float, default=5400.0, help="hard limit on one item in seconds (a run that hangs is killed and treated as a crash; the longest normal item is under 45 minutes)")
     a = ap.parse_args(argv)
+    try:
+        import numpy, numba                                         # noqa: F401  (12 Nov 2026: a start with the system Python, which has neither, turned every crash into a "refused guard")
+    except ImportError as e:
+        raise SystemExit(f"this Python ({sys.executable}) cannot run the testbed ({e}); start with ~/venv-dfps/bin/python")
     d = Path(a.dir).expanduser()
     (d / "items").mkdir(parents=True, exist_ok=True)
     items = build_plan(a.plan)
@@ -96,9 +138,15 @@ def main(argv=None):
         for attempt in (1, 2):
             for g in range(1, a.guard_tries + 1):
                 t0 = time.time()
-                with open(d / "items" / f"{it['id']}.log", "a") as lf:
-                    p = subprocess.run([PY, *it["argv"], "--out", str(d / "items")], cwd=ROOT, stdout=lf, stderr=subprocess.STDOUT, text=True)
-                tail = (d / "items" / f"{it['id']}.log").read_text()[-3000:]
+                logfile = d / "items" / f"{it['id']}.log"
+                offset = logfile.stat().st_size if logfile.exists() else 0      # only what THIS attempt wrote counts: old text of an earlier attempt once read as a refusal
+                with open(logfile, "a") as lf:
+                    try:
+                        p = subprocess.run([PY, *it["argv"], "--out", str(d / "items")], cwd=ROOT, stdout=lf, stderr=subprocess.STDOUT, text=True, timeout=a.item_timeout)
+                    except subprocess.TimeoutExpired:       # 13 Nov 2026: without a limit one hung run (an agent that stops answering) would hold the whole night
+                        lf.write(f"\nitem hung: killed after {a.item_timeout:.0f} s by the queue runner\n")
+                        p = subprocess.CompletedProcess(it["argv"], returncode=-9)
+                tail = logfile.read_bytes()[offset:].decode(errors="replace")[-3000:]
                 if p.returncode == 0:
                     outcome = "ok"
                     break

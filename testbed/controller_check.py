@@ -27,12 +27,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))        # run as 
 from testbed import baselines_live as BL                                # noqa: E402
 from testbed import bstar_live as BSL                                   # noqa: E402
 from testbed import frozen_live as FL                                   # noqa: E402
+from testbed import independent_live as IL                              # noqa: E402
 from testbed import runmark                                             # noqa: E402
 from testbed import sebs_scenario as S                                  # noqa: E402
 from testbed.livesim import LiveLink, LiveOnDemandSim, LiveSim         # noqa: E402
 from dfps.nsga2 import PlacementProblem                                 # noqa: E402
 
-KEYS = ("n_arrived", "n_completed", "n_unfinished", "p50_makespan", "p99_makespan", "cold_starts", "n_adjust", "n_noop_adjust", "n_moved",
+KEYS = ("n_arrived", "n_completed", "n_unfinished", "avg_makespan", "avg_makespan_censored", "p50_makespan", "p99_makespan", "cold_starts", "n_adjust", "n_noop_adjust", "n_moved",
         "adjust_ms_p95", "plan_ms_p95", "plan_ms_mean", "mover_impl", "mover_pass", "event_hash")
 
 
@@ -46,30 +47,40 @@ def systems(arm):
         return (lambda sc, X0, seed, **kw: BSL.build(sc, X0, seed, **kw)), (lambda sc, X0, seed: BSL.warm_up(sc, X0, seed)), LiveSim
     if arm == "rl":
         return (lambda sc, X0, seed, **kw: BL.build_rl(sc, seed, **kw)), (lambda sc, X0, seed: BL.warm_up_rl(sc, seed)), LiveOnDemandSim
+    if arm in IL.ARMS:                                                      # Graph-Aware (ga) and FaaSPR (faaspr) as independent systems
+        return (lambda sc, X0, seed, **kw: IL.build(sc, X0, seed, arm=arm, **kw)), (lambda sc, X0, seed: IL.warm_up(sc, X0, arm, seed)), LiveSim
     return (lambda sc, X0, seed, **kw: FL.build(sc, X0, seed, arm=arm, **kw)), (lambda sc, X0, seed: FL.warm_up_kernels(sc, X0, seed=seed, arm=arm)), LiveSim
 
 
 def one_seed(link, args, seed):
     build, warm, live_cls = systems(args.arm)
-    sc, samp = S.build(seed, apps=[args.app], rho=args.rho, ne=args.ne, duration_s=args.duration, rate_cap=args.rate_cap)
+    sc, samp = S.build(seed, apps=[args.app], rho=args.rho, ne=args.ne, duration_s=args.duration, rate_cap=args.rate_cap, arrivals=args.arrivals,
+                       weights=args.weights)
+    if sc.meta.get("capacity_model") == "CAP-U" and not args.allow_cap_u:     # 13 Nov 2026: 40 measured runs ran on CAP-U by default and had to be repeated (user decision: weighted capacity)
+        raise SystemExit("the scenario is CAP-U (one slot per container); measured testbed runs use a weighted capacity model (--weights). Use --allow-cap-u only for a labelled trial run")
     X0 = PlacementProblem(sc.network, sc.ecc, np.array([f.exec_time for f in sc.functions])).random(np.random.default_rng(seed))
     ref_sim, _ = build(sc, X0, seed, warmup=args.warmup, duration=args.duration, exec_sampler=samp)
     t0 = time.time()
     ref = ref_sim.run()
     ref_wall = time.time() - t0
+    ref_health = IL.health(ref_sim) if args.arm in IL.ARMS else {}
     warm(sc, X0, seed)
     sim, adj = build(sc, X0, seed, warmup=args.warmup, duration=args.duration, exec_sampler=samp, sim_cls=live_cls, link=link, drain_s=args.drain)
     t0 = time.time()
     live = sim.run()
     wall = time.time() - t0
     lv = live["live"]
+    health = IL.health(sim) if args.arm in IL.ARMS else {}
     ops = lv["runs"] + lv["warm"] + lv["transfers"] + lv["relocation_transfers"]
-    out = {"seed": seed, "rate_per_s": sc.meta["rate_per_s"], "rho_effective": sc.meta["rho_effective"], "tasks_per_s": sc.meta["rate_per_s"] * sc.workflows[0].n,
+    out = {"seed": seed, "rate_per_s": sc.meta["rate_per_s"], "rho_effective": sc.meta["rho_effective"], "arrivals": sc.meta.get("arrivals", "poisson"),
+           **({k: sc.meta[k] for k in ("rho_peak", "peak_tasks_per_s", "trace_row", "trace_offset_min", "trace_peak_to_mean", "peak_scale")} if "rho_peak" in sc.meta else {}), "tasks_per_s": sc.meta["rate_per_s"] * sc.workflows[0].n,
            "sim": pick(ref), "live": pick(live), "sim_wall_s": round(ref_wall, 1), "live_wall_s": round(wall, 1),
            "p50_ratio": live["p50_makespan"] / ref["p50_makespan"], "p99_ratio": live["p99_makespan"] / ref["p99_makespan"],
            "cold_ratio": live["cold_starts"] / max(1, ref["cold_starts"]), "moved_ratio": (live.get("n_moved") or 0) / max(1, ref.get("n_moved") or 0),
            "late_events": lv["late_events"], "late_event_fraction": lv["late_events"] / max(1, ops), "inbox_max": lv["inbox_max"],
            "hub_cpu_fraction": lv["hub_cpu_fraction"], "agent_ops": lv["agent_ops"], "events_total": ops,
+           "health": health, "sim_health": ref_health,
+           "resources": live.get("resources"), "sim_resources": {k: ref.get(k) for k in ("provisioned_slot_s", "warm_idle_provisioned_s", "mb_relocated")},
            "relocation_transfers": lv["relocation_transfers"], "agent_timer_lateness_max_ms": max(a["lateness_s"]["max"] for a in lv["agents"].values()) * 1e3}
     return out
 
@@ -80,14 +91,17 @@ def main(argv=None):
     ap.add_argument("--ne", type=int, default=10)
     ap.add_argument("--rho", type=float, default=0.3)
     ap.add_argument("--rate-cap", type=float, default=None, help="most requests per second to drive (rho_effective says what load that is)")
+    ap.add_argument("--arrivals", default="poisson", choices=["poisson", "azure"], help="constant-rate Poisson, or a segment of the Azure 2019 trace (rho is then the MEAN load; see sebs_scenario.build)")
     ap.add_argument("--duration", type=float, default=240.0)
     ap.add_argument("--warmup", type=float, default=60.0)
     ap.add_argument("--drain", type=float, default=60.0)
-    ap.add_argument("--arm", default="frozen4", choices=sorted(FL.ARMS) + ["rl", "bstar"])
+    ap.add_argument("--arm", default="frozen4", choices=sorted(FL.ARMS) + ["rl", "bstar"] + list(IL.ARMS))
     ap.add_argument("--seeds", default="1")
     ap.add_argument("--out", default=str(Path.home() / "testbed-results"))
     ap.add_argument("--guard-retries", type=int, default=2, help="how often a refused guard is retried (after --guard-wait seconds) before the run is given up")
     ap.add_argument("--guard-wait", type=float, default=60.0)
+    ap.add_argument("--weights", default="uniform", help="capacity model of the scenario (sebs_scenario.build); the default is CAP-U, which a measured run refuses")
+    ap.add_argument("--allow-cap-u", action="store_true", help="allow the uniform-slot model (CAP-U) in a trial run; never for measured runs")
     ap.add_argument("--no-guard", action="store_true", help="skip the check that the Wi-Fi and the laptops are ready (not for measured runs)")
     a = ap.parse_args(argv)
     from testbed import fleet

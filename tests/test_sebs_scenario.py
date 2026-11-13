@@ -63,12 +63,23 @@ def test_arrival_rate_offers_the_requested_load():
 
 def test_memory_weights_are_a_new_capacity_model_version():
     sc, _ = S.build(1, weights="memory")
-    assert sc.meta["capacity_model"] == "CAP-W2" and abs(sc.fw.mean() - 1) < 1e-9 and sc.fw.max() / sc.fw.min() > 3
+    assert sc.meta["capacity_model"] == "CAP-W2" and sc.fw.max() / sc.fw.min() > 3
     assert S.build(1)[0].meta["capacity_model"] == "CAP-U"
     with pytest.raises(ValueError):
         S.build(1, mix="nope")
     with pytest.raises(ValueError):
         S.build(1, weights="nope")
+
+
+def test_memory_weights_preserve_the_offered_load_and_vary_within_an_app():
+    for app in ("650.vid", "680.excamera", "690.ml"):
+        sc, _ = S.build(2, rho=0.5, ne=8, duration_s=900.0, apps=[app], weights="memory")
+        u = sum(sc.functions[f].exec_time for _, w, _ in sc.arrivals for f in sc.workflows[w].ft)
+        w_ = sum(sc.functions[f].exec_time * sc.fw[f] for _, w, _ in sc.arrivals for f in sc.workflows[w].ft)
+        assert abs(w_ / u - 1) < 1e-9, app                                      # the weighted offered load equals the nominal one
+        assert sc.meta["capacity_model"] == "CAP-W2" and set(sc.meta["fw_by_function"]) == set(sc.meta["function_names"])
+    sc, _ = S.build(2, rho=0.5, ne=8, duration_s=900.0, apps=["650.vid"], weights="memory")
+    assert sc.fw.max() / sc.fw.min() > 3                                        # Video: two big functions and a small one
 
 
 def test_same_seed_same_scenario_and_it_runs_in_the_simulator():
@@ -164,3 +175,46 @@ def test_crn_durations_follow_the_measured_distribution():
     d = np.array([samp.for_run(1, r, 0) for r in range(8000)])                    # function 1: the video decode step
     mu = sc.functions[1].exec_time
     assert abs(d.mean() / mu - 1) < 0.05 and d.min() > 0
+
+
+# ---- Azure 2019 trace-driven arrivals (13 Nov 2026) ----------------------------------------------------------------------------------------------------------------------
+def _azure(seed=1, app="690.ml", rho=0.5, dur=960.0, **kw):
+    from testbed import sebs_scenario as S
+    return S.build(seed, apps=[app], rho=rho, ne=10, duration_s=dur, arrivals="azure", **kw)
+
+
+def test_azure_arrivals_are_deterministic_and_inside_the_run():
+    a, _ = _azure()
+    b, _ = _azure()
+    assert a.arrivals == b.arrivals and a.meta["trace_row"] == b.meta["trace_row"] and a.meta["trace_offset_min"] == b.meta["trace_offset_min"]
+    t = [x[0] for x in a.arrivals]
+    assert t == sorted(t) and 0 <= t[0] and t[-1] < 960.0 and all(x[1] == 0 and 0 <= x[2] < 10 for x in a.arrivals)
+
+
+def test_azure_segment_is_bursty_by_the_rule_and_the_seed_changes_it():
+    from testbed import sebs_scenario as S
+    a, _ = _azure(1)
+    b, _ = _azure(2)
+    assert S.PTM_RANGE[0] <= a.meta["trace_peak_to_mean"] <= S.PTM_RANGE[1] and S.PTM_RANGE[0] <= b.meta["trace_peak_to_mean"] <= S.PTM_RANGE[1]
+    assert (a.meta["trace_row"], a.meta["trace_offset_min"]) != (b.meta["trace_row"], b.meta["trace_offset_min"])
+    r = np.array(a.meta["rate_series"])
+    assert len(r) == 16 and abs(r.max() / r.mean() - a.meta["trace_peak_to_mean"]) < 1e-9        # the rate follows the trace's shape exactly
+
+
+def test_azure_load_is_the_mean_and_the_peak_cap_is_respected():
+    a, _ = _azure(1, "650.vid", rho=0.5)                                    # a light application: no cap needed, the mean load is the target
+    assert a.meta["peak_scale"] == 1.0 and abs(a.meta["rho_effective"] - 0.5) < 1e-9 and a.meta["rho_peak"] > 0.5
+    m, _ = _azure(1, "690.ml", rho=0.5)                                      # a heavy one: the busiest minute is held to 300 tasks/s, so the mean falls below the target
+    assert m.meta["peak_scale"] < 1.0 and abs(m.meta["peak_tasks_per_s"] - 300.0) < 1e-6 and m.meta["rho_effective"] < 0.5
+    assert abs(m.meta["rate_per_s"] - np.mean(m.meta["rate_series"])) < 1e-9
+
+
+def test_azure_cluster_equals_the_poisson_cluster_of_the_same_seed_and_one_app_only():
+    from testbed import sebs_scenario as S
+    a, _ = _azure(3, "660.map-reduce")
+    p, _ = S.build(3, apps=["660.map-reduce"], rho=0.5, ne=10, duration_s=960.0)
+    assert np.array_equal(a.ecc, p.ecc) and np.array_equal(a.esc, p.esc)
+    with pytest.raises(ValueError):
+        S.build(1, apps=["690.ml", "660.map-reduce"], rho=0.5, ne=10, duration_s=960.0, arrivals="azure")
+    with pytest.raises(ValueError):
+        S.build(1, apps=["690.ml"], rho=0.5, ne=10, duration_s=960.0, arrivals="weekly")

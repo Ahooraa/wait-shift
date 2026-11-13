@@ -35,7 +35,7 @@ import sys
 import time
 from pathlib import Path
 
-VERSION = 1
+VERSION = 2          # 2: resource accounting (acc in status; reloc counters)
 PREWARM = 4                    # connections opened to every other agent at configure time
 HDR = struct.Struct("!I")
 MAX_HDR = 1 << 20
@@ -85,8 +85,10 @@ class Agent:
         self.net, self.scale = None, 1.0
         self.seq, self.log_f, self.log_path = 0, None, log_path
         self.late = []
-        self.counters = {"tasks": 0, "cold_starts": 0, "sent_bytes": 0, "recv_bytes": 0, "sent_transfers": 0, "recv_transfers": 0, "peer_connections": 0}
+        self.counters = {"tasks": 0, "cold_starts": 0, "sent_bytes": 0, "recv_bytes": 0, "sent_transfers": 0, "recv_transfers": 0, "peer_connections": 0,
+                         "sent_mb": 0.0, "reloc_sent_transfers": 0, "reloc_sent_mb": 0.0, "reloc_sent_bytes": 0}
         self.ctl = None
+        self._acc_reset()
         self.pool = {}                  # (host, port) -> idle peer connections, reused: a new connection costs a handshake, and on Wi-Fi a lost SYN a 1 s stall
         self.tasks = set()              # strong references: the event loop only keeps weak ones, and a collected task would hang silently
         self.stop_event = None
@@ -113,6 +115,28 @@ class Agent:
                 self.ctl = None
         return rec
 
+    # ---- resource accounting (13 Nov 2026, user): what this agent's containers actually did, integrated on the agent's own clock (seconds of the simulated clock = wall x speed).
+    # Per state (cold = starting, idle = warm and waiting, busy = executing): container-seconds and capacity-seconds (container x weight). The hub reads them at the window edges.
+    def _acc_reset(self):
+        self.acc = {"t": time.monotonic(), "n": {"cold": 0, "idle": 0, "busy": 0}, "w": {"cold": 0.0, "idle": 0.0, "busy": 0.0},
+                    "cont_s": {"cold": 0.0, "idle": 0.0, "busy": 0.0}, "cap_s": {"cold": 0.0, "idle": 0.0, "busy": 0.0}}
+
+    def _acc_tick(self):
+        a, t = self.acc, time.monotonic()
+        dt = (t - a["t"]) * self.speed
+        a["t"] = t
+        for st in ("cold", "idle", "busy"):
+            a["cont_s"][st] += a["n"][st] * dt
+            a["cap_s"][st] += a["w"][st] * dt
+
+    def _acc_move(self, old, new, w):
+        """A container changes state (old or new may be None: it appears or disappears)."""
+        self._acc_tick()
+        for st, sign in ((old, -1), (new, 1)):
+            if st is not None:
+                self.acc["n"][st] += sign
+                self.acc["w"][st] += sign * w
+
     def sleep_of(self, nominal_s):
         return max(0.0, float(nominal_s)) / self.speed
 
@@ -132,6 +156,7 @@ class Agent:
         self.net = {"bw": float(m["net"]["bw_MBps"]), "hops": m["net"]["hops"]}
         self.scale = float(m.get("payload_scale", 1.0))
         self.inst, self.states = {}, {}
+        self._acc_reset()
         self.late = []
         for idle in self.pool.values():
             for _, w in idle:
@@ -161,6 +186,7 @@ class Agent:
         cold = float(m.get("cold_start_s", 0.0))
         t0 = time.time()
         n["used_w"] += w
+        self._acc_move(None, "cold", w)
         rec = {"node": int(m["node"]), "f": m.get("f"), "w": w, "state": "cold", "t_add": t0, "cold_s": cold}
         self.inst[iid] = rec
         rec["timer"] = self.loop.call_later(self.sleep_of(cold), self._ready, iid)
@@ -171,6 +197,7 @@ class Agent:
         i = self.inst.get(iid)
         if i is None or i["state"] != "cold":
             return
+        self._acc_move("cold", "idle", i["w"])
         i["state"], i["timer"] = "idle", None
         t = time.time()
         late = (t - i["t_add"]) - self.sleep_of(i["cold_s"])
@@ -186,6 +213,7 @@ class Agent:
         if i.get("timer"):
             i["timer"].cancel()
         self.nodes[i["node"]]["used_w"] -= i["w"]
+        self._acc_move(i["state"], None, i["w"])
         del self.inst[m["iid"]]
         return {}
 
@@ -196,6 +224,7 @@ class Agent:
         if i["state"] != "idle":
             raise AgentError("not_idle", f"instance {m['iid']} is {i['state']}")
         d = float(m["duration_s"])
+        self._acc_move("idle", "busy", i["w"])
         i["state"], i["t_run"], i["run_id"], i["req_s"] = "busy", time.time(), m["run_id"], d
         i["run_timer"] = self.loop.call_later(self.sleep_of(d), self._done, m["iid"])
         return {"t_start": i["t_run"]}
@@ -205,6 +234,7 @@ class Agent:
         if i is None or i["state"] != "busy":
             return
         t1 = time.time()
+        self._acc_move("busy", "idle", i["w"])
         i["state"], i["run_timer"] = "idle", None
         late = (t1 - i["t_run"]) - self.sleep_of(i["req_s"])
         self.late.append(late)
@@ -313,6 +343,11 @@ class Agent:
                     raise AgentError(ack.get("error", "peer_error"), ack.get("detail", ""))
                 self.counters["sent_bytes"] += nbytes
             self.counters["sent_transfers"] += 1
+            self.counters["sent_mb"] += size                      # every state moved (workflow data flow and relocations), nominal MB
+            if m.get("reloc"):                                   # a relocated request's input state (the hub marks it): nominal MB and real bytes
+                self.counters["reloc_sent_transfers"] += 1
+                self.counters["reloc_sent_mb"] += size
+                self.counters["reloc_sent_bytes"] += nbytes
             wait = self.sleep_of(nominal) - (time.monotonic() - t0)
             if wait > 0:
                 await asyncio.sleep(wait)
@@ -332,10 +367,12 @@ class Agent:
     async def op_status(self, m):
         busy = sum(i["state"] == "busy" for i in self.inst.values())
         cold = sum(i["state"] == "cold" for i in self.inst.values())
+        self._acc_tick()
         late = sorted(self.late)
         q = lambda p: late[min(len(late) - 1, int(p * len(late)))] if late else 0.0
         return {"nodes": {str(k): {"ecc": v["ecc"], "used_w": v["used_w"], "esc": v["esc"], "used_mb": v["used_mb"]} for k, v in self.nodes.items()},
                 "instances": len(self.inst), "busy": busy, "cold": cold, "counters": dict(self.counters), "speed": self.speed,
+                "acc": {"cont_s": dict(self.acc["cont_s"]), "cap_s": dict(self.acc["cap_s"])},
                 "lateness_s": {"n": len(late), "mean": sum(late) / len(late) if late else 0.0, "p95": q(0.95), "max": late[-1] if late else 0.0},
                 "seq": self.seq}
 

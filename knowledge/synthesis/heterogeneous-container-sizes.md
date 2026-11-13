@@ -142,3 +142,8 @@ Consequence: the 18 CAP-W1 runs of ours made before the fix are invalid for the 
   - Not diagnosed yet: why B* degrades under sizes. The guess is that its SA swaps now have to respect fit, but this is not tested.
 - **Caveats** (as pre-registered): one run per case, and a new NSGA-II start layout per case. So d mixes the size effect with the change of layout. The noise floor (~1.5–3% per case) is far below the observed change.
 - **Also seen:** the raw (unscaled) weighted load differs from nominal in some seeds, e.g. F1/F2 seed 1 at 85% would be 1.05–1.08. The load-preserving scaling removes this by design.
+
+
+## CAP-W2 (13 Nov 2026, testbed)
+
+Containers sized by the memory each SeBS-Flow function measurably used (median, relative to the median of all 25 functions, clip [0.25, 4], mean 1 per scenario), then scaled to preserve the offered load in capacity units, as CAP-W1 does. Used by the testbed's measured runs (`sebs_scenario.build(weights="memory")`, tag `capacity_model = "CAP-W2"`). Weights per function are stored in each scenario's meta. Not a dominant-share model: with CPU from the AWS rule (configured memory / 1,769 MB per vCPU) CPU is one value per application, so it adds no per-function difference. An earlier unnormalised definition of the label existed in code and was never used for a result.

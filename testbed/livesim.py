@@ -167,7 +167,7 @@ class LiveMixin:
             tid = f"x{next(self._ids)}"
             self._xfers[tid] = group
             self.live_log["relocation_transfers" if kind == "enqueue" else "transfers"] += 1
-            self._post(src, "send_state", src_node=src, dst_node=dst, state_id=tid, size_MB=size, transfer_id=tid, store=False)
+            self._post(src, "send_state", src_node=src, dst_node=dst, state_id=tid, size_MB=size, transfer_id=tid, store=False, reloc=(kind == "enqueue"))
 
     # ---------------------------------------------------------------- events coming back from the agents
     def _handle(self, ev):
@@ -209,9 +209,32 @@ class LiveMixin:
     def _outstanding(self):
         return len(self._warm) + len(self._runs) + len(self._xfers)
 
+    # ---------------------------------------------------------------- resources measured at the agents
+    def _resources(self, lo, hi):
+        """What the containers and links actually did between the window edges (warm-up end and `duration`), summed over the agents, in seconds of the simulated clock.
+        container_s: provisioned container-seconds (cold + warm idle + busy); capacity_s: the same weighted by container size (sc.fw, capacity units; one unit = one CAP-U slot);
+        warm_idle_*: provisioned and warm (cold start finished) but not executing; relocated_mb: nominal MB of input states moved because a queued request was relocated;
+        state_mb: all states moved (workflow data flow included), for systems that never relocate requests. Measured the same way for every system, by the agents."""
+        out = {"window_s": float(self.duration - self.warmup)}
+        for kind in ("cont_s", "cap_s"):
+            tot = {st: sum(hi[a]["acc"][kind][st] - lo[a]["acc"][kind][st] for a in hi) for st in ("cold", "idle", "busy")}
+            name = "container_s" if kind == "cont_s" else "capacity_s"
+            out[f"provisioned_{name}"] = sum(tot.values())
+            out[f"warm_idle_{name}"] = tot["idle"]
+            out[f"busy_{name}"] = tot["busy"]
+            out[f"cold_{name}"] = tot["cold"]
+        d = lambda key: sum(hi[a]["counters"][key] - lo[a]["counters"][key] for a in hi)
+        out.update(relocated_mb=d("reloc_sent_mb"), relocated_transfers=d("reloc_sent_transfers"), relocated_real_bytes=d("reloc_sent_bytes"), state_mb=d("sent_mb"))
+        out["mean_containers"] = out["provisioned_container_s"] / max(1e-9, out["window_s"])
+        out["mean_capacity"] = out["provisioned_capacity_s"] / max(1e-9, out["window_s"])
+        return out
+
     # ---------------------------------------------------------------- the run
     def run(self):
         self.link.configure(self.sc)
+        for a_, st in self.link.statuses().items():
+            if "acc" not in st:                                         # an agent started before the resource accounting existed: its runs would have no measured resources
+                raise RuntimeError(f"agent {a_} is too old (no resource accounting); sync the code and restart the agents (fleet.py sync, fleet.py agents restart)")
         stop = threading.Event()
         for c in self.link.clients.values():                        # events left over from an earlier run on the same connections
             while True:
@@ -258,10 +281,15 @@ class LiveMixin:
         self._t0 = time.time()
         cpu0 = time.process_time()
         self.now, last_gc = 0.0, 0.0
+        snaps = {}                                                  # agent status at the window edges: the resources a run used are read from what the agents did (see _resources)
         while True:
             if self._fatal:
                 raise RuntimeError(self._fatal)
             now = self._clock()
+            if "lo" not in snaps and now >= self.warmup:
+                snaps["lo"] = self.link.statuses()
+            if "hi" not in snaps and now >= self.duration:
+                snaps["hi"] = self.link.statuses()
             if now > self.t_end:
                 break
             wait = 0.05
@@ -289,8 +317,11 @@ class LiveMixin:
                 last_gc = now
                 self._gc_agents()
         self.n_unfinished = self.active + len(self.waiting)
+        snaps.setdefault("lo", self.link.statuses())
+        snaps.setdefault("hi", self.link.statuses())
         self.live_log["hub_cpu_fraction"] = (time.process_time() - cpu0) / max(1e-9, time.time() - self._t0)   # share of one core the hub process used
         res = self.results()
+        res["resources"] = self._resources(snaps["lo"], snaps["hi"])
         res["live"] = {"speed": self.speed, "payload_scale": self.link.payload_scale, "agent_ops": self.n_agent_ops, **self.live_log,
                        "agents": {a: {"lateness_s": s["lateness_s"], "counters": s["counters"]} for a, s in self.link.statuses().items()}}
         return res

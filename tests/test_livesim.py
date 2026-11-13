@@ -50,7 +50,7 @@ def test_static_placement_conserves_requests_and_cleans_up(agents):
     assert r["live"]["transfers"] > 0 and r["live"]["relocation_transfers"] == 0
     assert all(a["lateness_s"]["max"] < 0.1 for a in r["live"]["agents"].values())  # timers fire within 100 ms of their target
     from testbed import runmark                                                  # a finished run stamps its end for the guard's cooldown
-    assert runmark.last_run_end() is not None and 0 <= time.time() - runmark.last_run_end() < 120
+    assert runmark.last_run_end() is not None and -0.01 <= time.time() - runmark.last_run_end() < 120   # the stamp is rounded to the millisecond
 
 
 def test_dfps_style_reconfiguration_reaches_the_agents(agents):
@@ -101,3 +101,30 @@ def test_live_matches_the_simulator_in_distribution(agents):
         live.append(LiveSim(sc, X, seed=1, warmup=0.0, duration=40.0, link=link, drain_s=500.0).run()["p50_makespan"])
     ref, live = np.array(ref), np.array(live)
     assert abs(live.mean() / ref.mean() - 1) < 0.15, (ref, live)
+
+
+def test_resources_are_measured_by_the_agents_for_every_system(agents):
+    """13 Nov 2026 (user): container-seconds provisioned, warm idle seconds and MB relocated, read from the agents, the same way for every system."""
+    sc = scenario()
+    X0 = placement(sc)
+    sim = LiveSim(sc, X0, seed=1, warmup=0.0, duration=30.0, link=make_link(agents, sc.network.ne), drain_s=400.0)
+    r = sim.run()
+    res = r["resources"]
+    assert res["window_s"] == 30.0
+    assert res["provisioned_container_s"] == pytest.approx(int(X0.sum()) * 30.0, rel=0.08)          # a static layout: every container exists for the whole window
+    assert res["provisioned_capacity_s"] == pytest.approx(float((X0 @ sc.fw).sum()) * 30.0, rel=0.08)
+    assert res["busy_container_s"] == pytest.approx(sim.busy_time, rel=0.15)                         # the agents' busy time equals the hub's accounting
+    parts = res["busy_container_s"] + res["warm_idle_container_s"] + res["cold_container_s"]
+    assert parts == pytest.approx(res["provisioned_container_s"], rel=1e-6) and res["warm_idle_container_s"] > 0 and res["cold_container_s"] == pytest.approx(0.0, abs=1e-6)
+    assert res["relocated_mb"] == 0.0 and res["state_mb"] > 0
+    # an elastic run: provisioned time follows the containers that exist, cold time appears, relocations are counted in MB
+    sim = LiveSim(sc, placement(sc), adjuster=SimulatedAnnealing(seed=5, iterations=40), seed=1, warmup=0.0, duration=30.0, link=make_link(agents, sc.network.ne), drain_s=400.0)
+    r = sim.run()
+    res = r["resources"]
+    assert res["cold_container_s"] > 0 and res["relocated_mb"] <= sim.mb_relocated_total + 1e-6 <= res["state_mb"] + sim.mb_relocated_total
+    assert res["relocated_mb"] <= res["state_mb"]
+    # an on-demand baseline starts empty: its provisioned time is what it created
+    sc = scenario(scale=0.2)
+    sim = LiveOnDemandSim(sc, HeuPolicy(seed=0), seed=0, warmup=0.0, duration=30.0, link=make_link(agents, sc.network.ne), drain_s=400.0)
+    res = sim.run()["resources"]
+    assert 0 < res["provisioned_container_s"] < int(sc.ecc.sum()) * 30.0 and res["busy_container_s"] > 0 and res["relocated_mb"] == 0.0

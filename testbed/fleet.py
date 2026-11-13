@@ -363,7 +363,13 @@ if [ -f ~/.testbed/agent.pid ] && kill -0 "$(cat ~/.testbed/agent.pid)" 2>/dev/n
   echo "already running (pid $(cat ~/.testbed/agent.pid))"
 else
   cd ~/DFPS-implementation && [ -f testbed/agent.py ] || {{ echo "FAILED: testbed/agent.py is not on this laptop (commit, then fleet.py sync)"; exit 1; }}
-  (setsid nohup ~/venv-dfps/bin/python testbed/agent.py serve --port {port} --token-file ~/.testbed/agent.token --log-dir ~/testbed-logs >> ~/testbed-logs/agent.out 2>&1 < /dev/null & echo $! > ~/.testbed/agent.pid)
+  if command -v systemd-run >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then
+    # a unit of the user's systemd, not a child of this shell or of the Claude session: a session that ends (or restarts) no longer kills the agent on the hub
+    systemd-run --user --quiet --collect --unit=testbed-agent-{port} --working-directory="$HOME/DFPS-implementation" /bin/bash -c 'exec ~/venv-dfps/bin/python testbed/agent.py serve --port {port} --token-file ~/.testbed/agent.token --log-dir ~/testbed-logs >> ~/testbed-logs/agent.out 2>&1'
+    sleep 1; systemctl --user show -p MainPID --value testbed-agent-{port}.service > ~/.testbed/agent.pid
+  else
+    (setsid nohup ~/venv-dfps/bin/python testbed/agent.py serve --port {port} --token-file ~/.testbed/agent.token --log-dir ~/testbed-logs >> ~/testbed-logs/agent.out 2>&1 < /dev/null & echo $! > ~/.testbed/agent.pid)
+  fi
   sleep 1
   if kill -0 "$(cat ~/.testbed/agent.pid)" 2>/dev/null; then echo "started (pid $(cat ~/.testbed/agent.pid))"; else echo "FAILED to start"; tail -5 ~/testbed-logs/agent.out; exit 1; fi
 fi"""
@@ -519,7 +525,12 @@ if [ -f ~/.testbed/netmon.pid ] && kill -0 "$(cat ~/.testbed/netmon.pid)" 2>/dev
   echo "already running (pid $(cat ~/.testbed/netmon.pid))"
 else
   cd ~/DFPS-implementation && [ -f testbed/netmon.py ] || {{ echo "FAILED: testbed/netmon.py is not on this laptop (commit, then fleet.py sync)"; exit 1; }}
-  (setsid nohup python3 -I testbed/netmon.py run {peers} >> ~/testbed-logs/netmon.out 2>&1 < /dev/null & echo $! > ~/.testbed/netmon.pid)
+  if command -v systemd-run >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then
+    systemd-run --user --quiet --collect --unit=testbed-netmon --working-directory="$HOME/DFPS-implementation" /bin/bash -c 'exec python3 -I testbed/netmon.py run {peers} >> ~/testbed-logs/netmon.out 2>&1'
+    sleep 1; systemctl --user show -p MainPID --value testbed-netmon.service > ~/.testbed/netmon.pid
+  else
+    (setsid nohup python3 -I testbed/netmon.py run {peers} >> ~/testbed-logs/netmon.out 2>&1 < /dev/null & echo $! > ~/.testbed/netmon.pid)
+  fi
   sleep 1
   if kill -0 "$(cat ~/.testbed/netmon.pid)" 2>/dev/null; then echo "started (pid $(cat ~/.testbed/netmon.pid))"; else echo "FAILED to start"; tail -5 ~/testbed-logs/netmon.out; exit 1; fi
 fi"""

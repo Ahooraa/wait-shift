@@ -206,6 +206,16 @@ class LiveMixin:
                 self._post(ins.node, "remove_instance", iid=iid)
                 del self._reg[oid]
 
+    def _drop(self, ins):
+        """The container's counterpart on its agent goes away now (not at the next sweep): the measured provisioned time must not include a lag."""
+        old = self._reg.pop(id(ins), None)
+        if old is not None:
+            self._post(ins.node, "remove_instance", iid=old[1])
+
+    def _destroy(self, ins):
+        super()._destroy(ins)
+        self._drop(ins)
+
     def _outstanding(self):
         return len(self._warm) + len(self._runs) + len(self._xfers)
 
@@ -292,6 +302,9 @@ class LiveMixin:
                 snaps["hi"] = self.link.statuses()
             if now > self.t_end:
                 break
+            if now - last_gc > 0.25 * self.speed:                       # every 0.25 s of wall time, whatever else is going on (13 Nov 2026: it used to run only on idle iterations, which a busy
+                last_gc = now                                           # run never has: an RL run left 7,000 removed containers on the agents and the measured container-seconds were 6x too high)
+                self._gc_agents()
             wait = 0.05
             if self.events:
                 wait = min(wait, max(0.0, (self.events[0][0] - now) / self.speed))
@@ -315,9 +328,6 @@ class LiveMixin:
                 continue
             if not self.events and not self._outstanding():
                 break
-            if now - last_gc > 2.0 * self.speed:
-                last_gc = now
-                self._gc_agents()
         self.n_unfinished = self.active + len(self.waiting)
         snaps.setdefault("lo", self.link.statuses())
         snaps.setdefault("hi", self.link.statuses())
@@ -335,3 +345,12 @@ class LiveSim(LiveMixin, Sim):
 
 class LiveOnDemandSim(LiveMixin, OnDemandSim):
     """The on-demand baselines (Heu, RL) on a real clock with real agents."""
+
+    def _acquire(self, k, run):
+        r = super()._acquire(k, run)
+        self._gc_agents()                                          # a recycled container left the simulator inside this call: remove its twin at once
+        return r
+
+    def _remove_idle(self, ins):
+        super()._remove_idle(ins)
+        self._drop(ins)

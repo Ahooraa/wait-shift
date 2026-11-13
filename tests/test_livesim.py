@@ -8,6 +8,7 @@ from dfps.heu import HeuPolicy
 from dfps.nsga2 import PlacementProblem
 from dfps.sa import SimulatedAnnealing
 from dfps.sim import Sim
+from dfps.ondemand import OnDemandSim
 from dfps.workload import build_scenario
 from testbed.agentclient import AgentClient
 from testbed.livesim import LiveLink, LiveOnDemandSim, LiveSim
@@ -133,6 +134,17 @@ def test_resources_are_measured_by_the_agents_for_every_system(agents):
     sim = LiveOnDemandSim(sc, HeuPolicy(seed=0), seed=0, warmup=0.0, duration=30.0, link=make_link(agents, sc.network.ne), drain_s=400.0)
     res = sim.run()["resources"]
     assert 0 < res["provisioned_container_s"] < int(sc.ecc.sum()) * 30.0 and res["busy_container_s"] > 0 and res["relocated_mb"] == 0.0
+    # churn: a busy on-demand run recycles many containers; their twins on the agents must go away at once (13 Nov 2026: the sweep ran only on idle iterations, so an RL run left
+    # thousands of removed containers on the agents and the measured container-seconds were 6x the simulator's)
+    sc = scenario(scale=0.6, duration=40.0)
+    sim = LiveOnDemandSim(sc, HeuPolicy(seed=0), seed=0, warmup=0.0, duration=40.0, link=make_link(agents, sc.network.ne), drain_s=400.0)
+    res = sim.run()["resources"]
+    ref = OnDemandSim(sc, HeuPolicy(seed=0), seed=0, warmup=0.0, duration=40.0)
+    ref.track_res = True
+    rr = ref.run()["resources"]
+    assert res["provisioned_container_s"] == pytest.approx(rr["provisioned_container_s"], rel=0.2)
+    on_agents = sum(s_["instances"] for s_ in sim.link.statuses().values())
+    assert on_agents <= 1.3 * sum(len(lst) for row in sim.inst for lst in row) + 5
 
 
 def test_live_makespan_starts_at_the_scheduled_arrival_time(agents):

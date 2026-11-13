@@ -60,6 +60,7 @@ def one_seed(link, args, seed):
         raise SystemExit("the scenario is CAP-U (one slot per container); measured testbed runs use a weighted capacity model (--weights). Use --allow-cap-u only for a labelled trial run")
     X0 = PlacementProblem(sc.network, sc.ecc, np.array([f.exec_time for f in sc.functions]), fw=sc.fw).random(np.random.default_rng(seed))
     ref_sim, _ = build(sc, X0, seed, warmup=args.warmup, duration=args.duration, exec_sampler=samp)
+    ref_sim.track_res = True                                                  # the twin measures the same resources, from the simulator's own state
     t0 = time.time()
     ref = ref_sim.run()
     ref_wall = time.time() - t0
@@ -86,7 +87,7 @@ def one_seed(link, args, seed):
            "late_events": lv["late_events"], "late_event_fraction": lv["late_events"] / max(1, ops), "inbox_max": lv["inbox_max"],
            "hub_cpu_fraction": lv["hub_cpu_fraction"], "agent_ops": lv["agent_ops"], "events_total": ops,
            "health": health, "sim_health": ref_health,
-           "resources": live.get("resources"), "sim_resources": {k: ref.get(k) for k in ("provisioned_slot_s", "warm_idle_provisioned_s", "mb_relocated")},
+           "resources": live.get("resources"), "sim_resources": ref.get("resources"),
            "relocation_transfers": lv["relocation_transfers"], "agent_timer_lateness_max_ms": max(a["lateness_s"]["max"] for a in lv["agents"].values()) * 1e3}
     return out
 

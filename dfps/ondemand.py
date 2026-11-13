@@ -97,7 +97,8 @@ class OnDemandSim(Sim):
     def _ev_arrive(self, wid, origin, c):
         wf = self.sc.workflows[wid]
         r = OReq()
-        r.id, r.wf, r.origin, r.t_arr, r.t_done = next(self.rid), wf, origin, self.now, None
+        ta = self.now if self.arrival_t is None else self.arrival_t        # the request's arrival time (see Sim.arrival_t)
+        r.id, r.wf, r.origin, r.t_arr, r.t_done = next(self.rid), wf, origin, ta, None
         r.pending = [1 if not wf.parents[t] else len(wf.parents[t]) for t in range(wf.n)]
         r.rdy = [len(wf.parents[t]) for t in range(wf.n)]
         r.tready = [self.now] * wf.n
@@ -105,9 +106,9 @@ class OnDemandSim(Sim):
         r.left = wf.n
         r.plan = [None] * wf.n
         self.active += 1
-        if self.in_window(self.now):
+        if self.in_window(ta):
             self.n_arrived += 1
-            self.win[r.id] = self.now
+            self.win[r.id] = ta
         if not self._start_request(r):
             self.waiting.append(r)
 

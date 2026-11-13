@@ -76,10 +76,12 @@ def test_memory_weights_preserve_the_offered_load_and_vary_within_an_app():
         sc, _ = S.build(2, rho=0.5, ne=8, duration_s=900.0, apps=[app], weights="memory")
         u = sum(sc.functions[f].exec_time for _, w, _ in sc.arrivals for f in sc.workflows[w].ft)
         w_ = sum(sc.functions[f].exec_time * sc.fw[f] for _, w, _ in sc.arrivals for f in sc.workflows[w].ft)
-        assert abs(w_ / u - 1) < 1e-9, app                                      # the weighted offered load equals the nominal one
+        assert abs(w_ / u - 1) < 2e-3, app                                      # the weighted offered load equals the nominal one (weights rounded to 0.01)
+        assert abs(sc.meta["fw_load_error"]) < 2e-3 and np.allclose(sc.fw, np.round(sc.fw, 2))
         assert sc.meta["capacity_model"] == "CAP-W2" and set(sc.meta["fw_by_function"]) == set(sc.meta["function_names"])
     sc, _ = S.build(2, rho=0.5, ne=8, duration_s=900.0, apps=["650.vid"], weights="memory")
     assert sc.fw.max() / sc.fw.min() > 3                                        # Video: two big functions and a small one
+    assert sc.fw[0] == 1.0 and sc.fw[1] == 1.0                                  # the dominant functions weigh exactly one slot, not 1.0002 (which fits a container fewer per node)
 
 
 def test_same_seed_same_scenario_and_it_runs_in_the_simulator():

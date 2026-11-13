@@ -177,10 +177,15 @@ def build(seed, rho=0.7, ne=20, duration_s=300.0, mix="uniform", weights="unifor
         raw = sum(float(sum(mu[f] * fw[f] for f in workflows[wid].ft)) for _, wid, _ in arrivals)
         base = sum(float(sum(mu[f] for f in workflows[wid].ft)) for _, wid, _ in arrivals)
         scale = base / raw if raw > 0 else 1.0
-        sc.fw = fw * scale
+        # Rounded to 0.01 (13 Nov 2026, found by the FaaSPR Video explosion): the load-preserving scale makes the function that dominates the offered load weigh almost exactly 1
+        # (Video: 1.0002), and with integer node capacities a weight of 1.0002 fits one container fewer per node (20 / 1.0002 -> 19): a 7% capacity cut that is rounding noise, not
+        # a property of the workload. FaaSPR's placement skips what does not fit, left `decode` with 1 container and 877 queued tasks (P99 6,039 s; 250 s with the rounded weights).
+        fw = np.round(fw * scale, 2)
+        raw2 = sum(float(sum(mu[f] * fw[f] for f in workflows[wid].ft)) for _, wid, _ in arrivals)
+        sc.fw = fw
         cfg = {b: int(str(prof["workflows"][b]["duration_run"]).rsplit("_", 1)[1]) for b in benches}
         sc.meta.update(capacity_model="CAP-W2", fw_source="SeBS-Flow measured memory used (median per function)", fw_reference_mb=ref_mb, fw_clip=[0.25, 4.0],
-                       fw_load_scale=float(scale), fw_by_function={n: float(v) for n, v in zip(names, sc.fw)},
+                       fw_load_scale=float(scale), fw_rounding=0.01, fw_load_error=float(raw2 / base - 1.0) if base > 0 else 0.0, fw_by_function={n: float(v) for n, v in zip(names, sc.fw)},
                        configured_memory_mb=cfg, derived_vcpu_aws_1769mb={b: cfg[b] / 1769.0 for b in benches})
     elif weights != "uniform":
         raise ValueError("weights is 'uniform' or 'memory'")

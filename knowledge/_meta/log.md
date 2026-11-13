@@ -997,3 +997,14 @@ author: llm
 - The 39 `azure-initial-20261113` runs used CAP-U by default (my error; user: "your mistake caused to loose and waste many hours"). Kept locally, labelled CAP-U, not used. Queue stopped.
 - User chose measured memory weights (CPU is one value per application under the AWS rule, so dominant share would be CAP-U in effect for ML, MapReduce, Video). Built: `weights="memory"` = CAP-W2 with load-preserving scaling and weights recorded in meta; guard in `controller_check.py` against CAP-U; `queue_runs.py` passes `--weights memory`.
 - User (mid-turn): also measure provisioned container-seconds, warm idle slot-seconds and MB relocated for every system through the runtime. Built: agent version 2 integrates container and capacity seconds per state (cold, idle, busy) and counts relocated MB; the hub reads them at the window edges (`result.live.resources`). Tests pass. Not yet live: agents on the other laptops need the commit, `fleet sync` and an agent restart.
+
+## [2026-11-13] fix | user | RL free-slot feature; reroute rule RR-2 for FaaSPR and Graph-Aware; simulator sweep on CAP-W2
+- Simulator sweep of the 40 testbed cells on CAP-W2 (`testbed/sim_sweep.py`, `~/testbed-results/sim-sweep-capw2/`). It exposed that the random initial layout ignored container sizes (fixed) and that RL collapsed on any weighted scenario.
+- RL: count-based "free slot" feature (dfps/rl.py) fixed to ask for room in weight units (identical under CAP-U); ablation in `testbed/diag/rl_capw2.py`. Rerun in `~/testbed-results/sim-sweep-capw2-v2/` (RL now P99 3.7-74 s, was 765-4,207 s).
+- RR-2: FaaSPR and Graph-Aware reroute a stale-plan task with their own per-task rule instead of DFPS's AET rule (`reroute_rule` tag).
+- Makespan now starts at the scheduled arrival time in live runs (`Sim.arrival_t`).
+
+## [2026-11-13] decision | user | FaaSPR out of the live runs; CAP-W2 weights rounded; resources in the simulator sweep
+- Live plan `azure-capw2` (F5, B*, RL, Graph-Aware; 4 apps x 2 seeds = 32 runs) and `smoke-capw2` (one 300 s ML cell per system). FaaSPR remains in `testbed/sim_sweep.py` runs.
+- FaaSPR Video explosion traced to CAP-W2 weights of 1.0002 (a container fewer per node); weights now rounded to 0.01. Simulator sweep v4 (`~/testbed-results/sim-sweep-capw2-v4/`, 40 runs) is the current simulator overview.
+- Simulator resource tracking (`track_res`): container-seconds, warm idle, busy, cold, relocated MB and total state MB, same definitions as the agents' live measure.

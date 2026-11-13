@@ -117,6 +117,11 @@ def test_resources_are_measured_by_the_agents_for_every_system(agents):
     parts = res["busy_container_s"] + res["warm_idle_container_s"] + res["cold_container_s"]
     assert parts == pytest.approx(res["provisioned_container_s"], rel=1e-6) and res["warm_idle_container_s"] > 0 and res["cold_container_s"] == pytest.approx(0.0, abs=1e-6)
     assert res["relocated_mb"] == 0.0 and res["state_mb"] > 0
+    ref = Sim(sc, X0, seed=1, warmup=0.0, duration=30.0)                                              # the simulator's own count of the same quantities
+    ref.track_res = True
+    rr = ref.run()["resources"]
+    assert res["state_mb"] == pytest.approx(rr["state_mb"], rel=0.25)
+    assert res["provisioned_container_s"] == pytest.approx(rr["provisioned_container_s"], rel=0.08)
     # an elastic run: provisioned time follows the containers that exist, cold time appears, relocations are counted in MB
     sim = LiveSim(sc, placement(sc), adjuster=SimulatedAnnealing(seed=5, iterations=40), seed=1, warmup=0.0, duration=30.0, link=make_link(agents, sc.network.ne), drain_s=400.0)
     r = sim.run()
@@ -128,3 +133,14 @@ def test_resources_are_measured_by_the_agents_for_every_system(agents):
     sim = LiveOnDemandSim(sc, HeuPolicy(seed=0), seed=0, warmup=0.0, duration=30.0, link=make_link(agents, sc.network.ne), drain_s=400.0)
     res = sim.run()["resources"]
     assert 0 < res["provisioned_container_s"] < int(sc.ecc.sum()) * 30.0 and res["busy_container_s"] > 0 and res["relocated_mb"] == 0.0
+
+
+def test_live_makespan_starts_at_the_scheduled_arrival_time(agents):
+    """13 Nov 2026 (user): a request's makespan is measured from its arrival time, not from when the hub processed the arrival event."""
+    sc = scenario()
+    sim = LiveSim(sc, placement(sc), seed=1, warmup=0.0, duration=30.0, link=make_link(agents, sc.network.ne), drain_s=400.0, record_requests=True)
+    r = sim.run()
+    sched = sorted(t for t, _, _ in sc.arrivals if t < 30.0)
+    got = sorted(t for _, t, _, _ in sim.request_log)
+    assert len(got) == r["n_completed"] > 0
+    assert set(got) <= set(sched)                                                  # exactly the scheduled times, not the (later) times the hub handled them

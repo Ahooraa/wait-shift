@@ -36,6 +36,10 @@ PLANS = {   # name -> (applications, seeds, systems); the order of the systems i
     "initial-f5-bstar": (["690.ml", "660.map-reduce", "650.vid", "680.excamera"], (1, 2), ["frozen5", "bstar"]),    # initial runs, development seeds 1 and 2 (user, 12 Nov): F5 and B* on the dry run's cells
     # 13 Nov (user): the steady-Poisson initial runs were stopped ("the steady Poisson ruined the experiment") and replaced by trace-driven arrivals: Azure 2019 only, extended
     # windows, two development seeds, five systems. Seed-major order, so a whole seed (every application, every system) is complete before the second starts.
+    # 13 Nov (user): the CAP-U runs above are withdrawn; the rerun is on CAP-W2 (measured memory sizes, rounded to 0.01), FaaSPR is dropped from the live runs (it stays in the simulator
+    # sweep), four systems. The smoke plan runs the same code on one short cell per system before the queue.
+    "azure-capw2": dict(apps=["690.ml", "660.map-reduce", "650.vid", "680.excamera"], seeds=(1, 2), arms=["frozen5", "bstar", "rl", "ga"], arrivals="azure", seed_major=True, weights="memory"),
+    "smoke-capw2": dict(apps=["690.ml"], seeds=(1,), arms=["frozen5", "bstar", "rl", "ga"], arrivals="azure", weights="memory", cells={"690.ml": (0.5, 60, 240, 120)}),
     "azure-initial": dict(apps=["690.ml", "660.map-reduce", "650.vid", "680.excamera"], seeds=(1, 2), arms=["frozen5", "bstar", "rl", "faaspr", "ga"],
                           arrivals="azure", seed_major=True),
 }
@@ -52,7 +56,7 @@ def build_azure_plan(spec):
     items = []
     blocks = [(app, seed) for seed in spec["seeds"] for app in spec["apps"]] if spec.get("seed_major") else [(app, seed) for app in spec["apps"] for seed in spec["seeds"]]
     for app, seed in blocks:
-        rho, warm, window, drain = AZURE_CELLS[app]
+        rho, warm, window, drain = spec.get("cells", AZURE_CELLS)[app]
         systems = list(spec["arms"])
         random.Random(f"azure-{app}-{seed}").shuffle(systems)            # the order inside a block is drawn once, per block, and recorded
         for arm in systems:

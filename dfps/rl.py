@@ -111,6 +111,18 @@ class MosecPolicy:
             self.buf = Buffer(self.buf_cap, sim.N, self.d)
 
     # --- state ----------------------------------------------------------------------------------------------
+    @staticmethod
+    def _free_slot(sim, f, ecc):
+        """The 'a free slot' feature: 1 where the node has room for one more container. With one slot per container (CAP-U) that is `containers < ecc`, as trained. With container
+        sizes (sc.fw not all ones) capacity is in weight units and a node can be full while the container count is still below ecc; the count test then reported a free slot on a
+        full node and the policy sent nearly every task to one saturated node (13 Nov 2026, CAP-W2: P99 1,000-4,000 s instead of 3 s; ablation in testbed/diag/rl_capw2.py). The
+        same question, 'does a container of this function fit', is asked in weight units. Identical to the count test when every weight is 1. Not used by the size-aware (sizes=True)
+        policy, which was trained with the count test and carries its own size features."""
+        if not getattr(sim, "hetero", False):
+            return (sim.tot < ecc).astype(float)
+        fw = np.asarray(sim.sc.fw, dtype=float)
+        return ((ecc - fw @ sim.cnt) >= fw[f] - 1e-9).astype(float)
+
     def features(self, sim, r, t):
         """[N, D] feature matrix and the feasibility mask (a node needs room for the task's input states)."""
         wf, f, N = r.wf, r.wf.ft[t], sim.N
@@ -130,7 +142,7 @@ class MosecPolicy:
             sim.occ / ecc,
             squash(qlen / ecc, 1.0),
             np.clip(resid / ecc, -1.0, 1.0),
-            (sim.tot < ecc).astype(float),                           # a free slot
+            (self._free_slot(sim, f, ecc) if not self.sizes else (sim.tot < ecc).astype(float)),                            # a free slot
             np.clip((sim.esc - sim.storage_used) / sim.esc, 0.0, 1.0),
             squash(xfer.max(axis=0), 2.0),
             squash(xfer.sum(axis=0), 2.0),

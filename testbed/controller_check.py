@@ -58,7 +58,7 @@ def one_seed(link, args, seed):
                        weights=args.weights)
     if sc.meta.get("capacity_model") == "CAP-U" and not args.allow_cap_u:     # 13 Nov 2026: 40 measured runs ran on CAP-U by default and had to be repeated (user decision: weighted capacity)
         raise SystemExit("the scenario is CAP-U (one slot per container); measured testbed runs use a weighted capacity model (--weights). Use --allow-cap-u only for a labelled trial run")
-    X0 = PlacementProblem(sc.network, sc.ecc, np.array([f.exec_time for f in sc.functions])).random(np.random.default_rng(seed))
+    X0 = PlacementProblem(sc.network, sc.ecc, np.array([f.exec_time for f in sc.functions]), fw=sc.fw).random(np.random.default_rng(seed))
     ref_sim, _ = build(sc, X0, seed, warmup=args.warmup, duration=args.duration, exec_sampler=samp)
     t0 = time.time()
     ref = ref_sim.run()

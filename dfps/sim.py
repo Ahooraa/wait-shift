@@ -160,7 +160,26 @@ class Sim:
 
     # ------------------------------------------------------------------------------------------------ plumbing
     def _at(self, t, kind, a=None, b=None, c=None):
+        if self.track_res:
+            self._track_transfer(kind, a)
         heapq.heappush(self.events, (t, next(self.seq), kind, a, b, c))
+
+    def _track_transfer(self, kind, a):
+        """Resource tracking: the state moves an event schedules. `_stt` is also called for estimates, so (as testbed/livesim.py does for the real transfers) the entries logged
+        since the last event are matched to the event that follows: one for a "state" event, one per input state for the "enqueue" of a relocated request. Only moves between
+        two nodes count, and only inside the measured window."""
+        xl = self.__dict__.setdefault("_xl", [])
+        ent = []
+        if kind == "state" and xl:
+            ent = xl[-1:]
+        elif kind == "enqueue" and xl and hasattr(a, "sizes") and len(xl) >= len(a.sizes):
+            ent = xl[-len(a.sizes):]
+        xl.clear()
+        if ent and self.in_window(self.now):
+            mb = sum(e[2] for e in ent if e[0] != e[1])
+            self._tr_state_mb = self.__dict__.get("_tr_state_mb", 0.0) + mb
+            if kind == "enqueue":
+                self._tr_reloc_mb = self.__dict__.get("_tr_reloc_mb", 0.0) + mb
 
     def _exec_s(self, run):
         """Execution time of one run. A sampler with a `for_run(function, request id, task)` method draws it from the seed and the run's identity
@@ -176,6 +195,8 @@ class Sim:
     def _stt(self, size_mb, k, k2):
         """Transfer time of one state from node k to node k2, as used by every event that schedules a state move (Eq. 1-2). A hook:
         the model here; testbed/livesim.py overrides it to learn which state moves where and sends the bytes through real agents."""
+        if self.track_res:
+            self.__dict__.setdefault("_xl", []).append((int(k), int(k2), float(size_mb)))
         return self.net.stt(size_mb, k, k2)
 
     def _critical_path(self, wf):
@@ -198,13 +219,51 @@ class Sim:
                     raise RuntimeError(f"simulation livelock: >5e6 events at t={t} (last kind {kind})")
             else:
                 same_t, n_same = t, 0
+            if self.track_res:
+                self._res_step(t)
             self.now = t
             if self._snap_due and self._snap_due[0][0] <= t:      # trace only: snapshots due before this event (state as of their due time)
                 self._snap_fire(t)
             h.update(f"{t:.9f}|{kind}|{a if isinstance(a, int) else ''}|{b if isinstance(b, int) else ''};".encode())
             getattr(self, "_ev_" + kind)(a, b, c)
         self.n_unfinished = self.active + len(self.waiting)
-        return self.results()
+        if self.track_res:
+            self._res_step(self.duration)
+        res = self.results()
+        if self.track_res:
+            res["resources"] = self.resources_tracked()
+        return res
+
+    # resource tracking (13 Nov 2026, opt-in `track_res`): container-seconds and capacity-seconds (container x sc.fw) per state over the measured window, integrated from the
+    # containers that exist between two events. Independent of the controllers' own bookkeeping, so it is the same for every system; the live runs measure the same at the agents.
+    track_res = False
+
+    def _res_step(self, t):
+        lo, hi = max(self.__dict__.get("_tr_t", 0.0), self.warmup), min(t, self.duration)
+        self._tr_t = t
+        if hi <= lo:
+            return
+        acc = self.__dict__.setdefault("_tr_acc", {"cont_s": dict(cold=0.0, idle=0.0, busy=0.0), "cap_s": dict(cold=0.0, idle=0.0, busy=0.0)})
+        fw, dt = self.sc.fw, hi - lo
+        for row in self.inst:
+            for lst in row:
+                for ins in lst:
+                    st = "cold" if ins.state == COLD else ("busy" if ins.state == BUSY else "idle")
+                    acc["cont_s"][st] += dt
+                    acc["cap_s"][st] += dt * float(fw[ins.f])
+
+    def resources_tracked(self):
+        acc = self.__dict__.get("_tr_acc") or {"cont_s": dict(cold=0.0, idle=0.0, busy=0.0), "cap_s": dict(cold=0.0, idle=0.0, busy=0.0)}
+        out = {"window_s": float(self.duration - self.warmup)}
+        for kind, name in (("cont_s", "container_s"), ("cap_s", "capacity_s")):
+            out[f"provisioned_{name}"] = sum(acc[kind].values())
+            out[f"warm_idle_{name}"], out[f"busy_{name}"], out[f"cold_{name}"] = acc[kind]["idle"], acc[kind]["busy"], acc[kind]["cold"]
+        out["relocated_mb"] = float(self.__dict__.get("_tr_reloc_mb", 0.0))               # nominal MB of input states actually moved between nodes for relocated or rerouted requests
+        out["state_mb"] = float(self.__dict__.get("_tr_state_mb", 0.0))                   # every state moved between nodes (workflow data flow and relocations)
+        out["relocated_mb_nominal"] = float(self.mb_relocated)                            # the older count: whole input of each relocated request, including states that stay put
+        out["mean_containers"] = out["provisioned_container_s"] / max(1e-9, out["window_s"])
+        out["mean_capacity"] = out["provisioned_capacity_s"] / max(1e-9, out["window_s"])
+        return out
 
     def t_end_effective(self):
         return min(self.now, self.t_end)
@@ -329,23 +388,28 @@ class Sim:
             self.req_count[:] = 0
         self._at(self.now + float(getattr(self.adjuster, "next_interval", None) or self.interval), "adjust")
 
+    # arrival_t (13 Nov 2026, user: "make sure the makespan starts from arrival time"): the time the request ARRIVED. In the simulator that is the event time (now); on a real clock the hub
+    # may handle the event late (controller computing, GC), so the live loop sets it to the scheduled arrival time and the makespan includes the hub's own delay.
+    arrival_t = None
+
     def _ev_arrive(self, wid, origin, c):
         wf = self.sc.workflows[wid]
         r = Req()
-        r.id, r.wf, r.origin, r.t_arr, r.t_done = next(self.rid), wf, origin, self.now, None
+        ta = self.now if self.arrival_t is None else self.arrival_t
+        r.id, r.wf, r.origin, r.t_arr, r.t_done = next(self.rid), wf, origin, ta, None
         r.plan = None
         r.pending = [1 if not wf.parents[t] else len(wf.parents[t]) for t in range(wf.n)]
         r.left = wf.n
         r.held = {}
         if self.admission is not None and not self.admission(self, r):
-            if self.in_window(self.now):
+            if self.in_window(ta):
                 self.n_arrived += 1
                 self.n_rejected += 1
             return
         self.active += 1
-        if self.in_window(self.now):
+        if self.in_window(ta):
             self.n_arrived += 1
-            self.win[r.id] = self.now
+            self.win[r.id] = ta
         if not self._plan(r):
             self.waiting.append(r)
 
@@ -409,6 +473,15 @@ class Sim:
         self._dispatch(k, f)
 
     def _reroute(self, run):
+        own = getattr(self.dispatcher, "reroute", None)            # RR-2 (13 Nov 2026): an independent system decides again with its own per-task rule
+        if own is not None:
+            ks = [int(k) for k in np.flatnonzero(self.cnt[run.f]) if self.esc[k] - self.storage_used[k] + (run.total if k == run.node else 0.0) >= run.total]
+            best = (0.0, int(own(self, run, np.asarray(ks, dtype=int)))) if ks else None
+        else:
+            best = self._reroute_aet(run)
+        self._reroute_apply(run, best)
+
+    def _reroute_aet(self, run):
         sol = Sol(self)
         best = None
         for k in np.flatnonzero(self.cnt[run.f]):
@@ -417,6 +490,9 @@ class Sim:
             a = sol.aet(run, int(k))
             if best is None or a < best[0]:
                 best = (a, int(k))
+        return best
+
+    def _reroute_apply(self, run, best):
         if best is None:
             # A-25b (2026-10-14): no node that holds f has room for the request's input states (storage exhausted under deep
             # overload). The paper does not cover this; like A-24 (wait and retry) the request stays where it is, keeps its
@@ -944,6 +1020,7 @@ class Sim:
         q = lambda a, p: float(np.percentile(a, p)) if len(a) else float("nan")
         return dict(p50_makespan=pct(50), p95_makespan=pct(95), p99_makespan=pct(99),
                     slo_goodput=float(self.n_slo_ok / cap_t), slo_ok=int(self.n_slo_ok), n_rejected=int(self.n_rejected),
+                    reroute_rule="own" if getattr(self.dispatcher, "reroute", None) is not None else "aet",
                     n_noop_adjust=int(self.n_noop_adjust), n_retry_rounds=int(self.n_retry_rounds), n_parked=int(self.n_parked), n_placements_applied=int(self.n_placements_applied),
                     warm_idle_slot_s=float(max(0.0, slots - self.busy_time - self.cold_slot_s)),
                     provisioned_slot_s=float(self.inst_s), mean_containers=float(self.inst_s / cap_t),

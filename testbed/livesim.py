@@ -309,7 +309,9 @@ class LiveMixin:
                 self.now = now
                 if now - t > 0.25 * max(1.0, self.speed):
                     self.live_log["late_events"] += 1            # the hub itself fell behind (controller computing, GC, ...)
+                self.arrival_t = t if kind == "arrive" else None            # a request's makespan starts at its scheduled arrival, not when the hub got round to it
                 getattr(self, "_ev_" + kind)(a, b, c)
+                self.arrival_t = None
                 continue
             if not self.events and not self._outstanding():
                 break

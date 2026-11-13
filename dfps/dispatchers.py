@@ -207,7 +207,7 @@ class GraphAware:
         lo, hi = float(x.min()), float(x.max())
         return np.zeros_like(x) if hi - lo <= 1e-12 else (x - lo) / (hi - lo)
 
-    def __call__(self, sim, r):
+    def _chooser(self):
         extra = {}
 
         def choose(sim, f, t, ks, src):
@@ -218,7 +218,16 @@ class GraphAware:
             k = int(ks[int(np.argmax(s))]) if self.tie == "index" else int(ks[break_ties(sim, f, ks, np.flatnonzero(s >= s.max() - 1e-9))])
             extra[(f, k)] = extra.get((f, k), 0.0) + sim.exec_time[f]
             return k
-        return _plan_tasks(sim, r, choose)
+        return choose
+
+    def __call__(self, sim, r):
+        return _plan_tasks(sim, r, self._chooser())
+
+    def reroute(self, sim, run, ks):
+        """RR-2 (13 Nov 2026): a task whose planned node lost its last container of the function (the plan is made at arrival; the task runs later) is decided again by this
+        system's OWN per-task rule over the nodes that now host the function, with its input states where they are now (on the planned node). The simulator's default (DFPS's
+        average-execution-time rule) is a DFPS mechanism, which Graph-Aware does not have."""
+        return int(self._chooser()(sim, run.f, run.task, ks, [(run.node, run.total)]))
 
 
 # Comm.-Cost-Aware Greedy (Liang et al. 2026, Sec. 5.1.4: "local execution suitability, predecessor communication penalty, and execution
@@ -264,6 +273,13 @@ class FaaSPRRouter:
         self.on_unplanned = None                        # optional debug hook(sim, r, t, f) called when a task cannot be repaired (2026-10-26)
 
     # ---------------------------------------------------------------- path generation
+    def reroute(self, sim, run, ks):
+        """RR-2 (13 Nov 2026): a task whose planned node lost its last container of the function is repaired by the router's own per-task repair rule (the hosting node cheapest
+        to reach from where the task's inputs are now, as in `__call__`), not by DFPS's average-execution-time rule, which FaaSPR does not have."""
+        net = sim.net
+        c = net.h[run.node, ks] * (net.epd + run.total / net.bw)
+        return int(ks[int(np.argmin(c))])
+
     def _latency(self, sim, wf, nodes):
         net, mu = sim.net, sim.exec_time
         fin = np.zeros(wf.n)

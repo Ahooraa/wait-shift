@@ -183,3 +183,42 @@ def test_features_have_fixed_shape_and_storage_mask():
     assert x.shape == (5, D) and np.isfinite(x).all()
     assert mask.tolist() == [True, True, False, True, True]
     assert x[0, 4 + 7] == 0 and x[4, 4 + 7] > x[1, 4 + 7]      # transfer feature grows with the hop distance from the origin
+
+
+def test_free_slot_feature_asks_for_room_in_weight_units_and_equals_the_count_test_without_sizes():
+    """13 Nov 2026: with container sizes the count test (containers < ecc) reported a free slot on a full node (RL collapsed on CAP-W2)."""
+    from dfps.ondemand import OReq
+    wf = chain_wf(3)
+    r = OReq()
+    r.wf, r.origin, r.plan = wf, 0, [None, None, None]
+    col = 4 + 5                                                # task features, then warm, idle/ecc, occ/ecc, qlen, resid, free slot
+    sc = scenario(wf, n_nodes=3, ecc=4)
+    pol = MosecPolicy(seed=0)
+    sim = OnDemandSim(sc, pol, seed=0)
+    sim.tot[:] = [0, 2, 4]
+    assert pol.features(sim, r, 0)[0][:, col].tolist() == [1.0, 1.0, 0.0]            # unit sizes: exactly the count test
+    sc2 = scenario(wf, n_nodes=3, ecc=4)
+    sc2.fw = np.array([1.0001, 1.0001])                        # 4 x 1.0001 > 4: only three containers fit on a node of capacity 4
+    sim2 = OnDemandSim(sc2, MosecPolicy(seed=0), seed=0)
+    sim2.cnt[0, :] = [0, 3, 3]
+    sim2.tot[:] = [0, 3, 3]
+    assert sim2.tot[2] < sim2.ecc[2]                           # the count test would say 'a free slot'
+    assert MosecPolicy(seed=0).features(sim2, r, 0)[0][:, col].tolist() == [1.0, 0.0, 0.0]
+
+
+def test_rl_does_not_collapse_on_nearly_uniform_container_sizes():
+    """Regression for the CAP-W2 collapse: every weight 1.0001 (one container fewer per node) must behave like CAP-U, not queue everything on one node."""
+    from pathlib import Path
+    from experiments.run import load_rl_policy
+    from testbed import sebs_scenario as S
+    ckpt = Path(__file__).resolve().parent.parent / "results" / "rl_policy.pt"
+    if not ckpt.exists():
+        pytest.skip("no RL checkpoint")
+    out = {}
+    for tag, fwv in (("u", None), ("w", 1.0001)):
+        sc, samp = S.build(1, apps=["690.ml"], rho=0.5, ne=10, duration_s=300.0, arrivals="azure", weights="uniform")
+        if fwv:
+            sc.fw = np.full(len(sc.functions), fwv)
+        sim = OnDemandSim(sc, load_rl_policy(str(ckpt), 601), seed=401, duration=300.0, warmup=60.0, exec_sampler=samp)
+        out[tag] = sim.run()["p99_makespan"]
+    assert out["w"] < 20.0 and out["u"] < 20.0, out

@@ -72,7 +72,13 @@ def one_seed(link, args, seed):
     lv = live["live"]
     health = IL.health(sim) if args.arm in IL.ARMS else {}
     ops = lv["runs"] + lv["warm"] + lv["transfers"] + lv["relocation_transfers"]
-    out = {"seed": seed, "rate_per_s": sc.meta["rate_per_s"], "rho_effective": sc.meta["rho_effective"], "arrivals": sc.meta.get("arrivals", "poisson"),
+    out = {"seed": seed,
+           # 13 Nov 2026: every result says which capacity model and weights it ran under (the 40 CAP-U runs of 13 Nov had no such field and the default went unnoticed)
+           "capacity_model": sc.meta["capacity_model"], "weights_option": args.weights, "arm": args.arm, "app": args.app,
+           "capacity": {k: sc.meta[k] for k in ("fw_source", "fw_reference_mb", "fw_clip", "fw_rounding", "fw_load_scale", "fw_load_error", "fw_by_function", "configured_memory_mb",
+                                                "derived_vcpu_aws_1769mb") if k in sc.meta},
+           "fw": [float(x) for x in sc.fw], "ecc": [float(x) for x in sc.ecc],
+           "rate_per_s": sc.meta["rate_per_s"], "rho_effective": sc.meta["rho_effective"], "arrivals": sc.meta.get("arrivals", "poisson"),
            **({k: sc.meta[k] for k in ("rho_peak", "peak_tasks_per_s", "trace_row", "trace_offset_min", "trace_peak_to_mean", "peak_scale")} if "rho_peak" in sc.meta else {}), "tasks_per_s": sc.meta["rate_per_s"] * sc.workflows[0].n,
            "sim": pick(ref), "live": pick(live), "sim_wall_s": round(ref_wall, 1), "live_wall_s": round(wall, 1),
            "p50_ratio": live["p50_makespan"] / ref["p50_makespan"], "p99_ratio": live["p99_makespan"] / ref["p99_makespan"],
@@ -129,7 +135,9 @@ def main(argv=None):
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     f = out / f"controller-{a.arm}-{time.strftime('%Y%m%d-%H%M%S')}.json"
-    f.write_text(json.dumps({"args": vars(a), "rows": rows}, indent=1, default=float))
+    import subprocess
+    git = lambda *g: subprocess.run(["git", *g], cwd=Path(__file__).resolve().parent.parent, capture_output=True, text=True).stdout.strip()
+    f.write_text(json.dumps({"args": vars(a), "code": {"commit": git("rev-parse", "HEAD"), "dirty": git("status", "--short", "--untracked-files=no").splitlines()}, "rows": rows}, indent=1, default=float))
     print("saved", f)
     return 0
 

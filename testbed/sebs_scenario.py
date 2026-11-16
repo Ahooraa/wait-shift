@@ -40,6 +40,61 @@ QUANTILES = np.linspace(0.0, 1.0, 101)
 BENCHMARKS = list(CONFIG)                    # the six applications, in dfps/sebsflow.py order
 
 
+_M32, _M64, _M128 = 0xFFFFFFFF, (1 << 64) - 1, (1 << 128) - 1
+_PCG_MULT = 47026247687942121848144207491837523525
+
+
+def _consts():
+    """SeedSequence's hash constants do not depend on the data, only on the position in the sequence, so they are laid out once."""
+    hc, first = 0x43B0D7E5, []
+    for _ in range(4):                                               # the four entropy words
+        first.append((hc, (hc * 0x931E8875) & _M32))
+        hc = (hc * 0x931E8875) & _M32
+    mixing = []
+    for i in range(4):
+        for j in range(4):
+            if i != j:
+                mixing.append((i, j, hc, (hc * 0x931E8875) & _M32))
+                hc = (hc * 0x931E8875) & _M32
+    hc, gen = 0x8B51F9DD, []
+    for i in range(8):
+        n = (hc * 0x58F38DED) & _M32
+        gen.append((i & 3, hc, n))
+        hc = n
+    return first, mixing, gen
+
+
+_FIRST, _MIXING, _GEN = _consts()
+
+
+def crn_uniform(seed, req, task):
+    """`np.random.default_rng([seed, req, task]).random()` without building the generator (15 Nov 2026: that call took about 100 us, one per task).
+    The same arithmetic as numpy's SeedSequence (pool of four 32-bit words, mixing and state generation) and PCG64's seeding and first output, in Python integers;
+    `tests/test_crn_uniform.py` checks it against numpy bit for bit. Keys that need more than one 32-bit word each go through numpy."""
+    if not (0 <= seed <= _M32 and 0 <= req <= _M32 and 0 <= task <= _M32):
+        return float(np.random.default_rng([seed, req, task]).random())
+    pool = []
+    for v, (a, b) in zip((seed, req, task, 0), _FIRST):              # entropy words, padded with a zero up to the pool size
+        v = ((v ^ a) * b) & _M32
+        pool.append(v ^ (v >> 16))
+    for i, j, a, b in _MIXING:                                       # mix every word into every other
+        h = ((pool[i] ^ a) * b) & _M32
+        h ^= h >> 16
+        r = (0xCA01F9DD * pool[j] - 0x4973F715 * h) & _M32
+        pool[j] = r ^ (r >> 16)
+    st = []
+    for i, a, b in _GEN:                                             # eight 32-bit words of state, cycling through the pool
+        v = ((pool[i] ^ a) * b) & _M32
+        st.append(v ^ (v >> 16))
+    initstate = (st[0] | (st[1] << 32)) << 64 | (st[2] | (st[3] << 32))
+    inc = ((((st[4] | (st[5] << 32)) << 64 | (st[6] | (st[7] << 32))) << 1) | 1) & _M128
+    state = ((inc + initstate) * _PCG_MULT + inc) & _M128            # PCG64 seeding: state = 0; step; state += initstate; step
+    state = (state * _PCG_MULT + inc) & _M128                        # the step of the first output
+    x = (state >> 64) ^ (state & _M64)                               # XSL-RR
+    rot = state >> 122
+    return ((((x >> rot) | (x << ((-rot) & 63))) & _M64) >> 11) * (1.0 / 9007199254740992.0)
+
+
 class CrnSampler:
     """Task durations from the measured quantiles with COMMON RANDOM NUMBERS: `for_run(function, request id, task)` draws from the seed and the
     run's identity, so every controller that runs the scenario sees the same duration for the same task of the same request (paired
@@ -50,7 +105,7 @@ class CrnSampler:
         self.q, self.seed = quantiles, int(seed)
 
     def for_run(self, f, req_id, task):
-        u = np.random.default_rng([self.seed, int(req_id), int(task)]).random()
+        u = crn_uniform(self.seed, int(req_id), int(task))
         return float(np.interp(u, QUANTILES, self.q[int(f)]))
 
     def __call__(self, f, rng):
@@ -83,7 +138,7 @@ def azure_series(seed, n_bins, span="dev", ptm_range=PTM_RANGE, tries=4000):
 
 
 def build(seed, rho=0.7, ne=20, duration_s=300.0, mix="uniform", weights="uniform", profiles=None, bw=None, apps=None, rate_cap=None,
-          arrivals="poisson", span="dev", peak_tasks_cap=PEAK_TASKS_CAP):
+          arrivals="poisson", span="dev", peak_tasks_cap=PEAK_TASKS_CAP, mem_scale=1.0):
     """apps: the applications of this experiment (names from BENCHMARKS; default all six). One application per experiment keeps one of
     them from dominating the results. rate_cap: the most requests per second the testbed can drive; when the rate needed for `rho` is higher
     the rate is capped and meta["rho_effective"] says what load was actually offered.
@@ -163,6 +218,12 @@ def build(seed, rho=0.7, ne=20, duration_s=300.0, mix="uniform", weights="unifor
                 cold_init_over_median_task=cold_ratio, dag_source="SeBS-Flow Table 4 (dfps/sebsflow.py)",
                 profile_source=prof["source"], cold_start_model="measured SeBS-Flow initialisation (AWS 2024)", duration_s=duration_s, **trace_meta)
     sc = Scenario(functions, workflows, net, ecc, esc, arrivals, meta)
+    if mem_scale != 1.0:
+        # cost test (16 Nov 2026): the same arrivals on a cluster with a fraction of the memory. The rate was fixed above from the ORIGINAL capacity, so the load against the
+        # scaled cluster is rho / mem_scale. Per-node capacities are scaled and rounded (at least 1); the node count is unchanged.
+        sc.meta.update(mem_scale=float(mem_scale), ecc_total_original=int(ecc.sum()))
+        sc.ecc = np.maximum(1, np.rint(np.asarray(ecc, dtype=float) * float(mem_scale))).astype(int)
+        sc.meta["ecc_total"] = int(sc.ecc.sum())
     if weights == "memory":
         # CAP-W2 (13 Nov 2026, user: "measured memory weights"): a container's size is the memory its function used in the SeBS-Flow runs, relative to the median function of all
         # six workflows, clipped to [0.25, 4] as in CAP-W1, scaled to mean 1 over the functions of the scenario, then scaled so that the offered load in capacity units equals

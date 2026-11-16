@@ -12,6 +12,7 @@ from __future__ import annotations
 import bisect
 import copy
 import heapq
+import time
 
 import numpy as np
 from .solution import IDLE
@@ -72,11 +73,39 @@ def random_placement(sc, counts, rng):
     return X
 
 
-def apply_hold_floor(need, floor, demand, util_cap):
+def _hold_floor_weighted(need, want, floor, demand, util_cap, fw):
+    """`apply_hold_floor` for unequal container sizes (CAP-W; 16 Nov 2026): the budget is in capacity units, so a held container is paid for by the
+    capacity of the slack containers that are given up, and the total stays within the cluster. Before this the count-based rule could return counts
+    that exceeded the cluster's capacity, and the placement asserted (found when the trigger and its hold ran on F5 under CAP-W2)."""
+    owed = float(((want - need) * fw).sum())
+    if owed <= 1e-9:
+        return need
+    own = np.maximum(1, np.ceil(demand / util_cap)).astype(int)
+    slack = np.maximum(0, need - np.maximum(own, floor))
+    slack[want > need] = 0
+    out = want.copy()
+    for f in np.argsort(-(slack * fw), kind="stable"):                 # most slack, in capacity units, first
+        if owed <= 1e-9 or slack[f] <= 0:
+            break
+        k = min(int(slack[f]), int(np.ceil(owed / fw[f] - 1e-9)))
+        out[f] -= k
+        owed -= k * fw[f]
+    raised = want > need
+    while owed > 1e-9 and ((out > need) & raised).any():               # not enough slack: lower the raised floors back, heaviest first
+        g = int(np.argmax(np.where(raised & (out > need), (out - need) * fw, -1.0)))
+        out[g] -= 1
+        owed -= fw[g]
+    return out
+
+
+def apply_hold_floor(need, floor, demand, util_cap, fw=None):
     """Raise `need` to at least `floor` (containers held after an emergency fix), paying with the functions that have the most slack
-    above max(1, their own need, their floor). If the slack cannot cover it, the floors are only partly honoured."""
+    above max(1, their own need, their floor). If the slack cannot cover it, the floors are only partly honoured.
+    `fw`: container sizes; with unequal sizes the budget is counted in capacity units (equal sizes: the count rule below, unchanged)."""
     need = need.astype(int).copy()
     want = np.maximum(need, np.asarray(floor, dtype=int))
+    if fw is not None and not np.allclose(fw, np.asarray(fw, dtype=float)[0]):
+        return _hold_floor_weighted(need, want, np.asarray(floor, dtype=int), demand, util_cap, np.asarray(fw, dtype=float))
     deficit = int((want - need).sum())
     if deficit <= 0:
         return need
@@ -100,6 +129,19 @@ def apply_hold_floor(need, floor, demand, util_cap):
     return out
 
 
+def sizing_counts(sc, demand, util_cap, elastic):
+    """The re-layout's sizing rule (extracted unchanged from bottleneck_first_placement on 16 Nov 2026, so that the event check of the
+    event-driven re-layout uses the same code): ceil(demand / util_cap) containers per function, at least one; scaled down in proportion
+    if the cluster cannot hold them; otherwise, with a fixed budget, the leftover follows demand (elastic: the leftover stays empty)."""
+    S = float(sc.ecc.sum())
+    need = np.maximum(1, np.ceil(demand / util_cap).astype(int))
+    if float(need @ sc.fw) > S:                                         # cannot satisfy everyone: shrink proportionally
+        return proportional_counts(demand, S, fw=sc.fw)
+    if not elastic:
+        return proportional_counts(demand, S, floor=need, fw=sc.fw)    # fixed budget: leftover follows demand
+    return need                                                         # elastic: slots beyond the sizing rule's count stay empty
+
+
 def bottleneck_first_placement(sim, lam_f, horizon, util_cap=0.8, wf_rate=None, rng=None, place=None, elastic=False,
                                 hold_floor=None, sizing_cache=None):
     """Hot functions first: enough instances to keep utilisation <= util_cap for the upcoming load (lam_f, the oracle
@@ -121,13 +163,7 @@ def bottleneck_first_placement(sim, lam_f, horizon, util_cap=0.8, wf_rate=None, 
     key = round(sim.now, 6) if sizing_cache is not None else None
     need = sizing_cache.get(key) if key is not None else None
     if need is None:
-        S = float(sc.ecc.sum())
-        need = np.maximum(1, np.ceil(demand / util_cap).astype(int))
-        if float(need @ sc.fw) > S:                                     # cannot satisfy everyone: shrink proportionally
-            need = proportional_counts(demand, S, fw=sc.fw)
-        elif not elastic:
-            need = proportional_counts(demand, S, floor=need, fw=sc.fw)  # fixed budget: leftover follows demand
-        # elastic: the sizing rule's own count is the answer; slots beyond it stay empty (no container, no cost)
+        need = sizing_counts(sc, demand, util_cap, elastic)
         if key is not None:
             sizing_cache[key] = need
     if hold_floor is not None and (np.asarray(hold_floor) > need).any():
@@ -141,7 +177,7 @@ def bottleneck_first_placement(sim, lam_f, horizon, util_cap=0.8, wf_rate=None, 
                 want[g] -= 1
             need = want
         else:
-            need = apply_hold_floor(need, hold_floor, demand, util_cap)
+            need = apply_hold_floor(need, hold_floor, demand, util_cap, fw=sc.fw)
     rates = np.maximum(workflow_rates(sc, sim.now, sim.now + horizon) if wf_rate is None else wf_rate, 1e-9)
     if rng is not None:
         return random_placement(sc, need, rng)
@@ -310,7 +346,15 @@ class O3SimAdjuster:
         #   min_backlog  skip the re-layout unless the queued runs reach this fraction of all container slots
         self.churn = dict(min_frac=0.0, cap=None, min_backlog=0.0)
         self.churn.update(churn or {})
+        # event-driven re-layout (16 Nov 2026, pre-registered; all off by default): first_relayout = time of the first re-layout (default: the end of
+        # the warm-up); event_relayout = also re-lay out at a move tick when the sizing rule wants more containers for a function than it has
+        # (relayout_gap s apart, the epoch timer restarts); shrink_hold_s = the sizing uses the largest rate of the re-layouts of that many seconds
+        if self.churn.get("first_relayout") is not None:
+            self.next_dec = float(self.churn["first_relayout"])
+        self._last_relayout_t, self._lam_hist, self.event_times, self.n_event = -1e9, [], [], 0
         self._times, self._last_fast, self.fast_log = None, -1e9, []
+        self._cum = None                                                  # cumulative arrival counts per workflow (window_rates)
+        self.fast_times = []                                              # seconds taken by every trigger check that passed its gate
         self.hold, self._burstiness = {}, 0.0
         # sizing_cache (2026-10-27 fix, problem-scope.md S3/S6): an optional dict shared across several Sim runs of the
         # SAME scenario+seed (e.g. the FaaSPR-comparison variants). bottleneck_first_placement's target counts are now
@@ -430,10 +474,14 @@ class O3SimAdjuster:
         (shifted by L, 2L, ...) over the horizon. Uses only the past of the arrival list. Returns (arrivals, workflow rates)."""
         arr = sim.sc.arrivals
         now, L = sim.now, min(self.horizon, sim.now)
-        times = [a[0] for a in arr]
+        if self._times is None:
+            self._rates_init(sim)                                        # 16 Nov 2026: arrival times built once (were rebuilt over every arrival per call)
+        times = self._times
         lo, hi = bisect.bisect_left(times, now - L), bisect.bisect_left(times, now)
         past = arr[lo:hi]
         fc, m = [], 1
+        if self.cand_mode == "nosim":                                   # no clone reads the forecast list in nosim mode: only the rates are needed
+            m = int(1e9)
         while m * L < self.horizon + 1e-9:
             fc += [(t_ + m * L, w, o) for t_, w, o in past if t_ + m * L < now + self.horizon]
             m += 1
@@ -444,6 +492,15 @@ class O3SimAdjuster:
 
     def past_arrivals(self, sim):
         """The arrivals of the last min(horizon, now) seconds (past only, as `forecast` uses them)."""
+        arr = sim.sc.arrivals
+        now, L = sim.now, max(1e-9, min(self.horizon, sim.now))
+        if self._times is None:
+            self._rates_init(sim)                                        # 16 Nov 2026: the list of arrival times is built once (it was rebuilt, over every arrival, at each call)
+        times = self._times
+        return arr[bisect.bisect_left(times, now - L):bisect.bisect_left(times, now)]
+
+    def past_arrivals_reference(self, sim):
+        """The implementation before 16 Nov 2026 (kept for the identical-decisions check)."""
         arr = sim.sc.arrivals
         now, L = sim.now, max(1e-9, min(self.horizon, sim.now))
         times = [a[0] for a in arr]
@@ -505,6 +562,13 @@ class O3SimAdjuster:
             for w, r in zip(sim.sc.workflows, wf_rate):
                 for t_ in range(w.n):
                     lam_f[w.ft[t_]] += r
+            hold_s = self.churn.get("shrink_hold_s")
+            if hold_s:                                                   # grow at once, shrink later: the largest rate of the re-layouts of the last hold_s seconds
+                raw = lam_f.copy()
+                self._lam_hist = [(t, l) for t, l in self._lam_hist if sim.now - t <= float(hold_s) + 1e-6]
+                for _, l in self._lam_hist:
+                    lam_f = np.maximum(lam_f, l)
+                self._lam_hist.append((sim.now, raw))
         else:
             self._fc, wf_rate = None, workflow_rates(sim.sc, sim.now, sim.now + self.horizon)
             lam_f = function_rates(sim.sc, sim.now, sim.now + self.horizon)
@@ -645,25 +709,98 @@ class O3SimAdjuster:
                 del self.hold[f]
         return floor if floor.any() else None
 
+    def _rates_init(self, sim):
+        """Arrival times (list for bisect, array for searchsorted), cumulative arrivals per workflow, and the task-to-function matrix; built once per run."""
+        arr = sim.sc.arrivals
+        self._times = [a[0] for a in arr]
+        self._times_np = np.asarray(self._times, dtype=float)
+        assert len(arr) < 2 or bool((np.diff(self._times_np) >= 0).all()), "arrivals must be sorted by time"
+        W = len(sim.sc.workflows)
+        wid = np.fromiter((a[1] for a in arr), dtype=np.int64, count=len(arr))
+        self._cum = np.zeros((len(arr) + 1, W), dtype=np.int64)
+        for w in range(W):
+            np.cumsum(wid == w, out=self._cum[1:, w])
+        F = len(sim.sc.functions)
+        self._A = np.zeros((F, W))                                       # tasks of workflow w that run function f
+        for j, w in enumerate(sim.sc.workflows):
+            for t_ in range(w.n):
+                self._A[w.ft[t_], j] += 1.0
+
     def window_rates(self, sim, L):
-        """Per-workflow arrival rates over the last min(L, now) seconds, from the observed arrivals only (no look-ahead)."""
-        import bisect as _b
-        if getattr(self, "_times", None) is None:
-            self._times = [a[0] for a in sim.sc.arrivals]
-            F = len(sim.sc.functions)
-            self._A = np.zeros((F, len(sim.sc.workflows)))                 # tasks of workflow w that run function f
-            for j, w in enumerate(sim.sc.workflows):
-                for t_ in range(w.n):
-                    self._A[w.ft[t_], j] += 1.0
+        """Per-workflow arrival rates over the last min(L, now) seconds, from the observed arrivals only (no look-ahead).
+        16 Nov 2026: two binary searches and one subtraction of cumulative counts (the loop over every arrival of the window is `window_rates_reference`);
+        the counts are integers, so the rates are bit-identical."""
+        if self._cum is None:
+            self._rates_init(sim)
         Lw = max(1e-9, min(float(L), sim.now))
-        lo, hi = _b.bisect_left(self._times, sim.now - Lw), _b.bisect_left(self._times, sim.now)
+        lo = int(np.searchsorted(self._times_np, sim.now - Lw, side="left"))
+        hi = int(np.searchsorted(self._times_np, sim.now, side="left"))
+        return (self._cum[hi] - self._cum[lo]) / Lw
+
+    def window_rates_reference(self, sim, L):
+        """The implementation before 16 Nov 2026 (kept for the identical-decisions check)."""
+        import bisect as _b
+        times = [a[0] for a in sim.sc.arrivals]
+        Lw = max(1e-9, min(float(L), sim.now))
+        lo, hi = _b.bisect_left(times, sim.now - Lw), _b.bisect_left(times, sim.now)
         cnt = np.zeros(len(sim.sc.workflows))
         for a in sim.sc.arrivals[lo:hi]:
             cnt[a[1]] += 1.0
         return cnt / Lw
 
+    def _need_now(self, sim):
+        """The sizing rule's container need per function now (ceil(demand / util_cap), at least 1), on the blind rates of the last min(horizon, now)
+        seconds with the shrink hold applied; from cumulative arrival counts (no queue term). None before any arrival window exists."""
+        if self._cum is None:
+            self._rates_init(sim)
+        L = min(self.horizon, sim.now)
+        if L <= 0:
+            return None
+        lo = int(np.searchsorted(self._times_np, sim.now - L, side="left"))
+        hi = int(np.searchsorted(self._times_np, sim.now, side="left"))
+        lam = self._A @ ((self._cum[hi] - self._cum[lo]) / L)
+        hold_s = self.churn.get("shrink_hold_s")
+        if hold_s:
+            for t, l in self._lam_hist:
+                if sim.now - t <= float(hold_s) + 1e-6:
+                    lam = np.maximum(lam, l)
+        if getattr(self, "_mu", None) is None:
+            self._mu = np.array([f.exec_time for f in sim.sc.functions])
+        return np.maximum(1, np.ceil(lam * self._mu / self.util_cap))
+
+    def event_due(self, sim):
+        """Event check of the event-driven re-layout (16 Nov 2026, pre-registered, amendment 2): True if some function needs more containers than it
+        has AND more than it needed at the last re-layout (so a growth the last re-layout could not place does not fire again every gap).
+        Gated by first_relayout and relayout_gap; every check that passes the gate is timed."""
+        c = self.churn
+        if sim.now + 1e-9 < float(c.get("first_relayout", self.warmup)) or sim.now - self._last_relayout_t < float(c.get("relayout_gap", 15.0)) - 1e-9:
+            return False
+        t0 = time.perf_counter()
+        try:
+            need = self._need_now(sim)
+            if need is None:
+                return False
+            last = getattr(self, "_last_need", None)
+            grew = need > sim.cnt.sum(axis=1)
+            if last is not None:
+                grew &= need > last
+            return bool(grew.any())
+        finally:
+            self.event_times.append(time.perf_counter() - t0)
+
     def fast_scale(self, sim):
-        """Trigger-based add and shrink between two re-layouts, for on-demand capacity (6 Nov 2026, user request).
+        """Gate and timer of the trigger (16 Nov 2026): every check that passes the gate is timed (`fast_times`); the decision is `_fast_scale_check`."""
+        c = self.churn
+        if sim.now < self.warmup or sim.now >= sim.duration or sim.now - self._last_fast < float(c.get("fast_cooldown", 10.0)):
+            return
+        t0 = time.perf_counter()
+        try:
+            self._fast_scale_check(sim)
+        finally:
+            self.fast_times.append(time.perf_counter() - t0)
+
+    def _fast_scale_check(self, sim):
+        """Trigger-based add and shrink between two re-layouts (6 Nov 2026, user request; originally for on-demand capacity, 16 Nov 2026 also run on F5).
 
         `fast_step` only converts containers inside a full cluster. With on-demand sizing there is free memory and surplus to give back, so the
         slow 60 s loop is the only way capacity changes, and a rise in demand waits for it. This checks every move tick (cooldown `fast_cooldown`):
@@ -674,8 +811,6 @@ class O3SimAdjuster:
           place   the frozen soft-routing placement with the new counts, leftover not filled; the slow re-layout starts from the live layout.
         Parameters are the `fast_step` defaults; the shrink margin (0.25) is new. Nothing tuned."""
         c = self.churn
-        if sim.now < self.warmup or sim.now >= sim.duration or sim.now - self._last_fast < float(c.get("fast_cooldown", 10.0)):
-            return
         from .controllers import queue_aware_placement as _qa
         fw = np.asarray(sim.sc.fw, dtype=float)
         mu = np.array([f.exec_time for f in sim.sc.functions])
@@ -683,7 +818,8 @@ class O3SimAdjuster:
         n = sim.cnt.sum(axis=1).astype(float)
         backlog = backlog_per_function(sim)
         clear = float(c.get("fast_clear", 30.0))
-        self.window_rates(sim, 1.0)                                    # makes sure self._A exists
+        if self._cum is None:
+            self._rates_init(sim)                                      # makes sure self._A exists
         lam_s = self._A @ self.window_rates(sim, float(c.get("fast_window", 20.0)))
         lam_l = self._A @ self.window_rates(sim, 120.0)
         need_s = np.maximum(1.0, np.ceil((lam_s * mu + backlog * mu / clear) / self.util_cap))
@@ -1567,10 +1703,24 @@ class O3SimAdjuster:
         while self._pending and sim.now + 1e-9 >= self._pending[0][0]:     # stale layouts whose delay has run out, oldest first
             sim.apply_placement(self._pending.pop(0)[1])
         # no_relayout (control, 2026-10-22): busiest-first switched off, only the small-move layer runs
+        did = False
         if sim.now + 1e-9 >= self.next_dec and sim.now < sim.duration and not self.churn.get("no_relayout"):
             self.next_dec += self.epoch
-            if self.decide(sim) and not self.churn.get("moves_after_relayout"):
+            self._last_relayout_t, did = sim.now, True
+            switched = self.decide(sim)
+            if self.churn.get("event_relayout"):
+                self._last_need = self._need_now(sim)
+            if switched and not self.churn.get("moves_after_relayout"):
                 return None                                             # placement just changed: skip SA this tick
+        if (not did and self.churn.get("event_relayout") and sim.now + 1e-9 >= self.next_sa and sim.now < sim.duration
+                and not self.churn.get("no_relayout") and self.event_due(sim)):
+            self._last_relayout_t, self.next_dec = sim.now, sim.now + self.epoch   # the epoch timer restarts: at least one re-layout every epoch
+            self.n_event += 1
+            switched = self.decide(sim)
+            self.log[-1]["event"] = True
+            self._last_need = self._need_now(sim)
+            if switched and not self.churn.get("moves_after_relayout"):
+                return None
             # moves_after_relayout (2026-10-24): on the tick a re-layout is applied, fall through to the request moves at once instead
             # of waiting one B* period (4 s Azure, 8 s Huawei), so queued work reaches the new layout immediately
         if sim.now + 1e-9 >= self.next_sa:

@@ -58,8 +58,10 @@ class OnDemandSim(Sim):
         self.qcnt = np.zeros((F, N), dtype=int)       # queued runs of f on k
         self.tot = np.zeros(N, dtype=int)             # containers on k (any state)
         self.occ = np.zeros(N, dtype=int)             # containers busy or cold-starting for a bound task
+        self.occf = np.zeros((F, N), dtype=int)       # the same, per function (15 Nov 2026: lets Heu read the occupied capacity without scanning every container)
         self.nq = [deque() for _ in range(N)]
         self.wait_tasks = deque()
+        self.wait_cnt = {}                            # waiting requests per workflow id (see _retry_waiting)
         self.n_recycled = 0
         self.X0 = None if X0 is None else np.asarray(X0, dtype=int)
         if self.X0 is not None:
@@ -111,6 +113,7 @@ class OnDemandSim(Sim):
             self.win[r.id] = ta
         if not self._start_request(r):
             self.waiting.append(r)
+            self.wait_cnt[wf.id] = self.wait_cnt.get(wf.id, 0) + 1
 
     def _start_request(self, r):
         wf = r.wf
@@ -145,10 +148,37 @@ class OnDemandSim(Sim):
         return True
 
     def _retry_waiting(self):
-        for _ in range(len(self.waiting)):
-            r = self.waiting.popleft()
-            if not self._start_request(r):
-                self.waiting.append(r)
+        # 15 Nov 2026: during this sweep nothing but the storage reservations of requests that start can change, so a plan() may reuse the node residuals and remember which workflows
+        # failed the pruning test since the last start (policy.plan reads and fills `_sweep`); the outcome of every attempt is the same as without it.
+        # When every workflow among the waiting requests fails its pruning test (policy.all_blocked), no request can start: the sweep would only count the failures and put every
+        # request back where it was, so that is all it does.
+        sweep = self._sweep = {"resid": None, "prune_failed": set()}
+        try:
+            if sum(self.wait_cnt.values()) != len(self.waiting):             # the counts must describe the waiting list; rebuild them if anything else touched it
+                self.wait_cnt = {}
+                for r in self.waiting:
+                    self.wait_cnt[r.wf.id] = self.wait_cnt.get(r.wf.id, 0) + 1
+            ab = getattr(self.policy, "all_blocked", None)
+            if self.waiting and self.mode == "plan" and ab is not None and ab(self, list(self.wait_cnt), sweep):
+                self.policy.n_prune_fail += len(self.waiting)
+            else:
+                failed = sweep["prune_failed"]
+                for _ in range(len(self.waiting)):
+                    r = self.waiting.popleft()
+                    if failed and r.wf.id in failed and self.mode == "plan":       # the same outcome plan() would return from its cache, without the call
+                        self.policy.n_prune_fail += 1
+                        self.waiting.append(r)
+                        continue
+                    if self._start_request(r):
+                        c = self.wait_cnt[r.wf.id] - 1
+                        if c:
+                            self.wait_cnt[r.wf.id] = c
+                        else:
+                            del self.wait_cnt[r.wf.id]
+                    else:
+                        self.waiting.append(r)
+        finally:
+            self._sweep = None
         for _ in range(len(self.wait_tasks)):
             r, t = self.wait_tasks.popleft()
             if not self._decide(r, t):
@@ -188,12 +218,14 @@ class OnDemandSim(Sim):
             ins = next(i for i in self.inst[k][f] if i.state == IDLE and i.run is None)
             self.idle[f, k] -= 1
             self.occ[k] += 1
+            self.occf[f, k] += 1
             self._start(ins, run)
             return
         pre = next((i for i in self.inst[k][f] if i.state == COLD and i.run is None), None)
         if pre is not None:                                          # (1b) a container being pre-warmed for f (cheater only)
             pre.run = run
             self.occ[k] += 1
+            self.occf[f, k] += 1
             return
         if self.hetero and not self._room_for(k, f):                 # (3h) unequal container sizes: recycle idle ones until f fits
             return False
@@ -216,6 +248,7 @@ class OnDemandSim(Sim):
         self.cnt[f, k] += 1
         self.tot[k] += 1
         self.occ[k] += 1
+        self.occf[f, k] += 1
         self.cold_starts_total += 1
         if self.in_window(self.now):
             self.cold_starts += 1
@@ -327,6 +360,7 @@ class OnDemandSim(Sim):
         ins.run, ins.state, ins.last = None, IDLE, self.now
         self.idle[ins.f, k] += 1
         self.occ[k] -= 1
+        self.occf[ins.f, k] -= 1
         if self.keep_warm == 0:
             self._remove_idle(ins)
         elif self.keep_warm is not None:
@@ -370,6 +404,8 @@ class OnDemandSim(Sim):
                 assert n_inst == self.tot[k] <= self.ecc[k], f"node {k}: container count {n_inst}/{self.tot[k]}/{self.ecc[k]}"
             occ = sum(1 for f in range(self.F) for i in self.inst[k][f] if i.run is not None)
             assert occ == self.occ[k], f"node {k}: occupied {occ} != {self.occ[k]}"
+            for f in range(self.F):
+                assert self.occf[f, k] == sum(1 for i in self.inst[k][f] if i.run is not None), f"occupied count mismatch (f={f}, k={k})"
             for f in range(self.F):
                 idle = sum(1 for i in self.inst[k][f] if i.state == IDLE and i.run is None)
                 assert idle == self.idle[f, k], f"idle count mismatch (f={f}, k={k})"

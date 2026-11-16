@@ -19,7 +19,11 @@ Stages (paper Sec.4.1) -> code:
     feasible by construction of d_req), and create the instances on demand (cold starts) on the chosen nodes."""
 from __future__ import annotations
 
+import os
+
 import numpy as np
+
+_CHECK_QW = bool(os.environ.get("DFPS_CHECK_QW"))
 
 
 class HeuPolicy:
@@ -33,6 +37,7 @@ class HeuPolicy:
         self.n_delay_fallback = 0
         self._levels = {}
         self._static = {}                   # per workflow: weights, node delays, slot and storage demand (fixed per run)
+        self._witness = {}                  # per workflow: the layer that had no feasible node at its last pruning failure
 
     def attach(self, sim):
         self.sim = sim
@@ -78,12 +83,95 @@ class HeuPolicy:
     def feasible(self, sim, wf):
         """Pruning (Alg.1 l.5): residual container slots and storage must meet the component's demand."""
         _, _, need_slots, need_store = self._static_of(sim, wf)
-        if sim.hetero:                                               # the same residual in capacity units: containers busy or cold-starting for a bound task, and queued runs, by size
-            resid = sim.ecc - self._occupied_weight(sim) - np.array([sum(sim.sc.fw[run.f] for run in q) for q in sim.nq])
-        else:
-            resid = sim.ecc - sim.occ - np.array([len(q) for q in sim.nq])
+        sweep = getattr(sim, "_sweep", None)                         # inside a retry sweep (OnDemandSim._retry_waiting) the residual cannot change: computed once per sweep
+        res = sweep["resid"] if sweep is not None else None
+        if res is None:
+            res = self._residual(sim)
+            if sweep is not None:
+                sweep["resid"] = res
+        resid = res[0]
+        if sim.hetero:
+            near = (np.abs(resid[None, :] - need_slots) <= res[1][None, :]).any(axis=0)       # a node whose residual is within the rounding error of a threshold of this workflow
+            if near.any():
+                resid = resid.copy()
+                for k in np.flatnonzero(near):
+                    resid[k] = self._residual_exact(sim, int(k))                          # decided with the original summation, so the outcome is exactly the original's
         free_store = sim.esc - sim.storage_used
-        return (resid[None, :] >= need_slots) & (free_store[None, :] >= need_store)
+        out = (resid[None, :] >= need_slots) & (free_store[None, :] >= need_store)
+        if _CHECK_QW and sim.hetero:                                 # debugging: the outcome must equal the original sum-over-the-queue computation
+            ref = sim.ecc - self._occupied_weight(sim) - np.array([sum(sim.sc.fw[run.f] for run in q) for q in sim.nq])
+            self.feas_checks = getattr(self, "feas_checks", 0) + 1
+            if not (((ref[None, :] >= need_slots) & (free_store[None, :] >= need_store)) == out).all():
+                self.feas_mismatch = getattr(self, "feas_mismatch", 0) + 1
+        return out
+
+    def all_blocked(self, sim, wf_ids, sweep):
+        """True when every workflow in `wf_ids` fails the pruning test now, so a sweep over the waiting requests could not start any (15 Nov 2026). For each workflow the layer that
+        failed last time is tested again: no node may have both the residual slots (counted with the rounding margin, so a doubtful node says "not blocked") and the free
+        storage that layer needs. The pruning test only gets easier as resources grow, so a layer without a feasible node makes plan() fail exactly as it would have."""
+        res = sweep["resid"]
+        if res is None:
+            res = sweep["resid"] = self._residual(sim)
+        resid, margin = res
+        free = sim.esc - sim.storage_used
+        for wid in wf_ids:
+            q = self._witness.get(wid)
+            if q is None:
+                return False
+            _, _, need_slots, need_store = self._static[wid]
+            if not ((resid + margin < need_slots[q]) | (free < need_store[q, 0])).all():
+                return False
+        if _CHECK_QW:                                                # debugging: with the original computation every one of these workflows must fail the pruning test
+            for wid in wf_ids:
+                _, _, need_slots, need_store = self._static[wid]
+                ref = sim.ecc - self._occupied_weight(sim) - np.array([sum(sim.sc.fw[run.f] for run in q) for q in sim.nq]) if sim.hetero else sim.ecc - sim.occ - np.array([len(q) for q in sim.nq])
+                ok = ((ref[None, :] >= need_slots) & (free[None, :] >= need_store)).any(axis=1).all()
+                self.blocked_checks = getattr(self, "blocked_checks", 0) + 1
+                if ok:
+                    self.blocked_mismatch = getattr(self, "blocked_mismatch", 0) + 1
+        return True
+
+    def _residual(self, sim):
+        """(residual per node, rounding margin per node)."""
+        if not sim.hetero:
+            return sim.ecc - sim.occ - np.array([len(q) for q in sim.nq]), np.zeros(sim.N)
+        # The same residual in capacity units: containers busy or cold-starting for a bound task, and queued runs, by size. Both weights come from per-function counts
+        # (15 Nov 2026; scanning every container and summing over every queued run cost most of a busy run's time). The original adds the weights one by one and so carries a
+        # rounding error of at most (n-1) u S per sum (u = 2^-53); the counts-based total is exact (integers scaled by 2^60, one correct rounding), and `margin` bounds how far
+        # the original's value can be from it. A decision that falls within the margin is taken with the original summation (`_residual_exact`), so every decision is the original's.
+        fwi = getattr(self, "_fw_int", None)
+        if fwi is None:
+            fwi = self._fw_int = [int(float(x) * 2.0 ** 60) for x in sim.sc.fw]
+            assert all(fwi[i] / (1 << 60) == float(sim.sc.fw[i]) for i in range(len(fwi)))     # the scaling is exact
+        F, N = len(fwi), sim.N
+        qc, oc = sim.qcnt, sim.occf
+        held = [sum((int(qc[f, k]) + int(oc[f, k])) * fwi[f] for f in range(F)) for k in range(N)]       # exact, in units of 2^-60
+        ecc_i = [int(e) for e in sim.ecc]
+        resid = np.array([((ecc_i[k] << 60) - held[k]) / (1 << 60) for k in range(N)])                      # int / int: correctly rounded
+        n = (qc.sum(axis=0) + oc.sum(axis=0)).astype(float)
+        tw = np.array(held, dtype=float) / (1 << 60)
+        margin = 4.0 * 1.2e-16 * (n + 8.0) * (tw + np.array(ecc_i, dtype=float) + 1.0) + 1e-12
+        if _CHECK_QW:                                                # debugging: the occupied counts must equal what a scan of the containers finds
+            from .solution import BUSY, COLD
+            for k in range(N):
+                for f in range(F):
+                    scan = sum(1 for ins in sim.inst[k][f] if ins.state == BUSY or (ins.state == COLD and ins.run is not None))
+                    self.occ_checks = getattr(self, "occ_checks", 0) + 1
+                    if scan != int(oc[f, k]):
+                        self.occ_mismatch = getattr(self, "occ_mismatch", 0) + 1
+        return resid, margin
+
+    def _residual_exact(self, sim, k):
+        """Node k's residual exactly as the original expression computes it (sequential sums over the containers and over the queue)."""
+        from .solution import BUSY, COLD
+        fw = sim.sc.fw
+        occ = 0.0
+        for f in range(sim.F):
+            for ins in sim.inst[k][f]:
+                if ins.state == BUSY or (ins.state == COLD and ins.run is not None):
+                    occ += fw[f]
+        qw = sum(fw[run.f] for run in sim.nq[k])
+        return sim.ecc[k] - occ - qw
 
     @staticmethod
     def _occupied_weight(sim):
@@ -135,9 +223,16 @@ class HeuPolicy:
         wf = r.wf
         lvl, comps = self.levels(wf)
         w, node_delay = self.weights(sim, wf)
+        sweep = getattr(sim, "_sweep", None)
+        if sweep is not None and wf.id in sweep["prune_failed"]:     # the same workflow failed the pruning test and no request has started since: same state, same outcome (no random draw happens here)
+            self.n_prune_fail += 1
+            return None
         feas = self.feasible(sim, wf)
         if not feas.any(axis=1).all():
             self.n_prune_fail += 1
+            self._witness[wf.id] = int(np.flatnonzero(~feas.any(axis=1))[0])
+            if sweep is not None:
+                sweep["prune_failed"].add(wf.id)
             return None
         # cost metric: c_e x MB per hop; delay metric: MB / bw per hop (proportional here, kept separate for the constraint)
         cost_w = w
@@ -151,6 +246,8 @@ class HeuPolicy:
         if self._delay(sim, r.origin, nodes, w, node_delay) > d_req:     # delay-constrained: fall back to the least-delay path
             self.n_delay_fallback += 1
             nodes = dmin_nodes
+        if sweep is not None:
+            sweep["prune_failed"].clear()                            # the request will start and reserve storage: earlier failures no longer carry over
         return [nodes[lvl[t]] for t in range(wf.n)]
 
     def on_task_done(self, sim, run):

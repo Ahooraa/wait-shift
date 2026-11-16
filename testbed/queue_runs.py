@@ -38,6 +38,14 @@ PLANS = {   # name -> (applications, seeds, systems); the order of the systems i
     # windows, two development seeds, five systems. Seed-major order, so a whole seed (every application, every system) is complete before the second starts.
     # 13 Nov (user): the CAP-U runs above are withdrawn; the rerun is on CAP-W2 (measured memory sizes, rounded to 0.01), FaaSPR and Graph-Aware are dropped from the live runs (user, 14 Nov: they stay in the simulator sweep), Heu is added back; four systems F5, B*, RL, Heu. The smoke plan runs the same code on one short cell per system before the queue.
     "azure-capw2": dict(apps=["690.ml", "660.map-reduce", "650.vid", "680.excamera"], seeds=(1, 2, 3), arms=["frozen5", "bstar", "rl", "heu"], arrivals="azure", seed_major=True, weights="memory"),
+    # 15 Nov (user): live runs at a higher load. ML and MapReduce cannot go higher live (at 0.5 their busiest minute already hits the hub's 300 tasks/s cap, rho_effective 0.22-0.31), so only Video and ExCamera
+    # (7 and 6 tasks/s at 0.5) are raised, to 0.7 (the upper of the two levels agreed on 12 Nov). F5 and Heu only: the question is whether F5's gap to Heu grows with load (Heu beat F5 on Video at 0.5).
+    "azure-capw2-rho07": dict(apps=["650.vid", "680.excamera"], seeds=(1, 2, 3), arms=["frozen5", "heu"], arrivals="azure", seed_major=True, weights="memory",
+                              cells={"650.vid": (0.7, 60, 900, 600), "680.excamera": (0.7, 180, 900, 600)}),
+    # 15 Nov 2026 (user): payload-scale sensitivity, live. Real bytes are 1/30 and 1/10 of the nominal size (the live runs so far used 1/100); F5 and Heu on the two apps whose states are
+    # large (Video 132 MB analyse, ML); the nominal transfer time is unchanged. A pilot checks that the shared Wi-Fi carries it before the queue starts (guard impairment limit 10%).
+    "payload-ps30": dict(apps=["650.vid", "690.ml"], seeds=(1, 2, 3), arms=["frozen5", "heu"], arrivals="azure", seed_major=True, weights="memory", payload_scale=30),
+    "payload-ps10": dict(apps=["650.vid", "690.ml"], seeds=(1, 2, 3), arms=["frozen5", "heu"], arrivals="azure", seed_major=True, weights="memory", payload_scale=10),
     "smoke-heu": dict(apps=["690.ml"], seeds=(1,), arms=["heu"], arrivals="azure", weights="memory", cells={"690.ml": (0.5, 60, 240, 120)}),
     "smoke-capw2": dict(apps=["690.ml"], seeds=(1,), arms=["frozen5", "bstar", "rl"], arrivals="azure", weights="memory", cells={"690.ml": (0.5, 60, 240, 120)}),
     "azure-initial": dict(apps=["690.ml", "660.map-reduce", "650.vid", "680.excamera"], seeds=(1, 2), arms=["frozen5", "bstar", "rl", "faaspr", "ga"],
@@ -62,7 +70,10 @@ def build_azure_plan(spec):
         for arm in systems:
             argv = ["testbed/controller_check.py", "--arm", arm, "--app", app, "--ne", "10", "--rho", str(rho), "--duration", str(warm + window), "--warmup", str(warm),
                     "--drain", str(drain), "--seeds", str(seed), "--arrivals", spec["arrivals"], "--weights", spec.get("weights", "memory")]   # 13 Nov: CAP-W2, never CAP-U
-            items.append({"id": f"{app}.s{seed}.{arm}", "argv": argv})
+            ps = spec.get("payload_scale")
+            if ps:                                                   # 15 Nov 2026 (user): payload-scale sensitivity; the scale is part of the item id
+                argv += ["--payload-scale", str(ps)]
+            items.append({"id": f"{app}.s{seed}.{arm}" + (f".ps{ps:g}" if ps else ""), "argv": argv})
     return items
 
 

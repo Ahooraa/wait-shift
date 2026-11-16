@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import heapq
 import itertools
+import os
 import time
 from collections import deque
 
@@ -209,10 +210,17 @@ class Sim:
     def run(self):
         h = self._hash
         same_t, n_same = None, 0
+        hb_path, n_ev, hb_next = os.environ.get("DFPS_HEARTBEAT"), 0, 0.0        # 15 Nov 2026: optional progress line (wall s, simulated s, events, active, waiting); changes nothing in the run
         while self.events:
             t, _, kind, a, b, c = heapq.heappop(self.events)
             if t > self.t_end:
                 break
+            if hb_path:
+                n_ev += 1
+                if n_ev & 1023 == 0 and time.monotonic() >= hb_next:
+                    hb_next = time.monotonic() + float(os.environ.get("DFPS_HEARTBEAT_EVERY", "60"))
+                    with open(hb_path, "a") as hf:
+                        hf.write(f"{time.strftime('%H:%M:%S')} wall={time.monotonic():.0f} sim_t={t:.2f}/{self.t_end:.0f} events={n_ev} active={self.active} waiting={len(self.waiting)} queued_events={len(self.events)}\n")
             if t == same_t:                                       # guard: the clock must advance (fail loudly, never hang)
                 n_same += 1
                 if n_same > 5_000_000:

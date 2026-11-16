@@ -16,6 +16,37 @@ import numpy as np
 IDLE, COLD, BUSY = 0, 1, 2     # instance kinds; removal preference order (idle first), see Sim.apply_solution
 
 
+_SVC_FAST_FROM = 128
+
+
+def service_estimate_reference(avail, mu, ahead):
+    """The list-scheduling loop: `ahead` times, the instance that is free first takes one more run of length mu. Kept as the definition the fast version must equal."""
+    heap = list(avail)
+    heapq.heapify(heap)
+    for _ in range(ahead):
+        heapq.heappush(heap, heapq.heappop(heap) + mu)
+    return heap[0] + mu
+
+
+def service_estimate_fast(avail, mu, ahead):
+    """Same value as `service_estimate_reference`, bit for bit (15 Nov 2026; the loop was 60% of a busy B* run). Each instance's free times are the sequence a, a+mu, (a+mu)+mu, ...
+    (floating-point additions in that order), and the loop pops the smallest of the sequences' heads `ahead` times, so what is left on top is the (ahead+1)-th smallest value of all
+    the sequences together. The sequences are built with a sequential cumulative sum, which adds in the same order, cut at a length that is checked to be long enough."""
+    a = np.asarray(avail, dtype=float)
+    c = len(a)
+    need = ahead + 1
+    length = min(need, 2 * need // c + 3)
+    while True:
+        m = np.empty((c, length))
+        m[:, 0] = a
+        m[:, 1:] = mu
+        np.cumsum(m, axis=1, out=m)
+        cand = np.partition(m.ravel(), ahead)[ahead]                   # the (ahead+1)-th smallest of the truncated union
+        if length >= need or m[:, -1].min() >= cand:                   # nothing cut off can be smaller than it
+            return float(cand) + mu
+        length = min(need, 2 * length)
+
+
 class Sol:
     def __init__(self, sim):
         self.sim = sim
@@ -23,6 +54,8 @@ class Sol:
         self.cnt = sim.cnt.copy()                 # fn_lk as an array [F, N]
         self.free = sim.esc - sim.storage_used    # free storage per node
         self._av, self._q, self.rnode = {}, {}, {}
+        self._svc = {}                      # (f, k, ahead) -> (entries, mu, value) of service_estimate; entries are replaced, never changed in place, so identity says they are the same
+        self.svc_hits = self.svc_misses = 0
         self.undo = []
 
     # --- lazy base state -------------------------------------------------------------------------------------------
@@ -100,11 +133,22 @@ class Sol:
         if not entries:
             return float("inf")
         mu = self.sim.exec_time[f]
-        heap = [e[0] for e in entries]
-        heapq.heapify(heap)
-        for _ in range(ahead):
-            heapq.heappush(heap, heapq.heappop(heap) + mu)
-        return heap[0] + mu
+        key = (f, k, ahead)
+        hit = self._svc.get(key)
+        if hit is not None and hit[0] is entries and hit[1] == mu:
+            self.svc_hits += 1
+            return hit[2]
+        self.svc_misses += 1
+        if ahead >= _SVC_FAST_FROM:
+            v = service_estimate_fast([e[0] for e in entries], mu, ahead)
+        else:
+            heap = [e[0] for e in entries]
+            heapq.heapify(heap)
+            for _ in range(ahead):
+                heapq.heappush(heap, heapq.heappop(heap) + mu)
+            v = heap[0] + mu
+        self._svc[key] = (entries, mu, v)
+        return v
 
     def aet(self, run, k, ahead=None, lam=1.0, parts=False, wait_w=1.0):
         """lam (2026-10-26, default 1.0 == original behaviour) weights the downstream-transfer term only ("out" below), not

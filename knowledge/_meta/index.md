@@ -28,6 +28,7 @@ _No entries yet._
 _No entries yet._
 - [[baseline-matrix]] — baselines to run, ablate or cite per mechanism, plus literature search record (24 Oct)
 - [[independent-baselines-capw1]] — audit of the Graph-Aware, FaaSPR and HEFT ports against the papers, and the CAP-W1 independent-system protocol (5 Nov, draft)
+- [[clusterless-baseline]] — pre-registration of an independent ClusterLess-style (deadline-aware, single-cluster) baseline CLU; why MPC and CLASP were not used (16 Nov, draft)
 - [[faaspr-paper-setting]] — FROZEN-3 against FaaSPR under FaaSPR's own evaluation setting (8 servers, 402 GB, one workflow): protocol (6 Nov, draft)
 - [[problem-scope]] — fixed problem scope: runtime placement/re-placement under externally-sized, heterogeneous containers, with resource and network contention (27 Oct)
 - [[heterogeneous-container-sizes]] — audit of the uniform-slot assumption, profile-derived container weights, and where the code was changed or guarded (2 Nov)

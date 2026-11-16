@@ -43,6 +43,15 @@ def pick(r):
 
 def systems(arm):
     """(build, warm-up, live class, needs X0) of a system: the controller arms of frozen_live, `bstar` or `rl`."""
+    import re as _re
+    ka = _re.match(r"^(heu|rl)_ka(\d+)$", arm)                  # 16 Nov 2026 (cost test): the baseline with an idle container released after N seconds
+    if ka:
+        b, w, lc = systems(ka.group(1))
+        return (lambda sc, X0, seed, _b=b, _s=float(ka.group(2)), **kw: _b(sc, X0, seed, keep_warm=_s, **kw)), w, lc
+    cl = _re.match(r"^clu(_s)?(?:_k(\d+))?$", arm)                  # 16 Nov 2026: ClusterLess-style baseline; clu_s = plan at arrival only; _kNN = kappa NN/10 (clu_k10, clu_k30)
+    if cl:
+        kap, ref = (int(cl.group(2)) / 10.0 if cl.group(2) else 1.5), cl.group(1) is None
+        return (lambda sc, X0, seed, _k=kap, _r=ref, **kw: BL.build_clu(sc, seed, kappa=_k, refine=_r, **kw)), (lambda sc, X0, seed: BL.warm_up_clu(sc, seed, kappa=kap, refine=ref)), LiveOnDemandSim
     if arm == "bstar":
         return (lambda sc, X0, seed, **kw: BSL.build(sc, X0, seed, **kw)), (lambda sc, X0, seed: BSL.warm_up(sc, X0, seed)), LiveSim
     if arm == "rl":
@@ -111,6 +120,7 @@ def main(argv=None):
     ap.add_argument("--guard-wait", type=float, default=60.0)
     ap.add_argument("--weights", default="uniform", help="capacity model of the scenario (sebs_scenario.build); the default is CAP-U, which a measured run refuses")
     ap.add_argument("--allow-cap-u", action="store_true", help="allow the uniform-slot model (CAP-U) in a trial run; never for measured runs")
+    ap.add_argument("--payload-scale", type=float, default=100.0, help="real bytes on the wire = nominal size / this (default 100; the transfer time stays the nominal Eq. 1-2 time; sensitivity runs use 30 and 10)")
     ap.add_argument("--no-guard", action="store_true", help="skip the check that the Wi-Fi and the laptops are ready (not for measured runs)")
     a = ap.parse_args(argv)
     from testbed import fleet
@@ -124,7 +134,7 @@ def main(argv=None):
                 raise SystemExit(f"the guard refused {refusals} times (listed above); fix the problem or use --no-guard for a trial run")
             print(f"guard refused ({refusals} of {a.guard_retries} retries); waiting {a.guard_wait:.0f} s", flush=True)
             time.sleep(a.guard_wait)
-        link = LiveLink.from_cluster(laps, fleet.hub_token(), a.ne)      # AFTER the guard: an agent keeps ONE control connection and the guard's check of it replaces ours
+        link = LiveLink.from_cluster(laps, fleet.hub_token(), a.ne, payload_scale=a.payload_scale)      # AFTER the guard: an agent keeps ONE control connection and the guard's check of it replaces ours
         r = one_seed(link, a, seed)
         r["guard_refusals_before"] = refusals
         rows.append(r)

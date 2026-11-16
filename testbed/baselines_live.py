@@ -46,6 +46,21 @@ def build_heu(sc, seed, *, warmup, duration, sim_cls=OnDemandSim, **extra):
     return sim_cls(sc, HeuPolicy(seed=seed + 500), seed=seed + 400, duration=duration, warmup=warmup, **extra), None
 
 
+def build_clu(sc, seed, *, warmup, duration, sim_cls=OnDemandSim, kappa=1.5, refine=True, **extra):
+    """(sim, None) for one run of the ClusterLess-style baseline CLU (dfps/clusterless.py, pre-registered in knowledge/synthesis/clusterless-baseline.md): on-demand containers like Heu and
+    RL, deadline D_w = kappa x critical path, plan at arrival and re-planned at every ready function (refine=True) or at arrival only (CLU-S). Simulator seed + 400 as the others."""
+    from dfps.clusterless import ClusterLessPolicy
+    return sim_cls(sc, ClusterLessPolicy(seed=seed + 500, kappa=kappa, refine=refine), seed=seed + 400, duration=duration, warmup=warmup, **extra), None
+
+
+def warm_up_clu(sc, seed=1, seconds=40.0, **kw):
+    """One short plain-simulator run so every code path has been taken once BEFORE a live run."""
+    t0 = time.time()
+    sim, _ = build_clu(sc, seed, warmup=min(10.0, seconds / 3), duration=seconds, **kw)
+    sim.run()
+    return time.time() - t0
+
+
 def warm_up_heu(sc, seed=1, seconds=40.0):
     """One short plain-simulator run so every code path has been taken once BEFORE a live run."""
     t0 = time.time()

@@ -1012,3 +1012,39 @@ author: llm
 ## [2026-11-14] decision | user | live systems F5, B*, RL, Heu; Heu ported to capacity units
 - Graph-Aware and FaaSPR out of the live plan (not independent of our re-layout engine); Heu back in. Plan `azure-capw2` = 32 runs; `smoke-heu` = one 300 s ML cell.
 - Heu prune ported to weight units (`dfps/heu.py`), arm `heu` in `controller_check.py` (`baselines_live.build_heu`). Next: Heu simulator runs on CAP-W2 rounded, then the Heu smoke test, then the live plan.
+
+## [2026-11-16] plan | user | F5 + trigger-based grow and shrink between re-layouts (pre-registered)
+- Written before any run of the new arms ([[workflow-aware-decision-rules]], section "F5 + trigger-based grow and shrink between re-layouts"): arms `frozen5_ts` (trigger + hold 120 s + shrink delay 2, the 6 Nov parameters) and `frozen5_t` (trigger only), 42 simulator cells per arm on development seeds 1-3, readings T1-T5 fixed in advance; the trigger's window rates are optimised under an identical-decisions check.
+
+## [2026-11-16] plan | user | amendment 1: event-driven re-layout instead of a second loop
+- Before any grid run ([[workflow-aware-decision-rules]], amendment 1): arms `frozen5_e0` (first re-layout at 10 s) and `frozen5_ev` (re-layout when the sizing rule wants more containers than a function has, at least 15 s apart, at least every 60 s; slow shrink over 60 s), `frozen5_ts` kept as reference, `frozen5_t` dropped; readings E1-E5. Smoke observations that led to it are stated in the amendment.
+
+## [2026-11-16] decision | user | FROZEN-6 = F5 with the first re-layout at 10 s
+- Grid result ([[workflow-aware-decision-rules]]): early start P99 0.621 [0.503, 0.739] over 30 high-load cells, live cell 0.815, average makespan 0.71, fewer cold starts; event-driven re-layout the same; both miss E5 on its per-cell wording only. User adopts the early start as FROZEN-6 (arm `frozen6`); confirmation on seeds 4-6 and live checks still to do.
+
+## [2026-11-16] correction | F6 cold starts
+- F6's lower in-window cold starts are the same container changes moved into the warm-up; totals over the run equal F5's ([[workflow-aware-decision-rules]]).
+
+## [2026-11-16] plan | user | cost test: memory sweep, elastic F6, baselines with keep-alive (pre-registered)
+- Written before any run ([[workflow-aware-decision-rules]], section "Cost test"): 180 simulator runs, readings C1-C4; stored runs show every system provisioning 87-100% of the cluster (no keep-alive for the baselines).
+
+## [2026-11-16] decision | user | cost test shelved
+- The pre-registered cost test (memory sweep, elastic F6, baselines with keep-alive) was stopped after the first cells by the user; no reading applied. See [[workflow-aware-decision-rules]].
+
+## [2026-11-16] plan | user | ClusterLess-style baseline pre-registered
+- Read ClusterLess (arXiv 2605.04310), the MPC cold-start paper (2508.07640) and CLASP (2608.29103); only ClusterLess is usable as a single-cluster reduction. Pre-registration written before any code or run: [[clusterless-baseline]] (deviations D1-D7, algorithm, checks, 84 simulator runs on seeds 1-3, readings R1-R4).
+
+## [2026-11-16] ingest | user | CLU baseline implemented and checked
+- `dfps/clusterless.py` plus builder, arms (`clu`, `clu_s`, `clu_k10`, `clu_k30`), 9 tests and `testbed/diag/clu_check.py`; equation, escalation, invariant, decision-time and estimate checks passed on short development runs ([[clusterless-baseline]]). No comparison run started; Stage 1 (84 runs) waits for the user.
+
+## [2026-11-16] run | user | CLU Stage 1 started
+- User go-ahead 16 Nov. 84 simulator runs, seeds 1-3, in `~/testbed-results/sim-clu/` (live cell with kappa 1.0/1.5/3.0 and CLU-S; load 0.5 uncapped, 0.7, 0.9 for CLU at kappa 1.5); four systemd user units `sim-clu-live`, `sim-clu-unc`, `sim-clu-r07`, `sim-clu-r09` (11 workers). Registered in [[clusterless-baseline]]; no reading applied yet.
+
+## [2026-11-16] run | user | CLU Stage 1 spread over the hub and the three laptops
+- User: divide the runs across machines. The four hub units were stopped (5 cells finished, in-progress cells restarted); one dispatcher unit `sim-clu-dispatch` now feeds 79 cells, heaviest first, to 10 hub slots and 11 laptop slots (edge-2: 3, edge-3: 3, edge-4: 5); results copied back to `~/testbed-results/sim-clu/`, log `dispatch.log`. The five CLU files were copied to the laptops and every other dfps/testbed file there equals the hub's (md5). Same code, same results on any machine (simulator is deterministic).
+
+## [2026-11-17] run | user | CLU Stage 1 finished and analysed
+- 84 of 84 cells done (0 failures, no cell stopped). Readings R1-R4 computed by `output/data-analysis/clu_readings.py` and written into [[clusterless-baseline]]: CLU lower than Heu in 29 of 48 cells, than B* in 35 of 48, than RL in 25 of 48, than F6 in 6 of 48; CLU / F6 P99 = 1.10 [0.84, 1.40] on the live cell and 2.3-2.6 at loads 0.5 uncapped, 0.7, 0.9; re-planning beats arrival-only planning (0.61 [0.51, 0.73]); kappa stays 1.5 (1.0 and 3.0 reported, not selected). Development seeds only; figures not changed; Stage 2 not started.
+
+## [2026-11-17] knowledge | user | CLU added to the sensitivity figures
+- `make_sim_figures.py`: CLU as a fifth series in sim1 (load), sim5 (costs) and the sim6 overview (node-count and cold-start rows 'not run'); sim2, sim3, sim4 unchanged. Cover page of the professor PDF updated (15 pages). Not committed.

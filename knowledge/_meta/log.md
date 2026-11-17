@@ -1048,3 +1048,18 @@ author: llm
 
 ## [2026-11-17] knowledge | user | CLU added to the sensitivity figures
 - `make_sim_figures.py`: CLU as a fifth series in sim1 (load), sim5 (costs) and the sim6 overview (node-count and cold-start rows 'not run'); sim2, sim3, sim4 unchanged. Cover page of the professor PDF updated (15 pages). Not committed.
+
+## [2026-11-17] plan | user | CLU Stage 2 registered
+- 69 simulator runs of CLU (kappa 1.5, seeds 1-3) in the node-count (20, 40 nodes: 24 runs), cold-start-duration (2, 5, 10 s: 36 runs) and 1000Genome (loads 0.5, 0.7, 0.9: 9 runs) studies, same settings as the stored cells of F6, Heu, B*, RL; readings R5-R7; code frozen at commit 9f97288; 2 h stop rule per cell. Held-out seeds 7-10 and seeds 4-6 not used (own registration later). Registered in [[clusterless-baseline]] before any run; not started.
+
+## [2026-11-17] run | user | CLU Stage 2 started
+- User go-ahead 17 Nov. 69 simulator runs (node count 24, cold-start duration 36, 1000Genome 9; seeds 1-3, kappa 1.5) in `~/testbed-results/sim-clu-s2/`, dispatcher unit `sim-clu2-dispatch` over the hub and edge-2/3/4 (21 slots); code md5-identical on all machines; registered in [[clusterless-baseline]]; no reading applied yet.
+
+## [2026-11-17] run | user | CLU Stage 2 stopped
+- User stopped Stage 2 at 01:25 with 61 of 69 cells finished and 8 still running (40-node and heavy 20-node ML and MapReduce); dispatcher and processes killed on all four machines; no failures; no reading applied; see [[clusterless-baseline]].
+
+## [2026-11-17] run | user | CLU Stage 2: remaining 8 cells restarted
+- The 8 cells stopped at 01:25 (40-node ML and MapReduce, 20-node MapReduce seeds 2-3) restarted at 01:31, one process per cell, spread over the hub (4), edge-4 (2), edge-2 (1), edge-3 (1); unit `sim-clu2b-dispatch`; see [[clusterless-baseline]].
+
+## [2026-11-17] run | user | CLU Stage 2 finished and analysed (R5-R7)
+- 69 of 69 cells done 02:13 (0 failures, no cell stopped; the 8 restarted cells took 28-42 min). Readings R5-R7 by `output/data-analysis/clu_readings_s2.py`, written into [[clusterless-baseline]] ("Stage 2 results"). P99 ratio CLU / F6: node count 2.36 / 2.45 / 2.67 at 10 / 20 / 40 nodes, cold start 3.40 / 8.32 / 20.31 at 2 / 5 / 10 s, 1000Genome 1.36 [1.10, 1.67]; F6 lowest in 29 of 36 node-count cells and 32 of 36 cold-start cells; CLU lowest in 3 (node count, 1 per size) and 4 (cold start: 3 ML cells at 2 s, 1 at 5 s); 1000Genome B* 6, F6 3, CLU 0. Against B* CLU is lower at 20 and 40 nodes (0.59, 0.43), against Heu and RL intervals contain 1 except 1000Genome vs Heu (0.60). CLU's plan time does not grow with the node count (median 0.8-1.0 ms). CLU does not choose cold scaling less often when it costs more; MapReduce misses every deadline at 5 and 10 s (P99 578 and 1,634 s).

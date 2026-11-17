@@ -27,7 +27,7 @@ PAGES = [LIVE / n for n in ("fig1_makespan_load0.5", "fig2_load_0.5_vs_0.7", "fi
 
 BLOCKS = [
     ("What this is", [
-        "Evaluation of our controller against three baselines: Heu (online heuristic), B* (search-based planner) and RL (learned policy); in the load and cost figures of the simulator studies a fourth baseline, CLU, is added (17 Nov 2026). F5 is the controller of the live runs; F6 (adopted 16 Nov 2026) is F5 with its first re-layout at 10 s instead of at the end of the warm-up, which removes a start-up backlog in the first two minutes of the measured window.",
+        "Evaluation of our controller against three baselines: Heu (online heuristic), B* (search-based planner) and RL (learned policy); in the simulator studies a fourth baseline, CLU, is added (17 Nov 2026). F5 is the controller of the live runs; F6 (adopted 16 Nov 2026) is F5 with its first re-layout at 10 s instead of at the end of the warm-up, which removes a start-up backlog in the first two minutes of the measured window.",
         "Workflows: ML, MapReduce, Video and ExCamera (live testbed and simulator); Trip Booking and 1000Genome (simulator only). Arrivals follow the Azure 2019 trace.",
         "Ten logical nodes (20 and 40 in one simulator study), container sizes by memory (CAP-W2). Seeds 1-3 only: the development seeds; the held-out seeds 7-10 have not been run.",
         "Makespan = time from a request's arrival to the end of its last task. P99 is taken over the requests that arrive in the measured window.",
@@ -41,7 +41,7 @@ BLOCKS = [
     ]),
     ("Part B - sensitivity studies in the simulator: F6, Heu, B*, RL and CLU (all runs finished)", [
         "Pages 10-15. An overview heat map of the mean P99 of every study, then one figure per study: load 0.5 / 0.7 / 0.9; 10 / 20 / 40 nodes; "
-        "cold-start duration measured (0.2-0.3 s) / 2 / 5 / 10 s; 1000Genome (a fifth workflow, tiny runs of 54-88 requests); data moved against load. F5 is not drawn in these figures; it is the controller of the live runs in Part A. Trip Booking, the sixth workflow, was not run for F6, B* and RL. CLU is an independent single-cluster reduction of ClusterLess (arXiv 2605.04310), a deadline-aware workflow scheduler (deadline = 1.5 x the longest path of nominal times, re-planned at every ready function); it uses the container model of Heu and RL and received no tuning. It was run for the load conditions only (live-cell twin, load 0.5 without cap, 0.7, 0.9; 4 apps x seeds 1-3); the node-count, cold-start and 1000Genome studies show no CLU, and the overview marks those rows 'not run'.",
+        "cold-start duration measured (0.2-0.3 s) / 2 / 5 / 10 s; 1000Genome (a fifth workflow, tiny runs of 54-88 requests); data moved against load. F5 is not drawn in these figures; it is the controller of the live runs in Part A. Trip Booking, the sixth workflow, was not run for F6, B* and RL. CLU is an independent single-cluster reduction of ClusterLess (arXiv 2605.04310), a deadline-aware workflow scheduler (deadline = 1.5 x the longest path of nominal times, re-planned at every ready function); it uses the container model of Heu and RL and received no tuning. It was run in every condition shown (live-cell twin, load 0.5 without cap, 0.7, 0.9, 20 and 40 nodes, cold start 2, 5, 10 s: 4 apps x seeds 1-3; 1000Genome: 3 loads x seeds 1-3), with the same settings as the other systems' cells.",
     ]),
     ("Read with care", [
         "Three seeds per cell: the dots in the figures are the individual seeds, there are no confidence intervals.",

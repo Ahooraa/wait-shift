@@ -1,4 +1,4 @@
-"""Figures for the simulator sensitivity studies (twin simulator, CAP-W2 weights, Azure arrivals, F6 / Heu / B* / RL, plus CLU in the load figures, development seeds 1-3).
+"""Figures for the simulator sensitivity studies (twin simulator, CAP-W2 weights, Azure arrivals, F6 / Heu / B* / RL / CLU, development seeds 1-3).
 
 Reads the simulator result folders and the simulator twins stored in the live result files (never writes into them); writes PNG + PDF + one CSV table
 into output/data-analysis/sim-figures/.
@@ -67,6 +67,10 @@ for st, d in {"base": "live", "unc0.5": "rho0.5-uncapped", "rho0.7": "rho0.7", "
     for f in sorted(glob.glob(str(RES / "sim-clu" / d / "*.clu.json"))):
         x = json.load(open(f))
         CELL[(st, x["app"], x["seed"], "clu")] = cell(x, x.get("resources"))
+for st in ("ne20", "ne40", "cold2", "cold5", "cold10", "x0.5", "x0.7", "x0.9"):                  # CLU Stage 2 (17 Nov 2026): node count, cold-start duration, 1000Genome
+    for f in sorted(glob.glob(str(RES / "sim-clu-s2" / st / "*.clu.json"))):
+        x = json.load(open(f))
+        CELL[(st, x["app"], x["seed"], "clu")] = cell(x, x.get("resources"))
 EVENT_STUDY = {"G1": "base", "G2": "unc0.5", "G3": "rho0.7", "G4": "rho0.9"}
 for g, st in EVENT_STUDY.items():                                           # F6 = frozen5_e0 of the event-driven grid (same configuration, same event hash)
     for f in sorted(glob.glob(str(RES / "sim-event" / g / "*.frozen5_e0.json"))):
@@ -90,9 +94,13 @@ for arm, *_ in SYS:
         for s_ in SEEDS:
             for st in ("x0.5", "x0.7", "x0.9"):
                 assert (st, app, s_, arm) in CELL, (st, app, s_, arm)
-for app, _ in APPS:                                                        # CLU has the load conditions only (no node-count, cold-start or 1000Genome runs: Stage 2 is not registered)
+for app, _ in APPS:                                                        # CLU: Stage 1 (load conditions) and Stage 2 (node count, cold-start duration, 1000Genome), all cells
     for s in SEEDS:
-        for st in ("base", "rho0.7", "rho0.9") + (("unc0.5",) if app in ("690.ml", "660.map-reduce") else ()):
+        for st in ("base", "rho0.7", "rho0.9", "ne20", "ne40", "cold2", "cold5", "cold10") + (("unc0.5",) if app in ("690.ml", "660.map-reduce") else ()):
+            assert (st, app, s, "clu") in CELL, (st, app, s, "clu")
+for app, _ in EXTRA:
+    for s in SEEDS:
+        for st in ("x0.5", "x0.7", "x0.9"):
             assert (st, app, s, "clu") in CELL, (st, app, s, "clu")
 assert not [k for k, v in CELL.items() if v["unf"] > 0], "a cell has unfinished requests: the makespans would need a censoring note"
 
@@ -187,7 +195,7 @@ def sweep(name, title, xs, xticklabels, xlab, study_of, rows, apps, systems, not
 
 
 CLU_NOTE = ("CLU = an independent single-cluster reduction of ClusterLess (arXiv 2605.04310): deadline-aware placement with kappa 1.5 (deadline = 1.5 x the longest path), re-planned at every ready function; Heu's and RL's container model; no tuning. "
-            "Run for the load conditions only (not for node count or cold-start duration).")
+            "Run in every condition of this study (development seeds 1-3).")
 AVGP99 = [("avg", "Average makespan (s)", 1e-9), ("p99", "P99 makespan (s)", 1e-9)]
 SEED_NOTE = "Lines: mean of seeds 1-3; faint dots: the individual seeds (development seeds; the held-out seeds 7-10 are not used). Log y-axes. Simulator twin, CAP-W2 weights, Azure arrivals."
 F6_NOTE = ("F6 = the controller F5 with its first re-layout at 10 s instead of at the end of the warm-up (adopted 16 Nov 2026 on these development seeds; not yet confirmed on fresh seeds). "
@@ -202,23 +210,23 @@ def fig_load():
 
 
 def fig_nodes():
-    note = (SEED_NOTE + "\n" + F6_NOTE + "\nNominal load 0.5 per node (the arrivals grow with the node count), no peak cap. The 10-node point is the same load-0.5 cell as in the load figure.")
+    note = (SEED_NOTE + "\n" + F6_NOTE + "\nNominal load 0.5 per node (the arrivals grow with the node count), no peak cap. The 10-node point is the same load-0.5 cell as in the load figure.\n" + CLU_NOTE)
     sweep("sim2_node_count", "Sensitivity to cluster size: average and P99 makespan with 10, 20 and 40 nodes (simulator)", [0, 1, 2], ["10", "20", "40"], "logical nodes",
-          lambda app, x: (ref(app), "ne20", "ne40")[x], AVGP99, APPS, SYS, note, 0.07, (-0.4, 2.4))
+          lambda app, x: (ref(app), "ne20", "ne40")[x], AVGP99, APPS, SYS5, note, 0.07, (-0.4, 2.4))
 
 
 def fig_cold():
     note = (SEED_NOTE + "\n" + F6_NOTE + "\nThe live cell (nominal load 0.5, peak cap 300 tasks/s: effective load ML 0.31, MapReduce 0.25, Video and ExCamera 0.5) with one cold-start duration for every function.\n"
-            "'measured' keeps the SeBS-Flow medians (0.22-0.34 s). F6 and B* start from an initial layout that is not counted as cold starts.")
+            "'measured' keeps the SeBS-Flow medians (0.22-0.34 s). F6 and B* start from an initial layout that is not counted as cold starts.\n" + CLU_NOTE)
     sweep("sim3_cold_start_duration", "Sensitivity to the cold-start duration: average and P99 makespan (simulator)", [0, 1, 2, 3], ["measured\n(0.2-0.3 s)", "2 s", "5 s", "10 s"], "cold-start duration of every function",
-          lambda app, x: ("base", "cold2", "cold5", "cold10")[x], AVGP99, APPS, SYS, note, 0.07, (-0.4, 3.4))
+          lambda app, x: ("base", "cold2", "cold5", "cold10")[x], AVGP99, APPS, SYS5, note, 0.07, (-0.4, 3.4))
 
 
 def fig_extra():
     note = (SEED_NOTE + "\n" + F6_NOTE.split(" Its load cells")[0] + "\n1000Genome was run in the simulator only (no live cell), with the ML cell's window, 10 nodes and no peak cap. Each run holds only 54, 80 and 88 requests (loads 0.5, 0.7, 0.9), "
-            "so its P99 is set by one or two requests: differences of 10-20% are within the spread of the seeds. Trip Booking (350,000-630,000 requests per run) was not run for F6, B* and RL.")
+            "so its P99 is set by one or two requests: differences of 10-20% are within the spread of the seeds. Trip Booking (350,000-630,000 requests per run) was not run for F6, B* and RL.\n" + CLU_NOTE)
     sweep("sim4_1000genome", "1000Genome (simulator): average and P99 makespan against nominal load", [0.5, 0.7, 0.9], ["0.5", "0.7", "0.9"], "nominal load",
-          lambda app, x: f"x{x}", AVGP99, EXTRA, SYS, note, 0.012, (0.455, 0.945))
+          lambda app, x: f"x{x}", AVGP99, EXTRA, SYS5, note, 0.012, (0.455, 0.945))
 
 
 def fig_costs():
@@ -245,7 +253,7 @@ def fig_overview():
         for r, (cs, _) in enumerate(CONDS):
             st = ref(app) if cs == "unc" else cs
             for c, (arm, *_) in enumerate(SYS5):
-                if (st, app, 1, arm) in CELL:                                  # CLU has no node-count or cold-start cells
+                if (st, app, 1, arm) in CELL:                                  # every condition has a CLU cell
                     P[r, c] = np.mean([x["p99"] for x in get(st, app, arm)])
         best = np.nanmin(P, axis=1, keepdims=True)
         V = np.clip(np.log(P / best) / np.log(CAP_RATIO), 0, 1)
@@ -285,7 +293,7 @@ def fig_overview():
     fig.text(0.5, 0.0, "Bold: lowest P99 in the row. Shade: P99 relative to the row's best (white-blue 1x, dark blue 30x or more). Development seeds 1-3; simulator twin, CAP-W2 weights, Azure arrivals.\n"
              "For Video and ExCamera the peak cap never binds, so the live-cell twin and the 'Load 0.5, no cap' row are the same cell. MapReduce, load 0.5: the P99 of F5 was a start-up transient of the first ~120 s; F6 removes it.\n"
              "F6 = the controller F5 with its first re-layout at 10 s instead of at the end of the warm-up (adopted 16 Nov on these development seeds; not yet confirmed on fresh seeds).\n"
-             "CLU = independent ClusterLess-style baseline (kappa 1.5, re-planned at every ready function), run for the load rows only; 'not run' marks the node-count and cold-start rows.",
+             "CLU = independent ClusterLess-style baseline (kappa 1.5, re-planned at every ready function), run in every row (Stage 1: load rows; Stage 2: node count and cold start; development seeds 1-3).",
              ha="center", va="bottom", fontsize=8, color=INK2)
     fig.subplots_adjust(left=0.115, right=0.99, top=0.83, bottom=0.29, wspace=0.06)
     save(fig, "sim6_overview_p99")

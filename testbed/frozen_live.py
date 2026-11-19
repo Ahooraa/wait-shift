@@ -27,6 +27,7 @@ for _p in (str(ROOT), str(ROOT / "output" / "data-analysis")):
 from dfps import dispatchers as D                       # noqa: E402
 from dfps.dispatch_priority import QueuePriority        # noqa: E402
 from dfps.o3s import O3SimAdjuster                      # noqa: E402
+from dfps.root_routing import queue_aware_roots         # noqa: E402
 from dfps.sim import Sim                                # noqa: E402
 from dfps.variants import make_adjuster, sim_kwargs     # noqa: E402
 import frozen2                                          # noqa: E402
@@ -43,6 +44,7 @@ ARMS = {"frozen4": frozen2.FROZEN4,                     # the paper's controller
         "frozen5_ev": dict(frozen2.FROZEN4, first_relayout=10.0, event_relayout=True, relayout_gap=15.0, shrink_hold_s=60.0),   # F5 + event-driven re-layout (amendment 1)
         "frozen4_p8": frozen2.FROZEN4_P8,               # PL-5p: 8 fill passes, the scale option
         "frozen3": frozen2.FROZEN3}                     # the controller of the results before 9 Nov 2026
+ARMS["frozen7"] = ARMS["frozen6"].copy()
 MOVE_PERIOD_S = 4.0
 EPOCH_S = 60.0
 LAM = 0.5
@@ -61,12 +63,12 @@ def build(sc, X0, seed, *, arm="frozen4", warmup, duration, sim_cls=Sim, move_pe
     A = assumptions()
     kw = sim_kwargs("B_STAR", A)
     kw.update(warmup=warmup, duration=duration, retry_min_interval=1.0, retry_max_attempts=10)
-    kw["dispatcher"] = D.DISPATCHERS[frozen2.FROZEN3_DISPATCHER]
+    kw["dispatcher"] = queue_aware_roots if arm == "frozen7" else D.DISPATCHERS[frozen2.FROZEN3_DISPATCHER]
     kw["queue_priority"] = QueuePriority("full", aging=2.0)
     adj = O3SimAdjuster(make_adjuster("B_STAR", A, seed=seed + 300), move_period, epoch=epoch, horizon=30.0, K=8, seed=seed + 800, warmup=warmup,
                         blind=True, cand_mode="nosim", churn=dict(ARMS[arm], lam=LAM))
     kw["interval"] = adj.next_interval
-    if arm.startswith(("frozen5", "frozen6")):         # late binding: frozen5, its variants, and frozen6
+    if arm.startswith(("frozen5", "frozen6", "frozen7")):
         kw["late_bind"] = True
     kw.update(extra)
     return sim_cls(sc, np.array(X0).copy(), adjuster=adj, seed=seed + 400, **kw), adj
